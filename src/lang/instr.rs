@@ -1,4 +1,6 @@
 use crate::lang::val::Value;
+use std::rc::Rc;
+use crate::lang::bb::BasicBlock;
 
 pub enum Instr {
     /// Move (copy) data from one virtual register to another
@@ -7,16 +9,31 @@ pub enum Instr {
     Un{op: UnOp, opd: Value, res: Value},
     /// Binary operations
     Bin{op: BinOp, left: Value, right: Value, res: Value},
-    /// Jump to label
-    Jmp,
+    /// Jump to another basic block
+    Jmp{tgt: Rc<BasicBlock>},
     /// Conditional branch to labels
-    Br,
+    /// If `cond` evaluates to true, branch to `tr` block, otherwise to `fls` block
+    Br{cond: Value, tr: Rc<BasicBlock>, fls: Rc<BasicBlock>},
     /// Procedure call
-    Call,
-    /// Return computation results
-    Ret{val: Value},
+    Call{func: Value},
+    /// Return computation results, or `None` if return type is `Void`.
+    Ret{val: Option<Value>},
     /// Phi instructions in SSA
-    Phi
+    /// A phi instruction hold a list of block-value pairs. The blocks are all predecessors of
+    /// current block (where this instruction is defined). The values are different versions of
+    /// of a certain variable.
+    Phi{pair: Vec<(Rc<BasicBlock>, Value)>}
+}
+
+impl Instr {
+    /// Decide if this instruction is a control flow instruction
+    /// Currently, only `Br`, `Call` and `Ret`are control flow instructions.
+    pub fn is_ctrl(&self) -> bool {
+        match self {
+            Instr::Br{cond: _, tr: _, fls: _} | Instr::Call{func: _} | Instr::Ret{val: _} => true,
+            _ => false
+        }
+    }
 }
 
 #[derive(Debug)]
@@ -35,22 +52,38 @@ impl ToString for UnOp {
 
 #[derive(Debug)]
 pub enum BinOp {
+    /// Addition
     Add,
+    /// Subtraction
     Sub,
+    /// Multiplication
     Mul,
+    /// Division
     Div,
+    /// Modulo
     Mod,
+    /// Bitwise-AND
     And,
+    /// Bitwise-OR
     Or,
+    /// Bitwise-XOR
     Xor,
-    SHL,
-    SHR,
+    /// Left shift
+    Shl,
+    /// Right shift
+    Shr,
+    /// Equal
     Eq,
+    /// Not equal
     Ne,
+    /// Less than
     Lt,
+    /// Less equal
     Le,
+    /// Greater than
     Gt,
-    Ge
+    /// Greater equal
+    Ge,
 }
 
 impl ToString for BinOp {
