@@ -1,3 +1,5 @@
+@g: i64;
+
 fn @max(%a: i64, %b: i64) -> i64 {
 %Begin:
     %c <- ge i64 %a, %b;
@@ -9,5 +11,6 @@ fn @max(%a: i64, %b: i64) -> i64 {
     %x.1 <- @b;
     jmp %End;
 %End:
-    %x.2 <- phi i32
+    %x.2 <- phi i32 [%Begin: ]
+    ret %x.2;
 }

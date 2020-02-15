@@ -24,7 +24,7 @@ impl Loc {
 }
 
 #[derive(Clone)]
-struct ParseErr {
+pub struct ParseErr {
     /// Where this error starts in the source file
     loc: Loc,
     /// What causes this error

@@ -60,6 +60,8 @@ impl Display for ConstVal {
 }
 
 pub struct Func {
+    /// Name of this function
+    name: String,
     /// Scope of this function
     scope: Rc<Scope>,
     /// Entrance block of this function
@@ -74,9 +76,8 @@ pub struct Func {
 
 impl Typed for Func {
     fn get_type(&self) -> Type {
-        let param_ty = self.param.iter().map(|p| p.get_type()).collect();
         Type::Fn {
-            param: param_ty,
+            param: self.param.iter().map(|p| p.get_type()).collect(),
             ret: Box::new(self.ret.clone())
         }
     }
@@ -88,31 +89,15 @@ pub struct Symbol {
     name: String,
     /// If this symbol is in global scope
     global: bool,
-    /// The real entity of this symbol
-    entity: Entity
+    /// Type of this symbol
+    ty: Type,
+    /// `Some(i)` if it is the `i`th version of the variable in SSA form.
+    /// `None` if the IR is not in SSA form.
+    ver: Option<isize>
 }
 
 impl Typed for Symbol {
-    fn get_type(&self) -> Type {
-        match &self.entity {
-            Entity::Var {ty, ver: _} => ty.clone(),
-            Entity::Fn(func) => func.get_type()
-        }
-    }
-}
-
-#[derive(Clone)]
-pub enum Entity {
-    /// The entity of the symbol is a variable.
-    /// `ver` is `Some(i)` if it is the `i`th version of the variable in SSA form.
-    /// `None` if the IR is not in SSA form.
-    Var{
-        ty: Type,
-        ver: Option<isize>
-    },
-    /// The entity of the symbol is a function.
-    /// Holds pointer to the function
-    Fn(Rc<Func>),
+    fn get_type(&self) -> Type { self.ty.clone() }
 }
 
 pub struct Scope {

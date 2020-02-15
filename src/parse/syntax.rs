@@ -1,15 +1,24 @@
 use crate::parse::Loc;
 
+/// Lexical rules for the language.
 #[derive(Debug)]
 pub enum Token {
-    /// Identifier `[@%][A-Za-z0-9_]+(.[0-9]+)?`
-    Id(String),
-    /// Reserved words `[A-Za-z_][A-Za-z0-9_]*`
+    /// Global identifier `/@[A-Za-z0-9_]+/`
+    GlobalId(String),
+    /// Local identifier `/%[A-Za-z0-9_]+(.[0-9]+)?/`
+    LocalId(String),
+    /// Reserved words `/[A-Za-z_][A-Za-z0-9_]*/`
     Reserved(String),
-    /// Integer `-?[0-9]+`
+    /// Integer `/-?[0-9]+/`
     Integer(String),
     /// Comma, for separating list elements `,`
     Comma,
+    /// Colon, separating label and value in phi instruction `:`
+    Colon,
+    /// Semicolon, ending indication of one instruction `;`
+    Semicolon,
+    /// Question mark, used in `br` instruction `?`
+    Question,
     /// Left parenthesis `(`
     LeftParent,
     /// Right parenthesis  `)`
@@ -26,59 +35,163 @@ pub enum Token {
     LeftArrow,
     /// Right arrow, used in function type `->`
     RightArrow,
-    /// Colon, separating label and value in phi instruction `:`
-    Colon,
-    /// Semicolon, ending indication of one instruction `;`
-    Semicolon,
-    /// Question mark, used in `br` instruction `?`
-    Question,
     /// End-of-file indicator
     Eof
 }
 
-impl Token {
-    pub fn len(&self) -> usize {
+impl ToString for Token {
+    fn to_string(&self) -> String {
         match self {
-            Token::Id(s) | Token::Reserved(s) | Token::Integer(s) => s.len(),
-            Token::LeftArrow | Token::RightArrow => 2,
-            Token::Eof => 0,
-            _ => 1
+            Token::GlobalId(s) | Token::LocalId(s) | Token::Reserved(s)
+                | Token::Integer(s) => s.clone(),
+            Token::Comma => ",".to_string(),
+            Token::Colon => ":".to_string(),
+            Token::Semicolon => ";".to_string(),
+            Token::Question => "?".to_string(),
+            Token::LeftParent => "(".to_string(),
+            Token::RightParent => ")".to_string(),
+            Token::LeftSquare => "[".to_string(),
+            Token::RightSquare => "]".to_string(),
+            Token::LeftCurly => "{".to_string(),
+            Token::RightCurly => "}".to_string(),
+            Token::LeftArrow => "<-".to_string(),
+            Token::RightArrow => "->".to_string(),
+            Token::Eof => "".to_string()
         }
     }
 }
 
+impl Token {
+    pub fn len(&self) -> usize { self.to_string().len() }
+
+    pub fn is_id(&self) -> bool {
+        match self {
+            Token::GlobalId(_) | Token::LocalId(_) => true,
+            _ => false
+        }
+    }
+
+    pub fn is_local_opd(&self) -> bool {
+        match self {
+            Token::LocalId(_) | Token::Integer(_) => true,
+            _ => false
+        }
+    }
+
+    pub fn is_opd(&self) -> bool {
+        match self {
+            Token::GlobalId(_) | Token::LocalId(_) | Token::Integer(_) => true,
+            _ => false
+        }
+    }
+}
+
+/// Syntactical rules for the language.
+/// Technically speaking, this is an LL(2) grammar.
 #[derive(Debug)]
 pub enum Term {
-    /// Program : FnDef* ;
-    Program{func: Vec<Term>},
+    /// Program : ( VarDef | FnDef )* ;
+    /// FIRST = { GlobalId -> VarDef, `fn` -> FnDef, `` }
+    /// FOLLOW = { EOF }
+    Program{def: Vec<Term>},
+
+    /// VarDef : GlobalId `:` TypeDecl `;` ;
+    /// FIRST = { GlobalId }
+    /// FOLLOW = { GlobalId, `fn` }
+    VarDef{loc: Loc, id: Token, ty: Box<Term>},
+
     /// FnDef : `fn` FnSig FnBody ;
+    /// FIRST = { `fn` }
+    /// FOLLOW = { GlobalId, `fn` }
     FnDef{loc: Loc, sig: Box<Term>, body: Box<Term>},
-    /// FnSig : GlobalId `(` ( ParamDef ( `,` ParamDef )* )? `)` ( `->` TypeDecl )? ;
-    FnSig{loc: Loc, id: Box<Term>, param: Vec<Term>, ret: Option<Box<Term>>},
+
+    /// FnSig : GlobalId `(` ParamList `)`  ( `->` TypeDecl )? ;
+    /// FIRST = { GlobalId }
+    /// FOLLOW = { `{` }
+    FnSig{loc: Loc, id: Token, param: Box<Term>, ret: Option<Box<Term>>},
+
+    /// ParamList : ( ParamDef ( `,` ParamDef )* )?  ;
+    /// FIRST = { LocalId, `` }
+    /// FOLLOW = { `)` }
+    ParamList{loc: Loc, },
+
     /// ParamDef : LocalId `:` TypeDecl ;
-    ParamDef{loc: Loc, id: Box<Term>, ret: Box<Term>},
-    /// FnBody : BlockDef* ;
+    /// FIRST = { LocalId }
+    /// FOLLOW = { `)`, `,` }
+    ParamDef{loc: Loc, id: Token, ret: Box<Term>},
+
+    /// FnBody : `{` BlockDef* `}` ;
+    /// FIRST = { `{` }
+    /// FOLLOW = { GlobalId, `fn` }
     FnBody{loc: Loc, bb: Vec<Term>},
+
     /// BlockDef : LocalId `:` InstrDef+ ;
-    BlockDef{loc: Loc, name: String, instr: Vec<Term>},
+    /// FIRST = { LocalId }
+    /// FOLLOW = { LocalId, `}` }
+    BlockDef{loc: Loc, name: Token, instr: Vec<Term>},
+
     /// InstrDef : AssignInstr | CtrlInstr ;
-    /// AssignInstr : LocalId `<-` ExprBody `;` ;
+    /// FIRST = { Id -> AssignInstr, Reserved -> CtrlInstr }
+    /// FOLLOW = { Id, Reserved, `}` }
+
+    /// AssignInstr : Id `<-` ExprBody `;` ;
+    /// FIRST = { Id }
+    /// FOLLOW = { Id, Reserved, `}` }
     AssignInstr{loc: Loc, id: Box<Term>, expr: Box<Term>},
-    /// ExprBody : Reserved TypeDecl ( OpdList | FnCall ) ;
-    ExprBody{loc: Loc, name: String, opd: Box<Term>},
-    /// CtrlInstr : Reserved ( OpdList | FnCall | Branch ) `;` ;
-    CtrlInstr{loc: Loc, name: String, opd: Box<Term>},
+
+    /// ExprBody : ArithExpr | Opd ;
+    /// FIRST = { Reserved, Opd }
+    /// FOLLOW = { `;` }
+
+    /// ArithExpr : Reserved TypeDecl ArithOpd ;
+    /// FIRST = { Reserved }
+    /// FOLLOW = { `;` }
+    ArithExpr{loc: Loc, name: Token, opd: Box<Term>},
+
+    /// ArithOpd :  OpdList | FnCall | PhiList ;
+    /// FIRST = { Opd: { `(` -> FnCall, { `,`, `;` } -> OpdList }, `[` -> PhiList }
+    /// FOLLOW = { `;` }
+
+    /// CtrlInstr : Reserved CtrlTgt `;` ;
+    /// FIRST = { Reserved }
+    /// FOLLOW = { Id, Reserved, `}` }
+    CtrlInstr{loc: Loc, name: Token, tgt: Box<Term>},
+
+    /// CtrlTgt : Opd | FnCall | Branch ;
+    /// FIRST = { Opd: { `;` -> Opd, `(` -> FnCall, `?` -> Branch } }
+    /// FOLLOW = { `;` }
+
     /// FnCall : GlobalId `(` OpdList `)` ;
-    FnCall{loc: Loc, func: Box<Term>, arg: Vec<Term>},
+    /// FIRST = { GlobalId }
+    /// FOLLOW = { `;` }
+    FnCall{loc: Loc, func: Token, arg: Vec<Term>},
+
+    /// PhiList : PhiOpd+ ;
+    /// FIRST = { `[` }
+    /// FOLLOW = { `[`, `;` }
+    PhiList{loc: Loc, opd: Vec<Term>},
+
+    /// PhiOpd : `[` LocalId `:` LocalOpd `]`
+    /// FIRST = { `[` }
+    /// FOLLOW = { `[`, `;` }
+    PhiOpd{loc: Loc, bb: Token, opd: Box<Term>},
+
+    /// Branch : Opd `?` LocalId `:` LocalId ;
+    /// FIRST = { Opd }
+    /// FOLLOW = { `;` }
+    Branch{loc: Loc, cond: Token, tr: Token, fls: Token},
+
     /// OpdList : ( Opd | ( `,` Opd )* )?
-    OpdList{loc: Loc, id: Vec<Term>},
-    /// Opd : GlobalId | LocalId | Integer ;
-    /// GlobalId : `/@[A-Za-z0-9_]+(.[0-9]+)?/` ;
-    GlobalId{loc: Loc, name: String},
-    /// LocalId : `/%[A-Za-z0-9_]+(.[0-9]+)?/` ;
-    LocalId{loc: Loc, name: String},
-    /// Integer : `/-?[0-9]+/` ;
-    Integer{loc: Loc, val: i64},
+    /// FIRST = { Opd, `` }
+    /// FOLLOW = { `;` }
+    OpdList{loc: Loc, list: Vec<Token>},
+
+    /// Opd : Id | Integer ;
+
+    /// Id : GlobalId | LocalId
+
+    /// LocalOpd : LocalId | Integer
+
     /// TypeDecl : Reserved ;
-    TypeDecl{loc: Loc, name: String},
+    TypeDecl{loc: Loc, name: Token},
 }

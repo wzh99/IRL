@@ -2,7 +2,6 @@ use std::fmt::{self, Display, Formatter};
 use std::io::{self, Read};
 use std::iter::FromIterator;
 use std::str::FromStr;
-use std::fs::File;
 use crate::parse::syntax::Token;
 use crate::parse::{Loc, ParseErr};
 
@@ -17,7 +16,7 @@ impl Display for Lexeme {
     }
 }
 
-struct Lexer {
+pub struct Lexer {
     /// Characters from source
     chars: Vec<char>,
     /// Point to current location in the char vector
@@ -42,7 +41,7 @@ impl FromStr for Lexer {
 }
 
 impl Lexer {
-    fn from_read(read: &mut dyn Read) -> Result<Lexer, io::Error> {
+    pub fn from_read(read: &mut dyn Read) -> Result<Lexer, io::Error> {
         let mut s = String::new();
         read.read_to_string(&mut s)?;
         Ok(Self::from_str(&s)?)
@@ -54,9 +53,11 @@ impl Lexer {
 enum NfaState {
     /// Fresh beginning, not knowing which token to get
     Start,
-    /// Expect name part for identifier
-    IdName,
-    /// Expect version part for identifier
+    /// Expect name part for global identifier
+    GlobalIdName,
+    /// Expect name part for local identifier
+    LocalIdName,
+    /// Expect version part for local identifier
     IdVer,
     /// Expect name part for reserved words
     ResName,
@@ -68,7 +69,7 @@ impl Lexer {
     /// Get next lexeme. This function simulates an NFA to perform lexical analysis.
     /// `Ok(l)` if a valid lexeme is found.
     /// `Err(e)` if there is some error occurred during lexing.
-    fn next(&mut self) -> Result<Lexeme, ParseErr> {
+    pub fn next(&mut self) -> Result<Lexeme, ParseErr> {
         // Early exit if there was an error
         if let Some(ref e) = self.err { return Err(e.clone()) }
 
@@ -98,13 +99,21 @@ impl Lexer {
             match state {
                 // A new round of lexing, not holding any data in buffer.
                 NfaState::Start => match c {
-                    '@' | '%' => { // identifier
+                    '@' => {
                         read_char!();
                         if !Self::is_alpha_num_under(self.peek()) {
                             return self.err("expect [A-Za-z0-9_]");
                         }
                         read_char!();
-                        state = NfaState::IdName
+                        state = NfaState::GlobalIdName;
+                    }
+                    '%' => { // local identifier
+                        read_char!();
+                        if !Self::is_alpha_num_under(self.peek()) {
+                            return self.err("expect [A-Za-z0-9_]");
+                        }
+                        read_char!();
+                        state = NfaState::LocalIdName
                     }
                     _ if Self::is_alpha_under(c) => { // reserved word
                         read_char!();
@@ -140,8 +149,11 @@ impl Lexer {
                     ' ' | '\t' | '\r' | '\n' => { skip_char!(); }
                     _ => return self.err("unknown character")
                 }
-                // Expecting more characters for name part in identifier
-                NfaState::IdName => match c {
+                NfaState::GlobalIdName => match c {
+                    _ if Self::is_alpha_num_under(c) => { read_char!(); }
+                    _ => return self.pop_buf(state, buf)
+                }
+                NfaState::LocalIdName => match c {
                     _ if Self::is_alpha_num_under(c) => { read_char!(); }
                     '.' => { // reaching version part of identifier
                         read_char!();
@@ -203,7 +215,8 @@ impl Lexer {
         match state {
             // When the buffer is not empty, it cannot be in the start state.
             NfaState::Start => unreachable!(),
-            NfaState::IdName | NfaState::IdVer => self.lex(Token::Id(s)),
+            NfaState::GlobalIdName => self.lex(Token::GlobalId(s)),
+            NfaState::LocalIdName | NfaState::IdVer => self.lex(Token::LocalId(s)),
             NfaState::ResName => self.lex(Token::Reserved(s)),
             NfaState::Int => self.lex(Token::Integer(s))
         }
@@ -218,6 +231,7 @@ impl Lexer {
 
 #[test]
 fn test_lex() {
+    use std::fs::File;
     let mut file = File::open("test/parse.ir").unwrap();
     let mut lexer = Lexer::from_read(&mut file).unwrap();
     loop {

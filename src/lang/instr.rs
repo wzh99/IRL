@@ -87,7 +87,5 @@ pub enum BinOp {
 }
 
 impl ToString for BinOp {
-    fn to_string(&self) -> String {
-        format!("{:?}", self).to_lowercase()
-    }
+    fn to_string(&self) -> String { format!("{:?}", self).to_lowercase() }
 }
