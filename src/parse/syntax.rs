@@ -152,11 +152,31 @@ pub enum Term {
     /// ArithExpr : Reserved TypeDecl ArithOpd ;
     /// FIRST = { Reserved }
     /// FOLLOW = { `;` }
-    ArithExpr{loc: Loc, name: Token, opd: Box<Term>},
+    ArithExpr{loc: Loc, name: Token, ty: Box<Term>, opd: Box<Term>},
 
     /// ArithOpd :  OpdList | FnCall | PhiList ;
-    /// FIRST = { Opd: { `(` -> FnCall, { `,`, `;` } -> OpdList }, `[` -> PhiList }
+    /// FIRST = { Opd: { { `,`, `;` } -> OpdList, `(` -> FnCall }, `[` -> PhiList }
     /// FOLLOW = { `;` }
+
+    /// OpdList : ( Opd | ( `,` Opd )* )?
+    /// FIRST = { Opd, `` }
+    /// FOLLOW = { `;` -> ArithOpd, `)` -> FnCall }
+    OpdList{loc: Loc, list: Vec<Term>},
+
+    /// FnCall : GlobalId `(` OpdList `)` ;
+    /// FIRST = { GlobalId }
+    /// FOLLOW = { `;` }
+    FnCall{loc: Loc, func: Token, arg: Box<Term>},
+
+    /// PhiList : PhiOpd+ ;
+    /// FIRST = { `[` }
+    /// FOLLOW = { `[`, `;` }
+    PhiList{loc: Loc, list: Vec<Term>},
+
+    /// PhiOpd : `[` LocalId `:` LocalOpd `]`
+    /// FIRST = { `[` }
+    /// FOLLOW = { `[`, `;` }
+    PhiOpd{loc: Loc, bb: Token, opd: Token},
 
     /// CtrlInstr : Reserved CtrlTgt ;
     /// FIRST = { Reserved }
@@ -167,30 +187,10 @@ pub enum Term {
     /// FIRST = { Opd: { `;` -> Opd, `(` -> FnCall, `?` -> Branch } }
     /// FOLLOW = { `;` }
 
-    /// FnCall : GlobalId `(` OpdList `)` ;
-    /// FIRST = { GlobalId }
-    /// FOLLOW = { `;` }
-    FnCall{loc: Loc, func: Token, arg: Vec<Term>},
-
-    /// PhiList : PhiOpd+ ;
-    /// FIRST = { `[` }
-    /// FOLLOW = { `[`, `;` }
-    PhiList{loc: Loc, opd: Vec<Term>},
-
-    /// PhiOpd : `[` LocalId `:` LocalOpd `]`
-    /// FIRST = { `[` }
-    /// FOLLOW = { `[`, `;` }
-    PhiOpd{loc: Loc, bb: Token, opd: Box<Term>},
-
     /// Branch : Opd `?` LocalId `:` LocalId ;
     /// FIRST = { Opd }
     /// FOLLOW = { `;` }
-    Branch{loc: Loc, cond: Token, tr: Token, fls: Token},
-
-    /// OpdList : ( Opd | ( `,` Opd )* )?
-    /// FIRST = { Opd, `` }
-    /// FOLLOW = { `;` }
-    OpdList{loc: Loc, list: Vec<Token>},
+    Branch{loc: Loc, cond: Box<Term>, tr: Token, fls: Token},
 
     /// Opd : Id | Integer ;
     Opd{loc: Loc, opd: Token},

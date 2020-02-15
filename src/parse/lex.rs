@@ -138,7 +138,7 @@ impl Lexer {
                         skip_char!(); // '-'
                         return self.lex(Token::LeftArrow)
                     }
-                    '0'..='9' => { skip_char!(); state = NfaState::Int }
+                    '0'..='9' => { read_char!(); state = NfaState::Int }
                     ',' => { skip_char!(); return self.lex(Token::Comma) }
                     '(' => { skip_char!(); return self.lex(Token::LeftParent) }
                     ')' => { skip_char!(); return self.lex(Token::RightParent) }
