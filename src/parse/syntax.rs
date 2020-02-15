@@ -145,9 +145,14 @@ pub enum Term {
     /// FOLLOW = { `;` }
     AssignInstr{loc: Loc, id: Token, expr: Box<Term>},
 
-    /// ExprBody : ArithExpr | Opd ;
-    /// FIRST = { Reserved -> ArithExpr, Opd }
+    /// ExprBody : ArithExpr | OpdRhs ;
+    /// FIRST = { Reserved -> ArithExpr, Opd -> OpdRhs }
     /// FOLLOW = { `;` }
+
+    /// OpdRhs : Opd ( `:` TypeDecl )? ;
+    /// FIRST = { Opd }
+    /// FOLLOW = { `;` }
+    OpdRhs{loc: Loc, opd: Token, ty: Option<Box<Term>>},
 
     /// ArithExpr : Reserved TypeDecl ArithOpd ;
     /// FIRST = { Reserved }
@@ -160,8 +165,8 @@ pub enum Term {
 
     /// OpdList : ( Opd | ( `,` Opd )* )?
     /// FIRST = { Opd, `` }
-    /// FOLLOW = { `;` -> ArithOpd, `)` -> FnCall }
-    OpdList{loc: Loc, list: Vec<Term>},
+    /// FOLLOW = { `;` -> { ArithOpd, CtrlTgt}, `)` -> FnCall }
+    OpdList{loc: Loc, list: Vec<Token>},
 
     /// FnCall : GlobalId `(` OpdList `)` ;
     /// FIRST = { GlobalId }
@@ -183,17 +188,14 @@ pub enum Term {
     /// FOLLOW = { `;` }
     CtrlInstr{loc: Loc, name: Token, tgt: Box<Term>},
 
-    /// CtrlTgt : Opd | FnCall | Branch ;
-    /// FIRST = { Opd: { `;` -> Opd, `(` -> FnCall, `?` -> Branch } }
+    /// CtrlTgt : OpdList | FnCall | Branch ;
+    /// FIRST = { Opd: { { `;`, `,` } -> OpdList, `(` -> FnCall, `?` -> Branch } }
     /// FOLLOW = { `;` }
 
     /// Branch : Opd `?` LocalId `:` LocalId ;
     /// FIRST = { Opd }
     /// FOLLOW = { `;` }
-    Branch{loc: Loc, cond: Box<Term>, tr: Token, fls: Token},
-
-    /// Opd : Id | Integer ;
-    Opd{loc: Loc, opd: Token},
+    Branch{loc: Loc, cond: Token, tr: Token, fls: Token},
 
     /// Id : GlobalId | LocalId
 

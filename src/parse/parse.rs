@@ -2,7 +2,6 @@ use crate::parse::lex::{Lexer, Lexeme};
 use crate::parse::{ParseErr, Loc};
 use crate::parse::syntax::{Term, Token};
 use std::collections::VecDeque;
-use crate::parse::syntax::Term::AssignInstr;
 
 pub struct Parser {
     lexer: Lexer,
@@ -203,15 +202,30 @@ impl Parser {
         let arr = self.consume()?; // `<-`
         check_op!(self, arr, LeftArrow);
         let expr = self.expr_body()?;
-        Ok(AssignInstr { loc, id, expr: Box::new(expr) })
+        Ok(Term::AssignInstr { loc, id, expr: Box::new(expr) })
     }
 
     fn expr_body(&mut self) -> ParseResult {
         match self.peek(0)? {
             Token::Reserved(_) => self.arith_expr(),
-            opd if opd.is_opd() => self.opd(),
+            opd if opd.is_opd() => self.opd_rhs(),
             tok => return self.err(vec!["Reserved", "Operand"], tok)
         }
+    }
+
+    fn opd_rhs(&mut self) -> ParseResult {
+        let loc = self.loc.clone();
+        let opd = self.consume()?;
+        if !opd.is_opd() { return self.err(vec!["Operand"], opd) }
+        let ty = match self.peek(0)? {
+            Token::Colon => {
+                self.consume()?;
+                Some(Box::new(self.type_decl()?))
+            }
+            Token::Semicolon => None,
+            tok => return self.err(vec![":", ";"], tok)
+        };
+        Ok(Term::OpdRhs { loc, opd, ty })
     }
 
     fn arith_expr(&mut self) -> ParseResult {
@@ -242,10 +256,15 @@ impl Parser {
         let mut list = Vec::new();
         loop {
             match self.peek(0)? {
-                opd if opd.is_opd() => list.push(self.opd()?), // Opd
+                opd if opd.is_opd() => { // Opd
+                    self.consume()?;
+                    list.push(opd)
+                },
                 Token::Comma => { // `,` Opd
                     self.consume()?;
-                    list.push(self.opd()?)
+                    let opd = self.consume()?;
+                    if !opd.is_opd() { return self.err(vec!["Operand"], opd) }
+                    list.push(opd)
                 }
                 Token::Semicolon | Token::RightParent if !list.is_empty() => break,
                 tok => {
@@ -321,7 +340,7 @@ impl Parser {
     fn ctrl_tgt(&mut self) -> ParseResult {
         match self.peek(0)? {
             opd if opd.is_opd() => match self.peek(1)? {
-                Token::Semicolon => self.opd(),
+                Token::Semicolon | Token::Comma => self.opd_list(),
                 Token::LeftParent => self.fn_call(),
                 Token::Question => self.branch(),
                 tok => self.err(vec![";", "(", "?"], tok)
@@ -332,7 +351,8 @@ impl Parser {
 
     fn branch(&mut self) -> ParseResult {
         let loc = self.loc.clone();
-        let cond = self.opd()?; // Opd
+        let cond = self.consume()?; // Opd
+        if !cond.is_opd() { return self.err(vec!["Operand"], cond) }
         let ques = self.consume()?; // `?`
         check_op!(self, ques, Question);
         let tr = self.consume()?; // LocalId
@@ -345,7 +365,7 @@ impl Parser {
         if let Token::LocalId(_) = fls {} else {
             return self.err(vec!["LocalId"], fls)
         }
-        Ok(Term::Branch { loc, cond: Box::new(cond), tr, fls })
+        Ok(Term::Branch { loc, cond, tr, fls })
     }
 
     fn type_decl(&mut self) -> ParseResult {
@@ -357,13 +377,6 @@ impl Parser {
         Ok(Term::TypeDecl { loc, ty })
     }
 
-    fn opd(&mut self) -> ParseResult {
-        let loc = self.loc.clone();
-        let opd = self.consume()?;
-        if !opd.is_opd() { return self.err(vec!["Operand"], opd) }
-        Ok(Term::Opd { loc, opd })
-    }
-
     /// Consume one lexeme from stream
     fn consume(&mut self) -> Result<Token, ParseErr> {
         let lex = match self.buf.pop_front() {
@@ -371,6 +384,7 @@ impl Parser {
             None => self.lexer.next()?
         };
         self.loc = lex.loc.clone();
+        println!("{}", self.loc);
         Ok(lex.tok)
     }
 
@@ -390,7 +404,7 @@ impl Parser {
     fn err(&self, exp: Vec<&str>, fnd: Token) -> ParseResult {
         Err(ParseErr{
             loc: self.loc.clone(),
-            msg: format!("expect {:?}, found {}", exp, fnd.to_string()).replace("\"", "")
+            msg: format!("expect {:?}, found \"{}\"", exp, fnd.to_string())
         })
     }
 }

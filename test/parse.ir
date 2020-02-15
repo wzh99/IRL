@@ -8,7 +8,7 @@ fn @max(%a: i64, %b: i64) -> i64 {
     %x.0 <- @a;
     jmp %End;
 %False:
-    %x.1 <- @b;
+    %x.1 <- @a;
     jmp %End;
 %End:
     %x.2 <- phi i64 [%True: %x.0] [%False: %x.1];
