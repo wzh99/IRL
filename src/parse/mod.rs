@@ -1,8 +1,8 @@
-use std::fmt::{Display, Formatter, Error};
-
 mod parse;
 mod syntax;
 mod lex;
+
+use std::fmt::{Display, Formatter, Error};
 
 #[derive(Debug, Clone)]
 pub struct Loc {
@@ -23,7 +23,7 @@ impl Loc {
     fn new_line(&mut self) { self.line += 1; self.col = 0 }
 }
 
-#[derive(Clone)]
+#[derive(Debug, Clone)]
 pub struct ParseErr {
     /// Where this error starts in the source file
     loc: Loc,

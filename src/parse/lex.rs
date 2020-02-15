@@ -5,9 +5,10 @@ use std::str::FromStr;
 use crate::parse::syntax::Token;
 use crate::parse::{Loc, ParseErr};
 
+#[derive(Clone)]
 pub struct Lexeme {
-    loc: Loc,
-    tok: Token
+    pub loc: Loc,
+    pub tok: Token
 }
 
 impl Display for Lexeme {
@@ -65,11 +66,13 @@ enum NfaState {
     Int
 }
 
+type LexResult = Result<Lexeme, ParseErr>;
+
 impl Lexer {
     /// Get next lexeme. This function simulates an NFA to perform lexical analysis.
     /// `Ok(l)` if a valid lexeme is found.
     /// `Err(e)` if there is some error occurred during lexing.
-    pub fn next(&mut self) -> Result<Lexeme, ParseErr> {
+    pub fn next(&mut self) -> LexResult {
         // Early exit if there was an error
         if let Some(ref e) = self.err { return Err(e.clone()) }
 
@@ -197,20 +200,20 @@ impl Lexer {
     }
 
     /// Create lexeme from given token
-    fn lex(&self, tok: Token) -> Result<Lexeme, ParseErr> {
+    fn lex(&self, tok: Token) -> LexResult {
         let mut loc = self.loc.clone();
         loc.col -= tok.len();
         Ok(Lexeme{ loc, tok })
     }
 
-    fn err(&mut self, msg: &str) -> Result<Lexeme, ParseErr> {
+    fn err(&mut self, msg: &str) -> LexResult{
         let err = ParseErr{ loc: self.loc.clone(), msg: msg.to_string() };
         self.err = Some(err.clone());
         Err(err)
     }
 
     /// Pop all characters in buffer to create a lexeme
-    fn pop_buf(&self, state: NfaState, buf: Vec<char>) -> Result<Lexeme, ParseErr> {
+    fn pop_buf(&self, state: NfaState, buf: Vec<char>) -> LexResult {
         let s = String::from_iter(buf.into_iter());
         match state {
             // When the buffer is not empty, it cannot be in the start state.
