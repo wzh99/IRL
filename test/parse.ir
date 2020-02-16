@@ -1,4 +1,4 @@
-@g: i64;
+@g <- 0: i64;
 
 fn @max(%a: i64, %b: i64) -> i64 {
 %Begin:
@@ -8,7 +8,7 @@ fn @max(%a: i64, %b: i64) -> i64 {
     %x.0 <- @a;
     jmp %End;
 %False:
-    %x.1 <- @a;
+    %x.1 <- @b;
     jmp %End;
 %End:
     %x.2 <- phi i64 [%True: %x.0] [%False: %x.1];
@@ -17,6 +17,6 @@ fn @max(%a: i64, %b: i64) -> i64 {
 
 fn @main() {
 %Begin:
-    %c <- call i64 @max(1, 2);
+    @g <- call i64 @max(1, 2);
     ret;
 }

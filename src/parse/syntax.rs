@@ -95,10 +95,10 @@ pub enum Term {
     /// FOLLOW = { EOF }
     Program{def: Vec<Term>},
 
-    /// VarDef : GlobalId `:` TypeDecl `;` ;
+    /// VarDef : GlobalId ( `<-` Integer )? `:`  TypeDecl `;` ;
     /// FIRST = { GlobalId }
     /// FOLLOW = { GlobalId, `fn` }
-    VarDef{loc: Loc, id: Token, ty: Box<Term>},
+    VarDef{loc: Loc, id: Token, init: Option<Token>, ty: Box<Term>,},
 
     /// FnDef : `fn` FnSig FnBody ;
     /// FIRST = { `fn` }

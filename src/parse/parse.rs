@@ -51,12 +51,24 @@ impl Parser {
         if let Token::GlobalId(_) = id {} else {
             return self.err(vec!["GlobalId"], id)
         }
+        let init = match self.peek(0)? {
+            Token::LeftArrow => { // VarInit
+                self.consume()?; // `<-`
+                let val = self.consume()?; // Integer
+                if let Token::Integer(_) = val {} else {
+                    return self.err(vec!["Integer"], val);
+                }
+                Some(val)
+            }
+            Token::Colon => None,
+            tok => return self.err(vec!["<-", ":"], tok)
+        };
         let col = self.consume()?; // `:`
         check_op!(self, col, Colon);
         let ty = self.type_decl()?; // TypeDecl
         let semi = self.consume()?;  // `;`
         check_op!(self, semi, Semicolon);
-        Ok(Term::VarDef { loc, id, ty: Box::new(ty) })
+        Ok(Term::VarDef { loc, id, init, ty: Box::new(ty) })
     }
 
     fn fn_def(&mut self) -> ParseResult {
@@ -381,7 +393,6 @@ impl Parser {
             None => self.lexer.next()?
         };
         self.loc = lex.loc.clone();
-        println!("{}", self.loc);
         Ok(lex.tok)
     }
 
