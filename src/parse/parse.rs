@@ -266,12 +266,8 @@ impl Parser {
                     if !opd.is_opd() { return self.err(vec!["Operand"], opd) }
                     list.push(opd)
                 }
-                Token::Semicolon | Token::RightParent if !list.is_empty() => break,
-                tok => {
-                    let mut expect = vec!["Operand", ","];
-                    if !list.is_empty() { expect.push(";") }
-                    return self.err(expect, tok)
-                }
+                Token::Semicolon | Token::RightParent => break,
+                tok => return self.err(vec!["Operand", ",", ";"], tok)
             }
         }
         Ok(Term::OpdList { loc, list })
@@ -339,6 +335,7 @@ impl Parser {
 
     fn ctrl_tgt(&mut self) -> ParseResult {
         match self.peek(0)? {
+            Token::Semicolon => self.opd_list(),
             opd if opd.is_opd() => match self.peek(1)? {
                 Token::Semicolon | Token::Comma => self.opd_list(),
                 Token::LeftParent => self.fn_call(),
