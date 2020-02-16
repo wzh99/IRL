@@ -1,6 +1,7 @@
 use crate::lang::val::Value;
-use std::rc::Rc;
-use crate::lang::bb::BasicBlock;
+use std::str::FromStr;
+use crate::lang::ExtRc;
+use crate::lang::bb::{BlockRc};
 
 pub enum Instr {
     /// Move (copy) data from one virtual register to another
@@ -10,10 +11,10 @@ pub enum Instr {
     /// Binary operations
     Bin{op: BinOp, left: Value, right: Value, res: Value},
     /// Jump to another basic block
-    Jmp{tgt: Rc<BasicBlock>},
+    Jmp{tgt: BlockRc},
     /// Conditional branch to labels
     /// If `cond` evaluates to true, branch to `tr` block, otherwise to `fls` block
-    Br{cond: Value, tr: Rc<BasicBlock>, fls: Rc<BasicBlock>},
+    Br{cond: Value, tr: BlockRc, fls: BlockRc},
     /// Procedure call
     Call{func: Value},
     /// Return computation results, or `None` if return type is `Void`.
@@ -22,8 +23,10 @@ pub enum Instr {
     /// A phi instruction hold a list of block-value pairs. The blocks are all predecessors of
     /// current block (where this instruction is defined). The values are different versions of
     /// of a certain variable.
-    Phi{pair: Vec<(Rc<BasicBlock>, Value)>}
+    Phi{pair: Vec<(BlockRc, Value)>}
 }
+
+pub type InstrRc = ExtRc<Instr>;
 
 impl Instr {
     /// Decide if this instruction is a control flow instruction
@@ -42,6 +45,18 @@ pub enum UnOp {
     Neg,
     /// Bitwise-NOT of bits
     Not
+}
+
+impl FromStr for UnOp {
+    type Err = String;
+
+    fn from_str(s: &str) -> Result<Self, Self::Err> {
+        match s {
+            "neg" => Ok(UnOp::Neg),
+            "not" => Ok(UnOp::Not),
+            _ => Err("not unary operation".to_string())
+        }
+    }
 }
 
 impl ToString for UnOp {
@@ -84,6 +99,32 @@ pub enum BinOp {
     Gt,
     /// Greater equal
     Ge,
+}
+
+impl FromStr for BinOp {
+    type Err = String;
+
+    fn from_str(s: &str) -> Result<Self, Self::Err> {
+        match s {
+            "add" => Ok(BinOp::Add),
+            "sub" => Ok(BinOp::Sub),
+            "mul" => Ok(BinOp::Mul),
+            "div" => Ok(BinOp::Div),
+            "mod" => Ok(BinOp::Mod),
+            "and" => Ok(BinOp::And),
+            "or" => Ok(BinOp::Or),
+            "xor" => Ok(BinOp::Xor),
+            "shl" => Ok(BinOp::Shl),
+            "shr" => Ok(BinOp::Shr),
+            "eq" => Ok(BinOp::Eq),
+            "ne" => Ok(BinOp::Ne),
+            "lt" => Ok(BinOp::Lt),
+            "le" => Ok(BinOp::Le),
+            "gt" => Ok(BinOp::Gt),
+            "ge" => Ok(BinOp::Ge),
+            _ => Err("not binary operation".to_string())
+        }
+    }
 }
 
 impl ToString for BinOp {

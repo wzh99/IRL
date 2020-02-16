@@ -1,10 +1,12 @@
-use crate::lang::bb::BlockRef;
 use std::rc::Rc;
 use std::fmt::{Display, Formatter, Error};
 use std::collections::{HashSet, HashMap};
 use std::cell::RefCell;
+use std::str::FromStr;
+use crate::lang::ExtRc;
+use crate::lang::bb::BasicBlock;
 
-#[derive(Clone, PartialEq)]
+#[derive(Clone, PartialEq, Debug)]
 pub enum Type {
     /// Void type, only used in function return type
     Void,
@@ -16,6 +18,20 @@ pub enum Type {
     Fn{param: Vec<Type>, ret: Box<Type>}
 }
 
+impl FromStr for Type {
+    type Err = String;
+
+    /// Currently, this method only recognize primitive type.
+    /// Function type and void will not be accepted, since they will not appear in source code.
+    fn from_str(s: &str) -> Result<Self, Self::Err> {
+        match s {
+            "i1" => Ok(Type::I1),
+            "i64" => Ok(Type::I64),
+            _ => Err("unknown type".to_string())
+        }
+    }
+}
+
 pub trait Typed {
     fn get_type(&self) -> Type;
 }
@@ -24,7 +40,7 @@ pub enum Value {
     /// A variable holding reference to corresponding symbol
     Var(Rc<Symbol>),
     /// A constant with its specific value
-    Const(ConstVal)
+    Const(Const)
 }
 
 impl Typed for Value {
@@ -36,42 +52,44 @@ impl Typed for Value {
     }
 }
 
-pub enum ConstVal {
+#[derive(Clone, Debug)]
+pub enum Const {
     I1(bool),
     I64(i64),
 }
 
-impl Typed for ConstVal {
+impl Typed for Const {
     fn get_type(&self) -> Type {
         match self {
-            ConstVal::I1(_) => Type::I1,
-            ConstVal::I64(_) => Type::I64,
+            Const::I1(_) => Type::I1,
+            Const::I64(_) => Type::I64,
         }
     }
 }
 
-impl Display for ConstVal {
+impl Display for Const {
     fn fmt(&self, f: &mut Formatter<'_>) -> Result<(), Error> {
         match self {
-            ConstVal::I1(v) => if *v { f.write_str("1") } else { f.write_str("0") }
-            ConstVal::I64(v) => write!(f, "{}", v),
+            Const::I1(v) => if *v { f.write_str("1") } else { f.write_str("0") }
+            Const::I64(v) => write!(f, "{}", v),
         }
     }
 }
 
+#[derive(Debug)]
 pub struct Func {
     /// Name of this function
-    name: String,
+    pub name: String,
     /// Scope of this function
-    scope: Rc<Scope>,
-    /// Entrance block of this function
-    ent: BlockRef,
-    /// Set of exit blocks of this function
-    exit: HashSet<BlockRef>,
+    pub scope: Rc<Scope>,
     /// Parameter list
-    param: Vec<Rc<Symbol>>,
+    pub param: Vec<Rc<Symbol>>,
     /// Return type
-    ret: Type,
+    pub ret: Type,
+    /// Entrance block of this function
+    pub ent: RefCell<ExtRc<BasicBlock>>,
+    /// Set of exit blocks of this function
+    pub exit: RefCell<HashSet<ExtRc<BasicBlock>>>,
 }
 
 impl Typed for Func {
@@ -83,26 +101,45 @@ impl Typed for Func {
     }
 }
 
-#[derive(Clone)]
-pub struct Symbol {
-    /// Name of this symbol
-    name: String,
-    /// If this symbol is in global scope
-    global: bool,
-    /// Type of this symbol
-    ty: Type,
-    /// `Some(i)` if it is the `i`th version of the variable in SSA form.
-    /// `None` if the IR is not in SSA form.
-    ver: Option<isize>
+#[derive(Clone, Debug)]
+pub enum Symbol {
+    Local {
+        name: String,
+        ty: Type,
+        ver: Option<usize>,
+    },
+    GlobalVar {
+        name: String,
+        ty: Type,
+        init: Option<Const>
+    },
+    Func(Rc<Func>)
 }
 
 impl Typed for Symbol {
-    fn get_type(&self) -> Type { self.ty.clone() }
+    fn get_type(&self) -> Type {
+        match self {
+            Symbol::Local{ name:_, ty, ver:_ } => ty.clone(),
+            Symbol::GlobalVar { name:_, ty, init:_ } => ty.clone(),
+            Symbol::Func(f) => f.get_type()
+        }
+    }
 }
 
+impl Symbol {
+    fn name(&self) -> &str {
+        match self {
+            Symbol::Local { name, ty:_, ver:_ } => name,
+            Symbol::GlobalVar { name, ty:_, init:_ } => name,
+            Symbol::Func(f) => &f.name
+        }
+    }
+}
+
+#[derive(Debug)]
 pub struct Scope {
     /// Maps names to symbol pointers
-    symbols: RefCell<HashMap<String, Rc<Symbol>>>,
+    sym: RefCell<HashMap<String, Rc<Symbol>>>,
 }
 
 impl Scope {
@@ -111,16 +148,18 @@ impl Scope {
     /// Otherwise, a global scope will be created.
     pub fn new() -> Scope {
         Scope{
-            symbols: RefCell::new(HashMap::new())
+            sym: RefCell::new(HashMap::new())
         }
     }
 
-    /// Add a symbol to a shared reference cell of scope.
-    pub fn add(&self, sym: Symbol) -> Result<(), String> {
-        if self.symbols.borrow().contains_key(&sym.name) {
-            return Err(format!("symbol '{}' is already in scope", &sym.name))
+    /// Add a symbol to the scope.
+    /// `Ok` if the symbol is successfully added to scope.
+    /// `Err` if the symbol with the same name is already in scope.
+    pub fn add(&self, sym: Rc<Symbol>) -> Result<(), String> {
+        if self.sym.borrow().contains_key(sym.name()) {
+            return Err(format!("symbol '{}' is already in scope", sym.name()))
         }
-        self.symbols.borrow_mut().insert(sym.name.clone(), Rc::new(sym));
+        self.sym.borrow_mut().insert(sym.name().to_string(), sym);
         Ok(())
     }
 
@@ -128,9 +167,9 @@ impl Scope {
     /// If the symbol cannot be found in current scope, it will try to look for it in global
     /// scope.
     pub fn find(&self, name: &String) -> Option<Rc<Symbol>> {
-        self.symbols.borrow_mut().get(name).cloned()
+        self.sym.borrow_mut().get(name).cloned()
     }
 
     /// Remove symbol with `name` from scope.
-    pub fn remove(&mut self, name: &String) { self.symbols.borrow_mut().remove(name); }
+    pub fn remove(&mut self, name: &String) { self.sym.borrow_mut().remove(name); }
 }
