@@ -1,6 +1,6 @@
-use crate::parse::lex::{Lexer, Lexeme};
-use crate::parse::{ParseErr, Loc};
-use crate::parse::syntax::{Term, Token};
+use crate::compile::lex::{Lexer, Lexeme};
+use crate::compile::{ParseErr, Loc};
+use crate::compile::syntax::{Term, Token};
 use std::collections::VecDeque;
 
 pub struct Parser {
@@ -420,7 +420,7 @@ impl Parser {
 #[test]
 fn test_parse() {
     use std::fs::File;
-    let mut file = File::open("test/parse.ir").unwrap();
+    let mut file = File::open("test/compile.ir").unwrap();
     let lexer = Lexer::from_read(&mut file).unwrap();
     let mut parser = Parser::new(lexer);
     println!("{:#?}", parser.parse())

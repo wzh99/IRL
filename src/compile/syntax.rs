@@ -1,4 +1,4 @@
-use crate::parse::Loc;
+use crate::compile::Loc;
 
 /// Lexical rules for the language.
 #[derive(Clone, Debug)]

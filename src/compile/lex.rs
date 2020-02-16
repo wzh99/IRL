@@ -2,8 +2,8 @@ use std::fmt::{self, Display, Formatter};
 use std::io::{self, Read};
 use std::iter::FromIterator;
 use std::str::FromStr;
-use crate::parse::syntax::Token;
-use crate::parse::{Loc, ParseErr};
+use crate::compile::syntax::Token;
+use crate::compile::{Loc, ParseErr};
 
 #[derive(Clone)]
 pub struct Lexeme {
@@ -235,7 +235,7 @@ impl Lexer {
 #[test]
 fn test_lex() {
     use std::fs::File;
-    let mut file = File::open("test/parse.ir").unwrap();
+    let mut file = File::open("test/compile.ir").unwrap();
     let mut lexer = Lexer::from_read(&mut file).unwrap();
     loop {
         match lexer.next() {
