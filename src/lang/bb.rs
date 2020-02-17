@@ -1,9 +1,10 @@
-use crate::lang::instr::{Instr, InstrRef};
-use std::collections::{VecDeque, HashSet};
 use std::cell::RefCell;
-use std::fmt::{Debug, Formatter, Error};
-use crate::lang::{ExtRc, MutRc};
+use std::collections::{HashSet, VecDeque};
+use std::fmt::{Debug, Error, Formatter};
 use std::ops::Deref;
+
+use crate::lang::{ExtRc, MutRc};
+use crate::lang::instr::{Instr, InstrRef};
 
 pub struct BasicBlock {
     /// Name of this basic block
@@ -33,11 +34,11 @@ impl Default for BasicBlock {
 
 impl BasicBlock {
     pub fn new(name: String) -> BasicBlock {
-        BasicBlock{
+        BasicBlock {
             name,
             instr: RefCell::new(VecDeque::new()),
             pred: RefCell::new(HashSet::new()),
-            succ: RefCell::new(HashSet::new())
+            succ: RefCell::new(HashSet::new()),
         }
     }
 
@@ -66,7 +67,7 @@ impl BasicBlock {
             let idx = self.instr.borrow().len() - 1;
             self.instr.borrow_mut().insert(idx, MutRc::new(ins))
         } else {
-           self.push_back(ins)
+            self.push_back(ins)
         }
     }
 }

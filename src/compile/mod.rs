@@ -1,9 +1,9 @@
+use std::fmt::{Debug, Display, Error, Formatter};
+
 mod parse;
 mod syntax;
 mod lex;
 mod build;
-
-use std::fmt::{Display, Formatter, Error, Debug};
 
 #[derive(Debug, Clone)]
 pub struct Loc {
@@ -21,7 +21,10 @@ impl Display for Loc {
 
 impl Loc {
     fn shift(&mut self) { self.col += 1 }
-    fn new_line(&mut self) { self.line += 1; self.col = 0 }
+    fn new_line(&mut self) {
+        self.line += 1;
+        self.col = 0
+    }
 }
 
 #[derive(Debug, Clone)]
@@ -29,7 +32,7 @@ pub struct CompileErr {
     /// Where this error starts in the source file
     loc: Loc,
     /// What causes this error
-    msg: String
+    msg: String,
 }
 
 impl Display for CompileErr {

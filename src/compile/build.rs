@@ -1,14 +1,15 @@
-use crate::compile::{CompileErr, Loc};
-use crate::compile::syntax::{Term, Token};
-use crate::lang::{Program, ExtRc, MutRc};
-use crate::lang::val::{Scope, Type, Const, Symbol, Func, SymbolRef, GlobalVar};
+use std::cell::RefCell;
+use std::collections::{HashMap, HashSet};
+use std::ops::Deref;
 use std::rc::Rc;
 use std::str::FromStr;
-use std::ops::Deref;
-use std::cell::RefCell;
+
+use crate::compile::{CompileErr, Loc};
+use crate::compile::syntax::{Term, Token};
+use crate::lang::{ExtRc, MutRc, Program};
 use crate::lang::bb::{BasicBlock, BlockRef};
-use std::collections::{HashSet, HashMap};
 use crate::lang::instr::Instr;
+use crate::lang::val::{Const, Func, GlobalVar, Scope, Symbol, SymbolRef, Type};
 
 pub struct Builder {
     root: Term,
@@ -17,15 +18,15 @@ pub struct Builder {
 type LabelMap = HashMap<String, BlockRef>;
 
 impl Builder {
-    pub fn new(root: Term) -> Builder { Builder{root} }
+    pub fn new(root: Term) -> Builder { Builder { root } }
 
     /// Build program from passed syntax tree. Semantic analysis is also performed.
     pub fn build(self) -> Result<Program, CompileErr> {
         // Build top level scope
-        let mut pro = Program{
+        let mut pro = Program {
             vars: vec![],
             funcs: vec![],
-            global: Scope::new()
+            global: Scope::new(),
         };
         let mut bodies = Vec::new();
         if let Term::Program { def } = &self.root {
@@ -52,7 +53,7 @@ impl Builder {
         // Build basic blocks in each function
         for i in 0..pro.funcs.len() {
             let blocks = match bodies[i] {
-                Term::FnBody { loc: _, bb } => bb ,
+                Term::FnBody { loc: _, bb } => bb,
                 _ => unreachable!()
             };
             self.build_body(blocks, &pro.funcs[i], &pro.global)?;
@@ -62,7 +63,7 @@ impl Builder {
     }
 
     fn build_global_var(&self, id: &Token, ty: &Term, init: &Option<Token>, loc: &Loc)
-        -> Result<GlobalVar, CompileErr> {
+                        -> Result<GlobalVar, CompileErr> {
         let ty = self.build_type(ty)?;
         let init = match init {
             Some(c) => Some(self.parse_const(c, &ty, loc)?),
@@ -73,7 +74,7 @@ impl Builder {
     }
 
     fn build_fn_sig(&self, term: &Term) -> Result<Func, CompileErr> {
-        if let Term::FnSig { loc:_, id, param, ret } = term {
+        if let Term::FnSig { loc: _, id, param, ret } = term {
             // Extract function name
             let name = if let Token::GlobalId(s) = id {
                 s.split_at(1).1 // trim global tag
@@ -82,7 +83,7 @@ impl Builder {
             // Build parameter list, also add parameter to function scope
             let mut plist: Vec<SymbolRef> = Vec::new();
             let scope = Scope::new();
-            if let Term::ParamList { loc:_, list } = param.as_ref() {
+            if let Term::ParamList { loc: _, list } = param.as_ref() {
                 for p in list {
                     if let Term::ParamDef { loc, id: Token::LocalId(s), ty } = p {
                         let sym = MutRc::new(self.parse_local(s, self.build_type(ty)?)?);
@@ -94,27 +95,27 @@ impl Builder {
 
             // Build return type
             let ret = match ret {
-                Some(r) => if let Term::FnRet { loc:_, ty } = r.deref() {
+                Some(r) => if let Term::FnRet { loc: _, ty } = r.deref() {
                     self.build_type(ty)?
                 } else { unreachable!() }
                 None => Type::Void,
             };
 
             // Return incomplete function object
-            Ok(Func{
+            Ok(Func {
                 name: name.to_string(),
                 scope: Rc::new(scope),
                 param: plist,
                 ret,
                 ent: RefCell::new(ExtRc::new(BasicBlock::default())),
-                exit: RefCell::new(HashSet::new())
+                exit: RefCell::new(HashSet::new()),
+                ssa: RefCell::new(false),
             })
-
         } else { unreachable!() }
     }
 
     fn build_body(&self, terms: &Vec<Term>, func: &Rc<Func>, global: &Scope)
-        -> Result<(), CompileErr> {
+                  -> Result<(), CompileErr> {
         // Build block labels
         let mut labels = HashMap::new();
         let mut blocks = vec![];
@@ -140,22 +141,22 @@ impl Builder {
     }
 
     fn build_instr(&self, term: &Term, labels: &LabelMap, global: &Scope)
-        -> Result<Instr, CompileErr> {
+                   -> Result<Instr, CompileErr> {
         match term {
-            Term::AssignInstr { loc:_, id, rhs } => self.build_assign(id, rhs, labels, global),
-            Term::CtrlInstr { loc:_, name: Token::Reserved(s), tgt } =>
+            Term::AssignInstr { loc: _, id, rhs } => self.build_assign(id, rhs, labels, global),
+            Term::CtrlInstr { loc: _, name: Token::Reserved(s), tgt } =>
                 self.build_ctrl(s, tgt, labels, global),
             _ => unreachable!()
         }
     }
 
     fn build_assign(&self, dst: &Token, rhs: &Term, labels: &LabelMap, global: &Scope)
-        -> Result<Instr, CompileErr> {
+                    -> Result<Instr, CompileErr> {
         unimplemented!()
     }
 
     fn build_ctrl(&self, name: &str, tgt: &Term, labels: &LabelMap, global: &Scope)
-        -> Result<Instr, CompileErr> {
+                  -> Result<Instr, CompileErr> {
         unimplemented!()
     }
 
@@ -167,7 +168,7 @@ impl Builder {
                     "1" => Ok(Const::I1(true)),
                     _ => Err(CompileErr {
                         loc: loc.clone(),
-                        msg: format!("cannot create constant {} of type i1", i)
+                        msg: format!("cannot create constant {} of type i1", i),
                     })
                 }
                 Type::I64 => Ok(Const::I64(i64::from_str(i.as_str()).unwrap())),

@@ -7,7 +7,7 @@ use crate::lang::{ExtRc, MutRc};
 use crate::lang::bb::BasicBlock;
 use std::ops::Deref;
 
-#[derive(Clone, PartialEq, Debug)]
+#[derive(Clone, Eq, PartialEq, Debug)]
 pub enum Type {
     /// Void type, only used in function return type
     Void,
@@ -16,7 +16,7 @@ pub enum Type {
     /// 64-bit integer
     I64,
     /// Function (pointer) with `param` as parameter type(s) and `ret` as return type
-    Fn{param: Vec<Type>, ret: Box<Type>}
+    Fn { param: Vec<Type>, ret: Box<Type> },
 }
 
 impl FromStr for Type {
@@ -41,7 +41,7 @@ pub enum Value {
     /// A variable holding reference to corresponding symbol
     Var(Rc<Symbol>),
     /// A constant with its specific value
-    Const(Const)
+    Const(Const),
 }
 
 impl Typed for Value {
@@ -53,7 +53,7 @@ impl Typed for Value {
     }
 }
 
-#[derive(Clone, Debug)]
+#[derive(Eq, PartialEq, Clone, Debug)]
 pub enum Const {
     I1(bool),
     I64(i64),
@@ -92,19 +92,27 @@ pub struct Func {
     /// Set of exit blocks of this function
     pub exit: RefCell<HashSet<ExtRc<BasicBlock>>>,
     /// If this function is in SSA form
-    pub ssa: bool
+    pub ssa: RefCell<bool>,
 }
+
+impl PartialEq for Func {
+    fn eq(&self, other: &Self) -> bool {
+        self.name == other.name && self.get_type() == other.get_type()
+    }
+}
+
+impl Eq for Func {}
 
 impl Typed for Func {
     fn get_type(&self) -> Type {
         Type::Fn {
             param: self.param.iter().map(|p| p.borrow().get_type()).collect(),
-            ret: Box::new(self.ret.clone())
+            ret: Box::new(self.ret.clone()),
         }
     }
 }
 
-#[derive(Clone, Debug)]
+#[derive(Eq, PartialEq, Clone, Debug)]
 pub enum Symbol {
     Local {
         name: String,
@@ -112,26 +120,26 @@ pub enum Symbol {
         ver: Option<usize>,
     },
     Global(Rc<GlobalVar>),
-    Func(Rc<Func>)
+    Func(Rc<Func>),
 }
 
 pub type SymbolRef = MutRc<Symbol>;
 
-#[derive(Clone, Debug)]
+#[derive(Eq, PartialEq, Clone, Debug)]
 pub struct GlobalVar {
     pub name: String,
     pub ty: Type,
-    pub init: Option<Const>
+    pub init: Option<Const>,
 }
 
 impl Typed for GlobalVar {
-    fn get_type(&self) -> Type { return self.ty.clone() }
+    fn get_type(&self) -> Type { return self.ty.clone(); }
 }
 
 impl Typed for Symbol {
     fn get_type(&self) -> Type {
         match self {
-            Symbol::Local { name:_, ty, ver:_ } => ty.clone(),
+            Symbol::Local { name: _, ty, ver: _ } => ty.clone(),
             Symbol::Global(v) => v.ty.clone(),
             Symbol::Func(f) => f.get_type()
         }
@@ -147,7 +155,7 @@ impl Symbol {
     /// For local variable, only its name part is extracted
     pub fn name(&self) -> &str {
         match self {
-            Symbol::Local { name, ty:_, ver:_ } => name,
+            Symbol::Local { name, ty: _, ver: _ } => name,
             Symbol::Global(v) => &v.name,
             Symbol::Func(f) => &f.name
         }
@@ -157,7 +165,7 @@ impl Symbol {
     /// For local variable, its name, possibly connected with its version by `.` is returned.
     /// (`{$name}(.{$ver})?`)
     pub fn id(&self) -> String {
-        if let Symbol::Local { name, ty:_, ver } = self {
+        if let Symbol::Local { name, ty: _, ver } = self {
             match ver {
                 Some(v) => format!("{}.{}", name, v),
                 None => name.to_string()
@@ -178,7 +186,7 @@ impl Scope {
     /// If `parent` is `Some(p)`, a function scope with parent pointer `p` will be created.
     /// Otherwise, a global scope will be created.
     pub fn new() -> Scope {
-        Scope{
+        Scope {
             sym: RefCell::new(HashMap::new())
         }
     }
@@ -188,7 +196,7 @@ impl Scope {
     /// `Err` if the symbol with the same name is already in scope.
     pub fn add(&self, sym: SymbolRef) -> Result<(), String> {
         if self.sym.borrow().contains_key(&sym.borrow().id()) {
-            return Err(format!("symbol '{}' is already in scope", sym.borrow().name()))
+            return Err(format!("symbol '{}' is already in scope", sym.borrow().name()));
         }
         let key = sym.borrow().id();
         self.sym.borrow_mut().insert(key, sym);

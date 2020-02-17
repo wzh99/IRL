@@ -2,13 +2,14 @@ use std::fmt::{self, Display, Formatter};
 use std::io::{self, Read};
 use std::iter::FromIterator;
 use std::str::FromStr;
+
+use crate::compile::{CompileErr, Loc};
 use crate::compile::syntax::Token;
-use crate::compile::{Loc, CompileErr};
 
 #[derive(Clone)]
 pub struct Lexeme {
     pub loc: Loc,
-    pub tok: Token
+    pub tok: Token,
 }
 
 impl Display for Lexeme {
@@ -25,7 +26,7 @@ pub struct Lexer {
     /// Location of current pointer in source file
     loc: Loc,
     /// If there was an error during lexing
-    err: Option<CompileErr>
+    err: Option<CompileErr>,
 }
 
 impl FromStr for Lexer {
@@ -36,7 +37,7 @@ impl FromStr for Lexer {
             chars: s.to_string().chars().collect(),
             ptr: 0,
             loc: Loc { line: 0, col: 0 },
-            err: None
+            err: None,
         })
     }
 }
@@ -65,7 +66,7 @@ enum NfaState {
     /// Expect name part for reserved words
     ResName,
     /// Expect integer
-    Int
+    Int,
 }
 
 type LexResult = Result<Lexeme, CompileErr>;
@@ -76,7 +77,7 @@ impl Lexer {
     /// `Err(e)` if there is some error occurred during lexing.
     pub fn next(&mut self) -> LexResult {
         // Early exit if there was an error
-        if let Some(ref e) = self.err { return Err(e.clone()) }
+        if let Some(ref e) = self.err { return Err(e.clone()); }
 
         // Mutable data during lexing
         let mut buf = Vec::new();
@@ -112,7 +113,8 @@ impl Lexer {
                         read_char!();
                         state = NfaState::GlobalName;
                     }
-                    '$' => { // local identifier
+                    '$' => {
+                        // local identifier
                         read_char!();
                         if !Self::is_alpha_num_under(self.peek()) {
                             return self.err("expect [A-Za-z0-9_]");
@@ -120,7 +122,8 @@ impl Lexer {
                         read_char!();
                         state = NfaState::LocalName
                     }
-                    '%' => { // label
+                    '%' => {
+                        // label
                         read_char!();
                         if !Self::is_alpha_num_under(self.peek()) {
                             return self.err("expect [A-Za-z0-9_]");
@@ -128,57 +131,108 @@ impl Lexer {
                         read_char!();
                         state = NfaState::LabelName
                     }
-                    _ if Self::is_alpha_under(c) => { // reserved word
+                    _ if Self::is_alpha_under(c) => {
+                        // reserved word
                         read_char!();
                         state = NfaState::ResName
                     }
-                    '-' => { // signed integer or right arrow
+                    '-' => {
+                        // signed integer or right arrow
                         read_char!();
                         match self.peek() {
-                            '0'..='9' => { read_char!(); state = NfaState::Int },
-                            '>' => { skip_char!(); return self.lex(Token::RightArrow) }
+                            '0'..='9' => {
+                                read_char!();
+                                state = NfaState::Int
+                            }
+                            '>' => {
+                                skip_char!();
+                                return self.lex(Token::RightArrow);
+                            }
                             _ => return self.err("expect [0-9>]")
                         }
                     }
                     '<' => {
                         skip_char!(); // '<'
                         if self.peek() != '-' {
-                            return self.err("expect -")
+                            return self.err("expect -");
                         }
                         skip_char!(); // '-'
-                        return self.lex(Token::LeftArrow)
+                        return self.lex(Token::LeftArrow);
                     }
-                    '0'..='9' => { read_char!(); state = NfaState::Int }
-                    ',' => { skip_char!(); return self.lex(Token::Comma) }
-                    '(' => { skip_char!(); return self.lex(Token::LeftParent) }
-                    ')' => { skip_char!(); return self.lex(Token::RightParent) }
-                    '[' => { skip_char!(); return self.lex(Token::LeftSquare) }
-                    ']' => { skip_char!(); return self.lex(Token::RightSquare) }
-                    '{' => { skip_char!(); return self.lex(Token::LeftCurly) }
-                    '}' => { skip_char!(); return self.lex(Token::RightCurly) }
-                    ':' => { skip_char!(); return self.lex(Token::Colon) }
-                    ';' => { skip_char!(); return self.lex(Token::Semicolon) }
-                    '?' => { skip_char!(); return self.lex(Token::Question) }
+                    '0'..='9' => {
+                        read_char!();
+                        state = NfaState::Int
+                    }
+                    ',' => {
+                        skip_char!();
+                        return self.lex(Token::Comma);
+                    }
+                    '(' => {
+                        skip_char!();
+                        return self.lex(Token::LeftParent);
+                    }
+                    ')' => {
+                        skip_char!();
+                        return self.lex(Token::RightParent);
+                    }
+                    '[' => {
+                        skip_char!();
+                        return self.lex(Token::LeftSquare);
+                    }
+                    ']' => {
+                        skip_char!();
+                        return self.lex(Token::RightSquare);
+                    }
+                    '{' => {
+                        skip_char!();
+                        return self.lex(Token::LeftCurly);
+                    }
+                    '}' => {
+                        skip_char!();
+                        return self.lex(Token::RightCurly);
+                    }
+                    ':' => {
+                        skip_char!();
+                        return self.lex(Token::Colon);
+                    }
+                    ';' => {
+                        skip_char!();
+                        return self.lex(Token::Semicolon);
+                    }
+                    '?' => {
+                        skip_char!();
+                        return self.lex(Token::Question);
+                    }
                     ' ' | '\t' | '\r' | '\n' => { skip_char!(); }
                     _ => return self.err("unknown character")
                 }
                 NfaState::GlobalName =>
-                    if Self::is_alpha_num_under(c) { read_char!(); }
-                    else { return self.pop_buf(state, buf) }
+                    if Self::is_alpha_num_under(c) {
+                        read_char!();
+                    } else {
+                        return self.pop_buf(state, buf);
+                    }
                 NfaState::LocalName => match c {
                     _ if Self::is_alpha_num_under(c) => { read_char!(); }
-                    '.' => { // reaching version part of identifier
+                    '.' => {
+                        // reaching version part of identifier
                         read_char!();
                         match self.peek() {
-                            '0'..='9' => { read_char!(); state = NfaState::LocalVer }
+                            '0'..='9' => {
+                                read_char!();
+                                state = NfaState::LocalVer
+                            }
                             _ => return self.err("expect [0-9]")
                         }
                     }
                     _ => return self.pop_buf(state, buf),
                 }
                 NfaState::LabelName =>
-                    if Self::is_alpha_num_under(c) { read_char!(); }
-                    else { return self.pop_buf(state, buf) }
+                    if Self::is_alpha_num_under(c) {
+                        read_char!();
+                    } else {
+                        return self.pop_buf(state, buf);
+                    }
                 NfaState::LocalVer => match c {
                     '0'..='9' => { read_char!(); }
                     _ => return self.pop_buf(state, buf),
@@ -215,10 +269,10 @@ impl Lexer {
     fn lex(&self, tok: Token) -> LexResult {
         let mut loc = self.loc.clone();
         loc.col -= tok.len();
-        Ok(Lexeme{ loc, tok })
+        Ok(Lexeme { loc, tok })
     }
 
-    fn err(&mut self, msg: &str) -> LexResult{
+    fn err(&mut self, msg: &str) -> LexResult {
         let err = CompileErr { loc: self.loc.clone(), msg: msg.to_string() };
         self.err = Some(err.clone());
         Err(err)
@@ -252,9 +306,12 @@ fn test_lex() {
     let mut lexer = Lexer::from_read(&mut file).unwrap();
     loop {
         match lexer.next() {
-            Ok(Lexeme{loc: _, tok: Token::Eof}) => break,
+            Ok(Lexeme { loc: _, tok: Token::Eof }) => break,
             Ok(l) => println!("{}", l),
-            Err(e) => { println!("{}", e); break }
+            Err(e) => {
+                println!("{}", e);
+                break;
+            }
         }
     }
 }
