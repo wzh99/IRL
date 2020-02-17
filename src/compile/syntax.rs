@@ -5,8 +5,10 @@ use crate::compile::Loc;
 pub enum Token {
     /// Global identifier `/@[A-Za-z0-9_]+/`
     GlobalId(String),
-    /// Local identifier `/%[A-Za-z0-9_]+(.[0-9]+)?/`
+    /// Local identifier `/$[A-Za-z0-9_]+(.[0-9]+)?/`
     LocalId(String),
+    /// Label `/%[A-Za-z0-9_]+/`
+    Label(String),
     /// Reserved words `/[A-Za-z_][A-Za-z0-9_]*/`
     Reserved(String),
     /// Integer `/-?[0-9]+/`
@@ -42,7 +44,7 @@ pub enum Token {
 impl ToString for Token {
     fn to_string(&self) -> String {
         match self {
-            Token::GlobalId(s) | Token::LocalId(s) | Token::Reserved(s)
+            Token::GlobalId(s) | Token::LocalId(s) | Token::Label(s) | Token::Reserved(s)
                 | Token::Integer(s) => s.clone(),
             Token::Comma => ",".to_string(),
             Token::Colon => ":".to_string(),
@@ -98,7 +100,7 @@ pub enum Term {
     /// VarDef : GlobalId ( `<-` Integer )? `:`  TypeDecl `;` ;
     /// FIRST = { GlobalId }
     /// FOLLOW = { GlobalId, `fn` }
-    VarDef{loc: Loc, id: Token, init: Option<Token>, ty: Box<Term>,},
+    VarDef{loc: Loc, id: Token, init: Option<Token>, ty: Box<Term>},
 
     /// FnDef : `fn` FnSig FnBody ;
     /// FIRST = { `fn` }
@@ -130,22 +132,22 @@ pub enum Term {
     /// FOLLOW = { GlobalId, `fn` }
     FnBody{loc: Loc, bb: Vec<Term>},
 
-    /// BlockDef : LocalId `:` InstrDef+ ;
-    /// FIRST = { LocalId }
-    /// FOLLOW = { LocalId -> BlockDef, `}` -> FnBody }
+    /// BlockDef : Label `:` InstrDef+ ;
+    /// FIRST = { Label }
+    /// FOLLOW = { Label -> BlockDef, `}` -> FnBody }
     BlockDef{loc: Loc, id: Token, instr: Vec<Term>},
 
     /// InstrDef : ( AssignInstr | CtrlInstr ) `;` ;
     /// FIRST = { Id -> AssignInstr, Reserved -> CtrlInstr }
-    /// FOLLOW = { Id: { `<-` -> AssignInstr, `:` -> BlockDef }, Reserved -> CtrlInstr,
+    /// FOLLOW = { Id -> AssignInstr, Label -> BlockDef , Reserved -> CtrlInstr,
     /// `}` -> FnBody }
 
-    /// AssignInstr : Id `<-` ExprBody ;
+    /// AssignInstr : Id `<-` AssignRhs ;
     /// FIRST = { Id }
     /// FOLLOW = { `;` }
-    AssignInstr{loc: Loc, id: Token, expr: Box<Term>},
+    AssignInstr{loc: Loc, id: Token, rhs: Box<Term>},
 
-    /// ExprBody : ArithExpr | OpdRhs ;
+    /// AssignRhs : ArithExpr | OpdRhs ;
     /// FIRST = { Reserved -> ArithExpr, Opd -> OpdRhs }
     /// FOLLOW = { `;` }
 
@@ -178,21 +180,27 @@ pub enum Term {
     /// FOLLOW = { `[`, `;` }
     PhiList{loc: Loc, list: Vec<Term>},
 
-    /// PhiOpd : `[` LocalId `:` LocalOpd `]`
+    /// PhiOpd : `[` ( Label `:` )? LocalOpd `]`
     /// FIRST = { `[` }
     /// FOLLOW = { `[`, `;` }
     PhiOpd{loc: Loc, bb: Token, opd: Token},
 
-    /// CtrlInstr : Reserved CtrlTgt ;
-    /// FIRST = { Reserved }
+    /// CtrlInstr : RetInstr | JmpInstr | `call` FnCall | Branch ;
+    /// FIRST = { `ret` -> RetInstr, `jmp` -> JmpInstr, `br` -> Branch }
     /// FOLLOW = { `;` }
     CtrlInstr{loc: Loc, name: Token, tgt: Box<Term>},
 
-    /// CtrlTgt : OpdList | FnCall | Branch ;
-    /// FIRST = { Opd: { { `;`, `,` } -> OpdList, `(` -> FnCall, `?` -> Branch } }
+    /// RetInstr : `ret` Opd
+    /// FIRST = { `ret` }
     /// FOLLOW = { `;` }
+    RetInstr{loc: Loc, opd: Option<Token>},
 
-    /// Branch : Opd `?` LocalId `:` LocalId ;
+    /// JmpInstr : `jmp` Label
+    /// FIRST = { `jmp` }
+    /// FOLLOW = { `;` }
+    JmpInstr{loc: Loc, tgt: Token},
+
+    /// Branch : `br` Opd `?` Label `:` Label ;
     /// FIRST = { Opd }
     /// FOLLOW = { `;` }
     Branch{loc: Loc, cond: Token, tr: Token, fls: Token},

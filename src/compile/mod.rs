@@ -25,14 +25,14 @@ impl Loc {
 }
 
 #[derive(Debug, Clone)]
-pub struct ParseErr {
+pub struct CompileErr {
     /// Where this error starts in the source file
     loc: Loc,
     /// What causes this error
     msg: String
 }
 
-impl Display for ParseErr {
+impl Display for CompileErr {
     fn fmt(&self, f: &mut Formatter<'_>) -> Result<(), Error> {
         write!(f, "{}\t{}", self.loc, self.msg)
     }

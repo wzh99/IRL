@@ -3,7 +3,7 @@ use std::io::{self, Read};
 use std::iter::FromIterator;
 use std::str::FromStr;
 use crate::compile::syntax::Token;
-use crate::compile::{Loc, ParseErr};
+use crate::compile::{Loc, CompileErr};
 
 #[derive(Clone)]
 pub struct Lexeme {
@@ -25,7 +25,7 @@ pub struct Lexer {
     /// Location of current pointer in source file
     loc: Loc,
     /// If there was an error during lexing
-    err: Option<ParseErr>
+    err: Option<CompileErr>
 }
 
 impl FromStr for Lexer {
@@ -55,18 +55,20 @@ enum NfaState {
     /// Fresh beginning, not knowing which token to get
     Start,
     /// Expect name part for global identifier
-    GlobalIdName,
+    GlobalName,
     /// Expect name part for local identifier
-    LocalIdName,
+    LocalName,
     /// Expect version part for local identifier
-    IdVer,
+    LocalVer,
+    /// Expect name part for label
+    LabelName,
     /// Expect name part for reserved words
     ResName,
     /// Expect integer
     Int
 }
 
-type LexResult = Result<Lexeme, ParseErr>;
+type LexResult = Result<Lexeme, CompileErr>;
 
 impl Lexer {
     /// Get next lexeme. This function simulates an NFA to perform lexical analysis.
@@ -108,15 +110,23 @@ impl Lexer {
                             return self.err("expect [A-Za-z0-9_]");
                         }
                         read_char!();
-                        state = NfaState::GlobalIdName;
+                        state = NfaState::GlobalName;
                     }
-                    '%' => { // local identifier
+                    '$' => { // local identifier
                         read_char!();
                         if !Self::is_alpha_num_under(self.peek()) {
                             return self.err("expect [A-Za-z0-9_]");
                         }
                         read_char!();
-                        state = NfaState::LocalIdName
+                        state = NfaState::LocalName
+                    }
+                    '%' => { // label
+                        read_char!();
+                        if !Self::is_alpha_num_under(self.peek()) {
+                            return self.err("expect [A-Za-z0-9_]");
+                        }
+                        read_char!();
+                        state = NfaState::LabelName
                     }
                     _ if Self::is_alpha_under(c) => { // reserved word
                         read_char!();
@@ -152,22 +162,24 @@ impl Lexer {
                     ' ' | '\t' | '\r' | '\n' => { skip_char!(); }
                     _ => return self.err("unknown character")
                 }
-                NfaState::GlobalIdName => match c {
-                    _ if Self::is_alpha_num_under(c) => { read_char!(); }
-                    _ => return self.pop_buf(state, buf)
-                }
-                NfaState::LocalIdName => match c {
+                NfaState::GlobalName =>
+                    if Self::is_alpha_num_under(c) { read_char!(); }
+                    else { return self.pop_buf(state, buf) }
+                NfaState::LocalName => match c {
                     _ if Self::is_alpha_num_under(c) => { read_char!(); }
                     '.' => { // reaching version part of identifier
                         read_char!();
                         match self.peek() {
-                            '0'..='9' => { read_char!(); state = NfaState::IdVer }
+                            '0'..='9' => { read_char!(); state = NfaState::LocalVer }
                             _ => return self.err("expect [0-9]")
                         }
                     }
                     _ => return self.pop_buf(state, buf),
                 }
-                NfaState::IdVer => match c {
+                NfaState::LabelName =>
+                    if Self::is_alpha_num_under(c) { read_char!(); }
+                    else { return self.pop_buf(state, buf) }
+                NfaState::LocalVer => match c {
                     '0'..='9' => { read_char!(); }
                     _ => return self.pop_buf(state, buf),
                 }
@@ -207,7 +219,7 @@ impl Lexer {
     }
 
     fn err(&mut self, msg: &str) -> LexResult{
-        let err = ParseErr{ loc: self.loc.clone(), msg: msg.to_string() };
+        let err = CompileErr { loc: self.loc.clone(), msg: msg.to_string() };
         self.err = Some(err.clone());
         Err(err)
     }
@@ -218,8 +230,9 @@ impl Lexer {
         match state {
             // When the buffer is not empty, it cannot be in the start state.
             NfaState::Start => unreachable!(),
-            NfaState::GlobalIdName => self.lex(Token::GlobalId(s)),
-            NfaState::LocalIdName | NfaState::IdVer => self.lex(Token::LocalId(s)),
+            NfaState::GlobalName => self.lex(Token::GlobalId(s)),
+            NfaState::LocalName | NfaState::LocalVer => self.lex(Token::LocalId(s)),
+            NfaState::LabelName => self.lex(Token::Label(s)),
             NfaState::ResName => self.lex(Token::Reserved(s)),
             NfaState::Int => self.lex(Token::Integer(s))
         }
@@ -235,7 +248,7 @@ impl Lexer {
 #[test]
 fn test_lex() {
     use std::fs::File;
-    let mut file = File::open("test/compile.ir").unwrap();
+    let mut file = File::open("test/parse.ir").unwrap();
     let mut lexer = Lexer::from_read(&mut file).unwrap();
     loop {
         match lexer.next() {
