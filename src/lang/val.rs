@@ -91,6 +91,8 @@ pub struct Func {
     pub ent: RefCell<ExtRc<BasicBlock>>,
     /// Set of exit blocks of this function
     pub exit: RefCell<HashSet<ExtRc<BasicBlock>>>,
+    /// If this function is in SSA form
+    pub ssa: bool
 }
 
 impl Typed for Func {
