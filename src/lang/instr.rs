@@ -1,42 +1,73 @@
+use std::cell::{Ref, RefCell};
+use std::rc::Rc;
 use std::str::FromStr;
 
-use crate::lang::MutRc;
 use crate::lang::bb::BlockRef;
-use crate::lang::val::Value;
+use crate::lang::ExtRc;
+use crate::lang::val::{Func, SymbolRef, Value};
 
 pub enum Instr {
     /// Move (copy) data from one virtual register to another
-    Mov { src: Value, dst: Value },
+    Mov { src: RefCell<Value>, dst: RefCell<SymbolRef> },
     /// Unary operations
-    Un { op: UnOp, opd: Value, res: Value },
+    Un { op: UnOp, opd: RefCell<Value>, dst: RefCell<SymbolRef> },
     /// Binary operations
-    Bin { op: BinOp, left: Value, right: Value, res: Value },
+    Bin { op: BinOp, left: RefCell<Value>, right: RefCell<Value>, dst: RefCell<SymbolRef> },
     /// Jump to another basic block
-    Jmp { tgt: BlockRef },
+    Jmp { tgt: RefCell<Value> },
     /// Conditional branch to labels
     /// If `cond` evaluates to true, branch to `tr` block, otherwise to `fls` block
-    Br { cond: Value, tr: BlockRef, fls: BlockRef },
+    Br { cond: RefCell<Value>, tr: RefCell<BlockRef>, fls: RefCell<BlockRef> },
     /// Procedure call
-    Call { func: Value },
+    Call { func: Rc<Func>, arg: Vec<RefCell<Value>>, dst: Option<RefCell<SymbolRef>> },
     /// Return computation results, or `None` if return type is `Void`.
-    Ret { val: Option<Value> },
+    Ret { val: Option<RefCell<Value>> },
     /// Phi instructions in SSA
     /// A phi instruction hold a list of block-value pairs. The blocks are all predecessors of
     /// current block (where this instruction is defined). The values are different versions of
     /// of a certain variable.
-    Phi { pair: Vec<(BlockRef, Value)> },
+    Phi { src: Vec<(BlockRef, RefCell<Value>)>, dst: RefCell<SymbolRef> },
 }
 
-/// Reference to `Instr` that support both enhanced reference counting and interior mutability.
-pub type InstrRef = MutRc<Instr>;
+pub type InstrRef = ExtRc<Instr>;
 
 impl Instr {
     /// Decide if this instruction is a control flow instruction
     /// Currently, only `Br`, `Call` and `Ret`are control flow instructions.
     pub fn is_ctrl(&self) -> bool {
         match self {
-            Instr::Br { cond: _, tr: _, fls: _ } | Instr::Call { func: _ } | Instr::Ret { val: _ } => true,
+            Instr::Br { cond: _, tr: _, fls: _ } | Instr::Call { func: _, arg: _, dst: _ } |
+            Instr::Ret { val: _ } => true,
             _ => false
+        }
+    }
+
+    /// Possible return the symbol defined by this instruction.
+    pub fn def(&self) -> Option<&RefCell<SymbolRef>> {
+        match self {
+            Instr::Mov { src: _, dst } => Some(dst),
+            Instr::Un { op: _, opd: _, dst } => Some(dst),
+            Instr::Bin { op: _, left: _, right: _, dst } => Some(dst),
+            Instr::Call { func: _, arg: _, dst } => dst.as_ref(),
+            Instr::Phi { src: _, dst } => Some(dst),
+            _ => None
+        }
+    }
+
+    /// Return list of all the operands used by this instruction.
+    pub fn opd(&self) -> Vec<&RefCell<Value>> {
+        match self {
+            Instr::Mov { src, dst: _ } => vec![src],
+            Instr::Un { op: _, opd, dst: _ } => vec![opd],
+            Instr::Bin { op: _, left, right, dst: _ } => vec![left, right],
+            Instr::Br { cond, tr: _, fls: _ } => vec![cond],
+            Instr::Call { func: _, arg, dst: _ } => arg.iter().map(|a| a).collect(),
+            Instr::Ret { val } => match val {
+                Some(v) => vec![v],
+                None => vec![]
+            }
+            Instr::Phi { src, dst: _ } => src.iter().map(|(b, v)| v).collect(),
+            _ => vec![]
         }
     }
 }

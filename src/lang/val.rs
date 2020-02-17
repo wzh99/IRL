@@ -1,11 +1,12 @@
-use std::rc::Rc;
-use std::fmt::{Display, Formatter, Error, Debug};
-use std::collections::{HashSet, HashMap};
 use std::cell::RefCell;
-use std::str::FromStr;
-use crate::lang::{ExtRc, MutRc};
-use crate::lang::bb::BasicBlock;
+use std::collections::{HashMap, HashSet};
+use std::fmt::{Debug, Display, Error, Formatter};
 use std::ops::Deref;
+use std::rc::Rc;
+use std::str::FromStr;
+
+use crate::lang::ExtRc;
+use crate::lang::bb::BasicBlock;
 
 #[derive(Clone, Eq, PartialEq, Debug)]
 pub enum Type {
@@ -37,9 +38,10 @@ pub trait Typed {
     fn get_type(&self) -> Type;
 }
 
+#[derive(Eq, PartialEq)]
 pub enum Value {
     /// A variable holding reference to corresponding symbol
-    Var(Rc<Symbol>),
+    Var(SymbolRef),
     /// A constant with its specific value
     Const(Const),
 }
@@ -106,7 +108,7 @@ impl Eq for Func {}
 impl Typed for Func {
     fn get_type(&self) -> Type {
         Type::Fn {
-            param: self.param.iter().map(|p| p.borrow().get_type()).collect(),
+            param: self.param.iter().map(|p| p.get_type()).collect(),
             ret: Box::new(self.ret.clone()),
         }
     }
@@ -123,18 +125,7 @@ pub enum Symbol {
     Func(Rc<Func>),
 }
 
-pub type SymbolRef = MutRc<Symbol>;
-
-#[derive(Eq, PartialEq, Clone, Debug)]
-pub struct GlobalVar {
-    pub name: String,
-    pub ty: Type,
-    pub init: Option<Const>,
-}
-
-impl Typed for GlobalVar {
-    fn get_type(&self) -> Type { return self.ty.clone(); }
-}
+pub type SymbolRef = ExtRc<Symbol>;
 
 impl Typed for Symbol {
     fn get_type(&self) -> Type {
@@ -174,6 +165,17 @@ impl Symbol {
     }
 }
 
+#[derive(Eq, PartialEq, Clone, Debug)]
+pub struct GlobalVar {
+    pub name: String,
+    pub ty: Type,
+    pub init: Option<Const>,
+}
+
+impl Typed for GlobalVar {
+    fn get_type(&self) -> Type { return self.ty.clone(); }
+}
+
 #[derive(Debug)]
 pub struct Scope {
     /// Maps variable identifier to symbol
@@ -195,10 +197,10 @@ impl Scope {
     /// `Ok` if the symbol is successfully added to scope.
     /// `Err` if the symbol with the same name is already in scope.
     pub fn add(&self, sym: SymbolRef) -> Result<(), String> {
-        if self.sym.borrow().contains_key(&sym.borrow().id()) {
-            return Err(format!("symbol '{}' is already in scope", sym.borrow().name()));
+        if self.sym.borrow().contains_key(&sym.id()) {
+            return Err(format!("symbol '{}' is already in scope", sym.name()));
         }
-        let key = sym.borrow().id();
+        let key = sym.id();
         self.sym.borrow_mut().insert(key, sym);
         Ok(())
     }

@@ -35,7 +35,7 @@ fn @main() {
 
 It could be seen from the example that the syntax is similar to [LLVM IR](https://www.llvm.org/docs/LangRef.html), but adopts the type annotation style different from LLVM. Also, it tries to reduce type annotation required in the language, as long as it can be inferred from context or expressions.
 
-The type system and instruction set are all quite simple, but they are fairly enough support most of the following work. For type definition, see [`crate::lang::val::Type`](src/lang/val.rs). For instruction set, see [`crate::lang::instr`](src/lang/instr.rs).
+The type system and instruction set are all quite simple, but they are fairly enough support most of the following work. For type definition, see [`lang::val::Type`](src/lang/val.rs). For instruction set, see [`lang::instr`](src/lang/instr.rs).
 
 ## Compilation
 
@@ -43,7 +43,7 @@ The type system and instruction set are all quite simple, but they are fairly en
 
 This project support reading a text source of the language and convert it to memory representation. It covers all the front-end procedures of a normal compiler, including lexical, syntactical and semantic analysis.
 
-The lexer and parser are all written by hand. The lexical and syntactical rules can be seen in [syntax.rs](src/compile/syntax.rs) The grammar is an LL(2) one. The lexer creates a token one at a time. The recursive-descent parser keeps a buffer for the incoming token stream, either peeks to see which rule to use, or consumes token in the buffer to progress. The parsing is rather efficient.
+The lexer and parser are all written by hand. The lexical and syntactical rules can be seen in [`compile::syntax`](src/compile/syntax.rs). The grammar is an LL(2) one. The lexer creates a token one at a time. The recursive-descent parser keeps a buffer for the incoming token stream, either peeks to see which rule to use, or consumes token in the buffer to progress. The parsing is rather efficient.
 
 ### Construction and Validation
 

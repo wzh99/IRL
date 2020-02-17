@@ -3,7 +3,7 @@ use std::collections::{HashSet, VecDeque};
 use std::fmt::{Debug, Error, Formatter};
 use std::ops::Deref;
 
-use crate::lang::{ExtRc, MutRc};
+use crate::lang::ExtRc;
 use crate::lang::instr::{Instr, InstrRef};
 
 pub struct BasicBlock {
@@ -45,19 +45,19 @@ impl BasicBlock {
     /// A basic block is complete iff. it ends with control instructions.
     pub fn is_complete(&self) -> bool {
         match self.instr.borrow().back() {
-            Some(back) => back.deref().borrow().is_ctrl(),
+            Some(back) => back.deref().is_ctrl(),
             None => false
         }
     }
 
     /// Push instruction to the front of the instruction list
     pub fn push_front(&self, ins: Instr) {
-        self.instr.borrow_mut().push_front(MutRc::new(ins))
+        self.instr.borrow_mut().push_front(ExtRc::new(ins))
     }
 
     /// Push instruction to the back of the instruction list
     pub fn push_back(&self, ins: Instr) {
-        self.instr.borrow_mut().push_back(MutRc::new(ins))
+        self.instr.borrow_mut().push_back(ExtRc::new(ins))
     }
 
     /// If the tail of the instruction list is a control flow instruction, push `ins` before
@@ -65,7 +65,7 @@ impl BasicBlock {
     pub fn push_before_ctrl(&self, ins: Instr) {
         if self.is_complete() {
             let idx = self.instr.borrow().len() - 1;
-            self.instr.borrow_mut().insert(idx, MutRc::new(ins))
+            self.instr.borrow_mut().insert(idx, ExtRc::new(ins))
         } else {
             self.push_back(ins)
         }
