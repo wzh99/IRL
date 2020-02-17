@@ -5,8 +5,8 @@ use std::ops::Deref;
 use std::rc::Rc;
 use std::str::FromStr;
 
-use crate::lang::ExtRc;
 use crate::lang::bb::BasicBlock;
+use crate::lang::ExtRc;
 
 #[derive(Clone, Eq, PartialEq, Debug)]
 pub enum Type {
@@ -30,6 +30,25 @@ impl FromStr for Type {
             "i1" => Ok(Type::I1),
             "i64" => Ok(Type::I64),
             _ => Err("unknown type".to_string())
+        }
+    }
+}
+
+impl ToString for Type {
+    fn to_string(&self) -> String {
+        match self {
+            Type::Void => "void".to_string(),
+            Type::I1 => "i1".to_string(),
+            Type::I64 => "i64".to_string(),
+            Type::Fn { param, ret } => {
+                let str_list: Vec<String> = param.iter().map(|p| p.to_string()).collect();
+                let p_str: String = str_list.join(", ");
+                let r_str = match ret.deref() {
+                    Type::Void => "".to_string(),
+                    r => format!(" -> {}", r.to_string()),
+                };
+                format!("fn({}){}", p_str, r_str)
+            }
         }
     }
 }
@@ -197,11 +216,11 @@ impl Scope {
     /// `Ok` if the symbol is successfully added to scope.
     /// `Err` if the symbol with the same name is already in scope.
     pub fn add(&self, sym: SymbolRef) -> Result<(), String> {
-        if self.sym.borrow().contains_key(&sym.id()) {
-            return Err(format!("symbol '{}' is already in scope", sym.name()));
+        let id = sym.id();
+        if self.sym.borrow().contains_key(&id) {
+            return Err(format!("symbol of identifier \"{}\" is already in scope", id));
         }
-        let key = sym.id();
-        self.sym.borrow_mut().insert(key, sym);
+        self.sym.borrow_mut().insert(id, sym);
         Ok(())
     }
 

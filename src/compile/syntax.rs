@@ -147,19 +147,10 @@ pub enum Term {
     /// FOLLOW = { `;` }
     AssignInstr { loc: Loc, id: Token, rhs: Box<Term> },
 
-    /// AssignRhs : ArithExpr | OpdRhs ;
-    /// FIRST = { Reserved -> ArithExpr, Opd -> OpdRhs }
-    /// FOLLOW = { `;` }
-
-    /// OpdRhs : Opd ( `:` TypeDecl )? ;
-    /// FIRST = { Opd }
-    /// FOLLOW = { `;` }
-    OpdRhs { loc: Loc, opd: Token, ty: Option<Box<Term>> },
-
-    /// ArithExpr : Reserved TypeDecl ArithOpd ;
+    /// AssignRhs : Reserved TypeDecl ArithOpd ;
     /// FIRST = { Reserved }
     /// FOLLOW = { `;` }
-    ArithExpr { loc: Loc, name: Token, ty: Box<Term>, opd: Box<Term> },
+    AssignRhs { loc: Loc, name: Token, ty: Box<Term>, opd: Box<Term> },
 
     /// ArithOpd :  OpdList | FnCall | PhiList ;
     /// FIRST = { Opd: { { `,`, `;` } -> OpdList, `(` -> FnCall }, `[` -> PhiList }
@@ -183,7 +174,7 @@ pub enum Term {
     /// PhiOpd : `[` ( Label `:` )? LocalOpd `]`
     /// FIRST = { `[` }
     /// FOLLOW = { `[`, `;` }
-    PhiOpd { loc: Loc, bb: Token, opd: Token },
+    PhiOpd { loc: Loc, bb: Option<Token>, opd: Token },
 
     /// CtrlInstr : RetInstr | JmpInstr | `call` FnCall | Branch ;
     /// FIRST = { `ret` -> RetInstr, `jmp` -> JmpInstr, `br` -> Branch }

@@ -6,16 +6,21 @@ use std::str::FromStr;
 
 use crate::compile::{CompileErr, Loc};
 use crate::compile::syntax::{Term, Token};
-use crate::lang::{ExtRc, MutRc, Program};
+use crate::compile::syntax::Term::PhiOpd;
+use crate::lang::{ExtRc, Program};
 use crate::lang::bb::{BasicBlock, BlockRef};
 use crate::lang::instr::Instr;
-use crate::lang::val::{Const, Func, GlobalVar, Scope, Symbol, SymbolRef, Type};
+use crate::lang::val::{Const, Func, GlobalVar, Scope, Symbol, SymbolRef, Type, Typed, Value};
 
 pub struct Builder {
     root: Term,
 }
 
-type LabelMap = HashMap<String, BlockRef>;
+struct Context {
+    global: Rc<Scope>,
+    func: Rc<Func>,
+    labels: HashMap<String, BlockRef>,
+}
 
 impl Builder {
     pub fn new(root: Term) -> Builder { Builder { root } }
@@ -26,7 +31,7 @@ impl Builder {
         let mut pro = Program {
             vars: vec![],
             funcs: vec![],
-            global: Scope::new(),
+            global: Rc::new(Scope::new()),
         };
         let mut bodies = Vec::new();
         if let Term::Program { def } = &self.root {
@@ -36,7 +41,7 @@ impl Builder {
                     Term::VarDef { loc, id, init, ty } => {
                         let var = Rc::new(self.build_global_var(id, ty, init, loc)?);
                         pro.vars.push(var.clone());
-                        let sym = MutRc::new(Symbol::Global(var));
+                        let sym = ExtRc::new(Symbol::Global(var));
                         pro.global.add(sym).map_err(|e| CompileErr { loc: loc.clone(), msg: e })?;
                     }
                     // Create signature part for function, while its body are left empty for a
@@ -56,20 +61,21 @@ impl Builder {
                 Term::FnBody { loc: _, bb } => bb,
                 _ => unreachable!()
             };
-            self.build_body(blocks, &pro.funcs[i], &pro.global)?;
+            self.build_body(blocks, pro.funcs[i].clone(), pro.global.clone())?;
         }
 
         Ok(pro)
     }
 
     fn build_global_var(&self, id: &Token, ty: &Term, init: &Option<Token>, loc: &Loc)
-                        -> Result<GlobalVar, CompileErr> {
-        let ty = self.build_type(ty)?;
+                        -> Result<GlobalVar, CompileErr>
+    {
+        let ty = self.create_type(ty)?;
         let init = match init {
-            Some(c) => Some(self.parse_const(c, &ty, loc)?),
+            Some(c) => Some(self.create_const(c, &ty, loc)?),
             None => None
         };
-        let name = if let Token::GlobalId(s) = id { s.split_at(1).1 } else { unreachable!() };
+        let name = if let Token::GlobalId(s) = id { self.trim_tag(s) } else { unreachable!() };
         Ok(GlobalVar { name: name.to_string(), ty, init })
     }
 
@@ -77,7 +83,7 @@ impl Builder {
         if let Term::FnSig { loc: _, id, param, ret } = term {
             // Extract function name
             let name = if let Token::GlobalId(s) = id {
-                s.split_at(1).1 // trim global tag
+                self.trim_tag(s) // trim global tag
             } else { unreachable!() };
 
             // Build parameter list, also add parameter to function scope
@@ -86,7 +92,7 @@ impl Builder {
             if let Term::ParamList { loc: _, list } = param.as_ref() {
                 for p in list {
                     if let Term::ParamDef { loc, id: Token::LocalId(s), ty } = p {
-                        let sym = MutRc::new(self.parse_local(s, self.build_type(ty)?)?);
+                        let sym = ExtRc::new(self.create_local(s, self.create_type(ty)?)?);
                         plist.push(sym.clone());
                         scope.add(sym).map_err(|e| CompileErr { loc: loc.clone(), msg: e })?
                     } else { unreachable!() }
@@ -96,7 +102,7 @@ impl Builder {
             // Build return type
             let ret = match ret {
                 Some(r) => if let Term::FnRet { loc: _, ty } = r.deref() {
-                    self.build_type(ty)?
+                    self.create_type(ty)?
                 } else { unreachable!() }
                 None => Type::Void,
             };
@@ -114,14 +120,17 @@ impl Builder {
         } else { unreachable!() }
     }
 
-    fn build_body(&self, terms: &Vec<Term>, func: &Rc<Func>, global: &Scope)
-                  -> Result<(), CompileErr> {
+    fn build_body(&self, terms: &Vec<Term>, func: Rc<Func>, global: Rc<Scope>)
+                  -> Result<(), CompileErr>
+    {
         // Build block labels
-        let mut labels = HashMap::new();
-        let mut blocks = vec![];
+        let mut labels: HashMap<String, BlockRef> = HashMap::new();
+        let mut blocks: Vec<(BlockRef, &Vec<Term>)> = vec![];
         for i in 0..terms.len() {
-            if let Term::BlockDef { loc, id, instr } = &terms[i] {
-                let name = self.parse_label(id, loc)?;
+            if let Term::BlockDef { loc: _, id, instr } = &terms[i] {
+                let name = if let Token::Label(s) = id {
+                    self.trim_tag(s).to_string()
+                } else { unreachable!() };
                 let block = ExtRc::new(BasicBlock::new(name.clone()));
                 labels.insert(name, block.clone());
                 blocks.push((block.clone(), instr));
@@ -130,9 +139,10 @@ impl Builder {
         }
 
         // Build instructions inside each block
+        let ctx = Context { global, func, labels };
         for (b, terms) in blocks {
             for t in terms {
-                let instr = self.build_instr(t, &labels, global)?;
+                let instr = self.build_instr(t, &ctx)?;
                 b.push_back(instr);
             }
         }
@@ -140,27 +150,126 @@ impl Builder {
         Ok(())
     }
 
-    fn build_instr(&self, term: &Term, labels: &LabelMap, global: &Scope)
-                   -> Result<Instr, CompileErr> {
+    fn build_instr(&self, term: &Term, ctx: &Context) -> Result<Instr, CompileErr> {
         match term {
-            Term::AssignInstr { loc: _, id, rhs } => self.build_assign(id, rhs, labels, global),
+            Term::AssignInstr { loc: _, id, rhs } => self.build_assign(id, rhs, ctx),
             Term::CtrlInstr { loc: _, name: Token::Reserved(s), tgt } =>
-                self.build_ctrl(s, tgt, labels, global),
+                self.build_ctrl(s, tgt, ctx),
             _ => unreachable!()
         }
     }
 
-    fn build_assign(&self, dst: &Token, rhs: &Term, labels: &LabelMap, global: &Scope)
-                    -> Result<Instr, CompileErr> {
+    fn build_assign(&self, dst: &Token, rhs: &Term, ctx: &Context) -> Result<Instr, CompileErr> {
+        if let Term::AssignRhs { loc, name: Token::Reserved(op), ty, opd } = rhs {
+            // Create symbols for destination
+            let rhs_loc = loc;
+            let ref ty = self.create_type(ty)?;
+            let dst = self.build_symbol(dst, &ty, ctx, loc)?;
+
+            // Deal with operands
+            match opd.deref() {
+                Term::OpdList { loc, list } => {
+                    let opd = self.build_opd_list(ty, list, ctx)?;
+                    self.build_arith(&ty, dst.clone(), op.as_str(), list, ctx, rhs_loc)
+                }
+                Term::FnCall { loc, func, arg } => {
+                    let fn_sym = self.build_symbol(func, ty, ctx, loc)?;
+                    let arg = if let Term::OpdList { loc: _, list } = arg.deref() {
+                        list
+                    } else { unreachable!() };
+                    if let Symbol::Func(func) = fn_sym.deref() {
+                        self.build_fn_call(func, ty, arg, Some(dst.clone()), ctx, loc)
+                    } else {
+                        Err(CompileErr {
+                            loc: loc.clone(),
+                            msg: format!("symbol {} is not a function", fn_sym.name()),
+                        })
+                    }
+                }
+                Term::PhiList { loc, list } => {
+                    let mut pairs: Vec<(Option<BlockRef>, RefCell<Value>)> = Vec::new();
+                    for t in list {
+                        if let Term::PhiOpd { loc, bb, opd } = t {
+                            let block = match bb {
+                                Some(Token::Label(s)) => ctx.labels.get(s).cloned(),
+                                None => None,
+                                _ => { unreachable!() }
+                            };
+                            let val = self.build_value(opd, ty, ctx)?;
+                            pairs.push((block, RefCell::new(val)));
+                        } else { unreachable!() }
+                    }
+                    Ok(Instr::Phi { src: pairs, dst: RefCell::new(dst) })
+                }
+                _ => unreachable!()
+            }
+        } else { unreachable!() }
+    }
+
+    fn build_arith(&self, ty: &Type, dst: SymbolRef, op: &str, opd: &Vec<Token>, ctx: &Context,
+                   loc: &Loc) -> Result<Instr, CompileErr>
+    {
         unimplemented!()
     }
 
-    fn build_ctrl(&self, name: &str, tgt: &Term, labels: &LabelMap, global: &Scope)
-                  -> Result<Instr, CompileErr> {
+    fn build_fn_call(&self, func: &Rc<Func>, ty: &Type, arg: &Vec<Token>, dst: Option<SymbolRef>,
+                     ctx: &Context, loc: &Loc) -> Result<Instr, CompileErr>
+    {
         unimplemented!()
     }
 
-    fn parse_const(&self, tok: &Token, ty: &Type, loc: &Loc) -> Result<Const, CompileErr> {
+    fn build_opd_list(&self, ty: &Type, opd: &Vec<Token>, ctx: &Context)
+                      -> Result<Vec<SymbolRef>, CompileErr>
+    {
+        unimplemented!()
+    }
+
+    fn build_ctrl(&self, name: &str, tgt: &Term, ctx: &Context) -> Result<Instr, CompileErr> {
+        unimplemented!()
+    }
+
+    fn build_value(&self, tok: &Token, ty: &Type, ctx: &Context) -> Result<Value, CompileErr> {
+        unimplemented!()
+    }
+
+    fn build_symbol(&self, tok: &Token, ty: &Type, ctx: &Context, loc: &Loc)
+                    -> Result<SymbolRef, CompileErr>
+    {
+        match tok {
+            Token::GlobalId(s) => match ctx.global.find(self.trim_tag(s)) {
+                Some(sym) => {
+                    self.check_type(sym.deref(), &ty, loc)?;
+                    Ok(sym)
+                }
+                None => Err(CompileErr {
+                    loc: loc.clone(),
+                    msg: format!("identifier {} not found in global scope", s),
+                })
+            }
+            Token::LocalId(s) => match ctx.func.scope.find(s) {
+                Some(sym) => Ok(sym),
+                None => {
+                    let sym = ExtRc::new(self.create_local(s, ty.clone())?);
+                    let _ = ctx.func.scope.add(sym.clone());
+                    Ok(sym)
+                }
+            }
+            _ => unreachable!()
+        }
+    }
+
+    fn check_type(&self, sym: &Symbol, ty: &Type, loc: &Loc) -> Result<(), CompileErr> {
+        let sym_ty = sym.get_type();
+        if ty != &sym_ty {
+            Err(CompileErr {
+                loc: loc.clone(),
+                msg: format!("expect symbol of type {}, found {}", ty.to_string(),
+                             sym_ty.to_string()),
+            })
+        } else { Ok(()) }
+    }
+
+    fn create_const(&self, tok: &Token, ty: &Type, loc: &Loc) -> Result<Const, CompileErr> {
         if let Token::Integer(i) = tok {
             match ty {
                 Type::I1 => match i.as_str() {
@@ -171,37 +280,36 @@ impl Builder {
                         msg: format!("cannot create constant {} of type i1", i),
                     })
                 }
-                Type::I64 => Ok(Const::I64(i64::from_str(i.as_str()).unwrap())),
+                Type::I64 => Ok(Const::I64(i.parse().unwrap())),
                 _ => unreachable!()
             }
         } else { unreachable!() }
     }
 
-    fn parse_local(&self, s: &str, ty: Type) -> Result<Symbol, CompileErr> {
-        let mut name = s.split_at(1).1; // trim local tag
-        let ver: Option<usize>;
-        match name.find(".") {
+    fn create_local(&self, s: &str, ty: Type) -> Result<Symbol, CompileErr> {
+        let mut name = self.trim_tag(s); // trim local tag
+        let ver = match name.find(".") {
             Some(_) => {
                 let split: Vec<&str> = name.split('.').collect();
                 name = split[0];
-                ver = Some(usize::from_str(split[1]).unwrap())
+                Some(usize::from_str(split[1]).unwrap())
             }
-            None => { ver = None; }
-        }
+            None => None
+        };
         Ok(Symbol::Local { name: name.to_string(), ty, ver })
     }
 
-    fn build_type(&self, term: &Term) -> Result<Type, CompileErr> {
+    fn create_type(&self, term: &Term) -> Result<Type, CompileErr> {
         if let Term::TypeDecl { loc, ty: Token::Reserved(s) } = term {
             Type::from_str(s).map_err(|e| CompileErr { loc: loc.clone(), msg: e })
         } else { unreachable!() }
     }
 
-    fn parse_label(&self, id: &Token, loc: &Loc) -> Result<String, CompileErr> {
-        if let Token::Label(s) = id {
-            let label = s.split_at(1).1;
-            Ok(label.to_string())
-        } else { unreachable!() }
+    fn trim_tag<'a>(&self, s: &'a str) -> &'a str {
+        match s.split_at(1).0 {
+            "@" | "$" => s.split_at(1).1,
+            _ => s
+        }
     }
 }
 

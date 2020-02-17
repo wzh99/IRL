@@ -26,7 +26,7 @@ pub enum Instr {
     /// A phi instruction hold a list of block-value pairs. The blocks are all predecessors of
     /// current block (where this instruction is defined). The values are different versions of
     /// of a certain variable.
-    Phi { src: Vec<(BlockRef, RefCell<Value>)>, dst: RefCell<SymbolRef> },
+    Phi { src: Vec<(Option<BlockRef>, RefCell<Value>)>, dst: RefCell<SymbolRef> },
 }
 
 pub type InstrRef = ExtRc<Instr>;

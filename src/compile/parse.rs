@@ -224,29 +224,6 @@ impl Parser {
     }
 
     fn assign_rhs(&mut self) -> ParseResult {
-        match self.peek(0)? {
-            Token::Reserved(_) => self.arith_expr(),
-            opd if opd.is_opd() => self.opd_rhs(),
-            tok => return self.err(vec!["{Reserved}", "{Operand}"], tok)
-        }
-    }
-
-    fn opd_rhs(&mut self) -> ParseResult {
-        let loc = self.loc.clone();
-        let opd = self.consume()?;
-        if !opd.is_opd() { return self.err(vec!["{Operand}"], opd); }
-        let ty = match self.peek(0)? {
-            Token::Colon => {
-                self.consume()?;
-                Some(Box::new(self.type_decl()?))
-            }
-            Token::Semicolon => None,
-            tok => return self.err(vec![":", ";"], tok)
-        };
-        Ok(Term::OpdRhs { loc, opd, ty })
-    }
-
-    fn arith_expr(&mut self) -> ParseResult {
         let loc = self.loc.clone();
         let name = self.consume()?; // Reserved
         if let Token::Reserved(_) = name {} else {
@@ -254,7 +231,7 @@ impl Parser {
         }
         let ty = self.type_decl()?; // TypeDecl
         let opd = self.arith_opd()?; // ArithOpd
-        Ok(Term::ArithExpr { loc, name, ty: Box::new(ty), opd: Box::new(opd) })
+        Ok(Term::AssignRhs { loc, name, ty: Box::new(ty), opd: Box::new(opd) })
     }
 
     fn arith_opd(&mut self) -> ParseResult {
@@ -313,13 +290,16 @@ impl Parser {
         let left = self.consume()?;
         // `[`
         check_op!(self, left, LeftSquare);
-        let bb = self.consume()?; // LocalId
-        if let Token::Label(_) = bb {} else {
-            return self.err(vec!["{Label}"], bb);
-        }
-        let col = self.consume()?;
-        // `:`
-        check_op!(self, col, Colon);
+        let bb = match self.peek(0)? {
+            Token::Label(l) => {
+                self.consume()?; // Label
+                let col = self.consume()?;
+                check_op!(self, col, Colon);
+                Some(Token::Label(l))
+            }
+            opd if opd.is_local_opd() => None,
+            tok => return self.err(vec!["{Label}", "{LocalOperand}"], tok)
+        };
         let opd = self.consume()?;
         if !opd.is_local_opd() { // LocalOpd
             return self.err(vec!["{LocalOperand}"], opd);

@@ -19,7 +19,7 @@ pub struct Program {
     /// Function list
     pub funcs: Vec<Rc<Func>>,
     /// Scope for global symbols
-    pub global: Scope,
+    pub global: Rc<Scope>,
 }
 
 /// A auxiliary structure to make `Rc` act like pointer.
