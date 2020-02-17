@@ -1,7 +1,7 @@
 use crate::lang::val::Value;
 use std::str::FromStr;
-use crate::lang::ExtRc;
-use crate::lang::bb::{BlockRc};
+use crate::lang::{MutRc};
+use crate::lang::bb::{BlockRef};
 
 pub enum Instr {
     /// Move (copy) data from one virtual register to another
@@ -11,10 +11,10 @@ pub enum Instr {
     /// Binary operations
     Bin{op: BinOp, left: Value, right: Value, res: Value},
     /// Jump to another basic block
-    Jmp{tgt: BlockRc},
+    Jmp{tgt: BlockRef },
     /// Conditional branch to labels
     /// If `cond` evaluates to true, branch to `tr` block, otherwise to `fls` block
-    Br{cond: Value, tr: BlockRc, fls: BlockRc},
+    Br{cond: Value, tr: BlockRef, fls: BlockRef },
     /// Procedure call
     Call{func: Value},
     /// Return computation results, or `None` if return type is `Void`.
@@ -23,10 +23,11 @@ pub enum Instr {
     /// A phi instruction hold a list of block-value pairs. The blocks are all predecessors of
     /// current block (where this instruction is defined). The values are different versions of
     /// of a certain variable.
-    Phi{pair: Vec<(BlockRc, Value)>}
+    Phi{pair: Vec<(BlockRef, Value)>}
 }
 
-pub type InstrRc = ExtRc<Instr>;
+/// Reference to `Instr` that support both enhanced reference counting and interior mutability.
+pub type InstrRef = MutRc<Instr>;
 
 impl Instr {
     /// Decide if this instruction is a control flow instruction

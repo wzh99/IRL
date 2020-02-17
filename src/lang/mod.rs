@@ -2,24 +2,32 @@ pub mod val;
 pub mod instr;
 pub mod bb;
 
-use crate::lang::val::{Func, Scope};
+use crate::lang::val::{Func, Scope, GlobalVar};
 use std::rc::Rc;
 use std::cmp::Ordering;
 use std::hash::{Hash, Hasher};
 use std::ops::Deref;
+use std::fmt::{Debug};
+use std::cell::{RefCell, Ref, RefMut};
 
 /// Top level program structure
 #[derive(Debug)]
 pub struct Program {
-    /// Map function name to its entity
-    pub fn_list: Vec<Rc<Func>>,
+    /// Global variable list
+    pub vars: Vec<Rc<GlobalVar>>,
+    /// Function list
+    pub funcs: Vec<Rc<Func>>,
     /// Scope for global symbols
-    pub global: Rc<Scope>
+    pub global: Scope
 }
 
 /// A auxiliary structure to make `Rc` act like pointer.
 /// The extended behavior include pointer-equality testing, comparison and hash.
 pub struct ExtRc<T>(pub Rc<T>);
+
+impl <T> ExtRc<T> {
+    pub fn new(e: T) -> Self { ExtRc(Rc::new(e)) }
+}
 
 impl <T> From<Rc<T>> for ExtRc<T> {
     fn from(rc: Rc<T>) -> Self { ExtRc(rc) }
@@ -60,4 +68,41 @@ impl <T> Deref for ExtRc<T> {
 
 impl <T> Clone for ExtRc<T> {
     fn clone(&self) -> Self { ExtRc(self.0.clone()) }
+}
+
+/// Enhanced reference counter with interior mutability
+pub struct MutRc<T>(pub ExtRc<RefCell<T>>);
+
+impl <T> MutRc<T> {
+    pub fn new(e: T) -> MutRc<T> { MutRc(ExtRc::new(RefCell::new(e))) }
+
+    pub fn borrow(&self) -> Ref<T> { self.0.deref().borrow() }
+
+    pub fn borrow_mut(&self) -> RefMut<T> { self.0.deref().borrow_mut() }
+}
+
+impl <T> From<RefCell<T>> for MutRc<T> {
+    fn from(c: RefCell<T>) -> Self { MutRc(ExtRc::new(c)) }
+}
+
+impl <T> PartialEq for MutRc<T> {
+    fn eq(&self, other: &Self) -> bool { self.0.eq(&other.0) }
+}
+
+impl <T> Eq for MutRc<T> {}
+
+impl <T> Ord for MutRc<T> {
+    fn cmp(&self, other: &Self) -> Ordering { self.0.cmp(&other.0) }
+}
+
+impl <T> PartialOrd for MutRc<T> {
+    fn partial_cmp(&self, other: &Self) -> Option<Ordering> { self.0.partial_cmp(&other.0) }
+}
+
+impl <T> Hash for MutRc<T> {
+    fn hash<H: Hasher>(&self, state: &mut H) { self.0.hash(state) }
+}
+
+impl <T> Clone for MutRc<T> {
+    fn clone(&self) -> Self { MutRc(self.0.clone()) }
 }

@@ -1,10 +1,11 @@
 use std::rc::Rc;
-use std::fmt::{Display, Formatter, Error};
+use std::fmt::{Display, Formatter, Error, Debug};
 use std::collections::{HashSet, HashMap};
 use std::cell::RefCell;
 use std::str::FromStr;
-use crate::lang::ExtRc;
+use crate::lang::{ExtRc, MutRc};
 use crate::lang::bb::BasicBlock;
+use std::ops::Deref;
 
 #[derive(Clone, PartialEq, Debug)]
 pub enum Type {
@@ -83,7 +84,7 @@ pub struct Func {
     /// Scope of this function
     pub scope: Rc<Scope>,
     /// Parameter list
-    pub param: Vec<Rc<Symbol>>,
+    pub param: Vec<SymbolRef>,
     /// Return type
     pub ret: Type,
     /// Entrance block of this function
@@ -95,7 +96,7 @@ pub struct Func {
 impl Typed for Func {
     fn get_type(&self) -> Type {
         Type::Fn {
-            param: self.param.iter().map(|p| p.get_type()).collect(),
+            param: self.param.iter().map(|p| p.borrow().get_type()).collect(),
             ret: Box::new(self.ret.clone())
         }
     }
@@ -108,38 +109,66 @@ pub enum Symbol {
         ty: Type,
         ver: Option<usize>,
     },
-    GlobalVar {
-        name: String,
-        ty: Type,
-        init: Option<Const>
-    },
+    Global(Rc<GlobalVar>),
     Func(Rc<Func>)
+}
+
+pub type SymbolRef = MutRc<Symbol>;
+
+#[derive(Clone, Debug)]
+pub struct GlobalVar {
+    pub name: String,
+    pub ty: Type,
+    pub init: Option<Const>
+}
+
+impl Typed for GlobalVar {
+    fn get_type(&self) -> Type { return self.ty.clone() }
 }
 
 impl Typed for Symbol {
     fn get_type(&self) -> Type {
         match self {
-            Symbol::Local{ name:_, ty, ver:_ } => ty.clone(),
-            Symbol::GlobalVar { name:_, ty, init:_ } => ty.clone(),
+            Symbol::Local { name:_, ty, ver:_ } => ty.clone(),
+            Symbol::Global(v) => v.ty.clone(),
             Symbol::Func(f) => f.get_type()
         }
     }
 }
 
+impl Debug for SymbolRef {
+    fn fmt(&self, f: &mut Formatter<'_>) -> Result<(), Error> { Debug::fmt(&self.0.deref(), f) }
+}
+
 impl Symbol {
-    fn name(&self) -> &str {
+    /// Get name of this symbol.
+    /// For local variable, only its name part is extracted
+    pub fn name(&self) -> &str {
         match self {
             Symbol::Local { name, ty:_, ver:_ } => name,
-            Symbol::GlobalVar { name, ty:_, init:_ } => name,
+            Symbol::Global(v) => &v.name,
             Symbol::Func(f) => &f.name
         }
+    }
+
+    /// Get identifier of symbol without tag `@` or `%`
+    /// For local variable, its name, possibly connected with its version by `.` is returned.
+    /// (`{$name}(.{$ver})?`)
+    pub fn id(&self) -> String {
+        if let Symbol::Local { name, ty:_, ver } = self {
+            match ver {
+                Some(v) => format!("{}.{}", name, v),
+                None => name.to_string()
+            }
+        } else { self.name().to_string() }
     }
 }
 
 #[derive(Debug)]
 pub struct Scope {
-    /// Maps names to symbol pointers
-    sym: RefCell<HashMap<String, Rc<Symbol>>>,
+    /// Maps variable identifier to symbol
+    /// For local variable, its identifier is `{$name}(.{$ver})?`
+    sym: RefCell<HashMap<String, SymbolRef>>,
 }
 
 impl Scope {
@@ -155,19 +184,18 @@ impl Scope {
     /// Add a symbol to the scope.
     /// `Ok` if the symbol is successfully added to scope.
     /// `Err` if the symbol with the same name is already in scope.
-    pub fn add(&self, sym: Rc<Symbol>) -> Result<(), String> {
-        if self.sym.borrow().contains_key(sym.name()) {
-            return Err(format!("symbol '{}' is already in scope", sym.name()))
+    pub fn add(&self, sym: SymbolRef) -> Result<(), String> {
+        if self.sym.borrow().contains_key(&sym.borrow().id()) {
+            return Err(format!("symbol '{}' is already in scope", sym.borrow().name()))
         }
-        self.sym.borrow_mut().insert(sym.name().to_string(), sym);
+        let key = sym.borrow().id();
+        self.sym.borrow_mut().insert(key, sym);
         Ok(())
     }
 
-    /// Find a symbol with given `name`.
-    /// If the symbol cannot be found in current scope, it will try to look for it in global
-    /// scope.
-    pub fn find(&self, name: &String) -> Option<Rc<Symbol>> {
-        self.sym.borrow_mut().get(name).cloned()
+    /// Lookup a symbol with given `id`.
+    pub fn find(&self, id: &str) -> Option<SymbolRef> {
+        self.sym.borrow_mut().get(id).cloned()
     }
 
     /// Remove symbol with `name` from scope.
