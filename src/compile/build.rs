@@ -1,4 +1,4 @@
-use std::cell::{Ref, RefCell};
+use std::cell::RefCell;
 use std::collections::{HashMap, HashSet};
 use std::ops::Deref;
 use std::rc::Rc;
@@ -19,7 +19,7 @@ struct Context {
     global: Rc<Scope>,
     func: Rc<Func>,
     labels: HashMap<String, BlockRef>,
-    block: RefCell<BlockRef>
+    block: RefCell<BlockRef>,
 }
 
 impl Builder {
@@ -183,21 +183,7 @@ impl Builder {
                     self.build_arith(&ty, dst.clone(), op.as_str(), list, ctx, loc),
                 Term::FnCall { loc, func: Token::GlobalId(_, func), arg } =>
                     self.build_fn_call(func, arg.deref(), Some(dst), ctx, loc),
-                Term::PhiList { loc: _, list } => {
-                    let mut pairs: Vec<(Option<BlockRef>, RefCell<Value>)> = Vec::new();
-                    for t in list {
-                        if let Term::PhiOpd { loc: _, bb, opd } = t {
-                            let block = match bb {
-                                Some(Token::Label(_, s)) => ctx.labels.get(s).cloned(),
-                                None => None,
-                                _ => { unreachable!() }
-                            };
-                            let val = self.build_value(ty, opd, ctx)?;
-                            pairs.push((block, RefCell::new(val)));
-                        } else { unreachable!() }
-                    }
-                    Ok(Instr::Phi { src: pairs, dst: RefCell::new(dst) })
-                }
+                Term::PhiList { loc: _, list } => self.build_phi_instr(list, ty, dst, ctx),
                 _ => unreachable!()
             }
         } else { unreachable!() }
@@ -317,6 +303,42 @@ impl Builder {
         Ok(Instr::Call { func: func.clone(), arg: arg_list, dst })
     }
 
+    fn build_phi_instr(&self, list: &Vec<Term>, ty: &Type, dst: SymbolRef, ctx: &Context)
+                       -> Result<Instr, CompileErr>
+    {
+        let mut pairs: Vec<(Option<BlockRef>, RefCell<Value>)> = Vec::new();
+        for t in list {
+            if let Term::PhiOpd { loc, bb, opd } = t {
+                let val = self.build_value(ty, opd, ctx)?;
+                let block = match bb {
+                    Some(Token::Label(_, s)) => ctx.labels.get(s).cloned(),
+                    None => match &val { // ensure this operand is from parameter
+                        Value::Var(sym) => match sym.deref() {
+                            Symbol::Local { name: _, ty: _, ver: _ } =>
+                                if ctx.func.param.iter().find(|s| *s == sym).is_some() {
+                                    None
+                                } else {
+                                    return Err(CompileErr {
+                                        loc: loc.clone(),
+                                        msg: format!("operand {} is not in parameter list",
+                                                     sym.name()),
+                                    });
+                                }
+                            _ => unreachable!()
+                        }
+                        Value::Const(_) => return Err(CompileErr {
+                            loc: loc.clone(),
+                            msg: "parameter is not constant".to_string(),
+                        })
+                    },
+                    _ => { unreachable!() }
+                };
+                pairs.push((block, RefCell::new(val)));
+            } else { unreachable!() }
+        }
+        Ok(Instr::Phi { src: pairs, dst: RefCell::new(dst) })
+    }
+
     fn build_opd_list(&self, ty: &Type, opd: &Vec<Token>, ctx: &Context)
                       -> Result<Vec<Value>, CompileErr>
     {
@@ -415,7 +437,7 @@ impl Builder {
                     msg: format!("identifier {} not found in global scope", s),
                 })
             }
-            Token::LocalId(_, s) => match ctx.func.scope.find(s) {
+            Token::LocalId(_, s) => match ctx.func.scope.find(self.trim_tag(s)) {
                 Some(sym) => Ok(sym),
                 None => {
                     let sym = ExtRc::new(self.create_local(s, ty.clone())?);

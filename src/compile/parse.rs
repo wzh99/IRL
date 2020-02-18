@@ -422,6 +422,6 @@ fn test_parse() {
     use std::fs::File;
     let mut file = File::open("test/parse.ir").unwrap();
     let lexer = Lexer::from_read(&mut file).unwrap();
-    let mut parser = Parser::new(lexer);
+    let parser = Parser::new(lexer);
     println!("{:#?}", parser.parse())
 }
