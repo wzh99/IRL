@@ -5,11 +5,14 @@ use std::hash::{Hash, Hasher};
 use std::ops::Deref;
 use std::rc::Rc;
 
-use crate::lang::val::{Func, GlobalVar, Scope};
+use crate::lang::func::{Func, Scope};
+use crate::lang::val::GlobalVar;
 
 pub mod val;
 pub mod instr;
 pub mod bb;
+pub mod func;
+pub mod print;
 
 /// Top level program structure
 #[derive(Debug)]

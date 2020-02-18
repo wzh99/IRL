@@ -8,8 +8,9 @@ use crate::compile::{CompileErr, Loc};
 use crate::compile::syntax::{Term, Token};
 use crate::lang::{ExtRc, Program};
 use crate::lang::bb::{BasicBlock, BlockRef};
+use crate::lang::func::{Func, Scope};
 use crate::lang::instr::{BinOp, Instr, UnOp};
-use crate::lang::val::{Const, Func, GlobalVar, Scope, Symbol, SymbolRef, Type, Typed, Value};
+use crate::lang::val::{Const, GlobalVar, Symbol, SymbolRef, Type, Typed, Value};
 
 pub struct Builder {
     root: Term,
@@ -157,7 +158,6 @@ impl Builder {
                 let instr = self.build_instr(t, &ctx)?;
                 b.push_back(instr);
             }
-            println!("{:?}", b.0)
         }
 
         Ok(())
@@ -311,7 +311,15 @@ impl Builder {
             if let Term::PhiOpd { loc, bb, opd } = t {
                 let val = self.build_value(ty, opd, ctx)?;
                 let block = match bb {
-                    Some(Token::Label(_, s)) => ctx.labels.get(s).cloned(),
+                    Some(Token::Label(loc, s)) => {
+                        let s = self.trim_tag(s);
+                        Some(ctx.labels.get(self.trim_tag(s)).cloned().ok_or(
+                            CompileErr {
+                                loc: loc.clone(),
+                                msg: format!("label {} not found", s),
+                            }
+                        )?)
+                    }
                     None => match &val { // ensure this operand is from parameter
                         Value::Var(sym) => match sym.deref() {
                             Symbol::Local { name: _, ty: _, ver: _ } =>
@@ -367,7 +375,7 @@ impl Builder {
                     } else {
                         Err(CompileErr {
                             loc: loc.clone(),
-                            msg: format!("return something in function with void return type"),
+                            msg: format!("expect void, got value"),
                         })
                     }
                     ty => if opd.is_some() {
@@ -377,7 +385,7 @@ impl Builder {
                     } else {
                         Err(CompileErr {
                             loc: loc.clone(),
-                            msg: format!("return nothing in function with non-void return type"),
+                            msg: format!("expect value, got void"),
                         })
                     }
                 }
@@ -387,7 +395,10 @@ impl Builder {
             Term::JmpInstr { loc: _, tgt: Token::Label(loc, tgt) } => {
                 let tgt = self.trim_tag(tgt);
                 match ctx.labels.get(tgt) {
-                    Some(tgt) => Ok(Instr::Jmp { tgt: RefCell::new(tgt.clone()) }),
+                    Some(tgt) => {
+                        ctx.block.borrow().connect_to(tgt.clone());
+                        Ok(Instr::Jmp { tgt: RefCell::new(tgt.clone()) })
+                    }
                     None => Err(CompileErr {
                         loc: loc.clone(),
                         msg: format!("label {} not found", tgt),
@@ -413,6 +424,8 @@ impl Builder {
                         msg: format!("label {} not found", f_lab),
                     }
                 )?;
+                ctx.block.borrow().connect_to(tr.clone());
+                ctx.block.borrow().connect_to(fls.clone());
                 Ok(Instr::Br {
                     cond: RefCell::new(cond),
                     tr: RefCell::new(tr.clone()),

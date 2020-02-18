@@ -5,7 +5,8 @@ use std::str::FromStr;
 
 use crate::lang::bb::BlockRef;
 use crate::lang::ExtRc;
-use crate::lang::val::{Func, SymbolRef, Value};
+use crate::lang::func::Func;
+use crate::lang::val::{SymbolRef, Value};
 
 #[derive(Debug)]
 pub enum Instr {

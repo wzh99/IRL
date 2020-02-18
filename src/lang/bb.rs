@@ -72,3 +72,13 @@ impl BasicBlock {
         }
     }
 }
+
+impl BlockRef {
+    /// Add a directed edge from this block to another.
+    /// This method add `to` to the successor set of this block and add this block to the
+    /// predecessor set of `to` block.
+    pub fn connect_to(&self, to: BlockRef) {
+        self.succ.borrow_mut().insert(to.clone());
+        to.pred.borrow_mut().insert(self.clone());
+    }
+}

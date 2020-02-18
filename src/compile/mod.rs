@@ -1,9 +1,9 @@
 use std::fmt::{Debug, Display, Error, Formatter};
 
-mod parse;
 mod syntax;
-mod lex;
-mod build;
+pub mod lex;
+pub mod parse;
+pub mod build;
 
 #[derive(Debug, Clone)]
 pub struct Loc {
