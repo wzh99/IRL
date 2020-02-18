@@ -1,4 +1,5 @@
-use std::cell::{Ref, RefCell};
+use std::cell::RefCell;
+use std::fmt::{Debug, Error, Formatter};
 use std::rc::Rc;
 use std::str::FromStr;
 
@@ -6,15 +7,16 @@ use crate::lang::bb::BlockRef;
 use crate::lang::ExtRc;
 use crate::lang::val::{Func, SymbolRef, Value};
 
+#[derive(Debug)]
 pub enum Instr {
     /// Move (copy) data from one virtual register to another
     Mov { src: RefCell<Value>, dst: RefCell<SymbolRef> },
     /// Unary operations
     Un { op: UnOp, opd: RefCell<Value>, dst: RefCell<SymbolRef> },
     /// Binary operations
-    Bin { op: BinOp, left: RefCell<Value>, right: RefCell<Value>, dst: RefCell<SymbolRef> },
+    Bin { op: BinOp, fst: RefCell<Value>, snd: RefCell<Value>, dst: RefCell<SymbolRef> },
     /// Jump to another basic block
-    Jmp { tgt: RefCell<Value> },
+    Jmp { tgt: RefCell<BlockRef> },
     /// Conditional branch to labels
     /// If `cond` evaluates to true, branch to `tr` block, otherwise to `fls` block
     Br { cond: RefCell<Value>, tr: RefCell<BlockRef>, fls: RefCell<BlockRef> },
@@ -30,6 +32,10 @@ pub enum Instr {
 }
 
 pub type InstrRef = ExtRc<Instr>;
+
+impl Debug for ExtRc<Instr> {
+    fn fmt(&self, f: &mut Formatter<'_>) -> Result<(), Error> { self.0.fmt(f) }
+}
 
 impl Instr {
     /// Decide if this instruction is a control flow instruction
@@ -47,7 +53,7 @@ impl Instr {
         match self {
             Instr::Mov { src: _, dst } => Some(dst),
             Instr::Un { op: _, opd: _, dst } => Some(dst),
-            Instr::Bin { op: _, left: _, right: _, dst } => Some(dst),
+            Instr::Bin { op: _, fst: _, snd: _, dst } => Some(dst),
             Instr::Call { func: _, arg: _, dst } => dst.as_ref(),
             Instr::Phi { src: _, dst } => Some(dst),
             _ => None
@@ -59,14 +65,14 @@ impl Instr {
         match self {
             Instr::Mov { src, dst: _ } => vec![src],
             Instr::Un { op: _, opd, dst: _ } => vec![opd],
-            Instr::Bin { op: _, left, right, dst: _ } => vec![left, right],
+            Instr::Bin { op: _, fst: left, snd: right, dst: _ } => vec![left, right],
             Instr::Br { cond, tr: _, fls: _ } => vec![cond],
             Instr::Call { func: _, arg, dst: _ } => arg.iter().map(|a| a).collect(),
             Instr::Ret { val } => match val {
                 Some(v) => vec![v],
                 None => vec![]
             }
-            Instr::Phi { src, dst: _ } => src.iter().map(|(b, v)| v).collect(),
+            Instr::Phi { src, dst: _ } => src.iter().map(|(_, v)| v).collect(),
             _ => vec![]
         }
     }

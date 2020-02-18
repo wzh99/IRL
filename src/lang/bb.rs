@@ -6,6 +6,7 @@ use std::ops::Deref;
 use crate::lang::ExtRc;
 use crate::lang::instr::{Instr, InstrRef};
 
+#[derive(Debug)]
 pub struct BasicBlock {
     /// Name of this basic block
     pub name: String,

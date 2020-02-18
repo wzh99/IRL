@@ -4,61 +4,61 @@ use crate::compile::Loc;
 #[derive(Clone, Debug)]
 pub enum Token {
     /// Global identifier `/@[A-Za-z0-9_]+/`
-    GlobalId(String),
+    GlobalId(Loc, String),
     /// Local identifier `/$[A-Za-z0-9_]+(.[0-9]+)?/`
-    LocalId(String),
+    LocalId(Loc, String),
     /// Label `/%[A-Za-z0-9_]+/`
-    Label(String),
+    Label(Loc, String),
     /// Reserved words `/[A-Za-z_][A-Za-z0-9_]*/`
-    Reserved(String),
+    Reserved(Loc, String),
     /// Integer `/-?[0-9]+/`
-    Integer(String),
+    Integer(Loc, String),
     /// Comma, for separating list elements `,`
-    Comma,
+    Comma(Loc),
     /// Colon, separating label and value in phi instruction `:`
-    Colon,
+    Colon(Loc),
     /// Semicolon, ending indication of one instruction `;`
-    Semicolon,
+    Semicolon(Loc),
     /// Question mark, used in `br` instruction `?`
-    Question,
+    Question(Loc),
     /// Left parenthesis `(`
-    LeftParent,
+    LeftParent(Loc),
     /// Right parenthesis  `)`
-    RightParent,
+    RightParent(Loc),
     /// Left square bracket `[`
-    LeftSquare,
+    LeftSquare(Loc),
     /// Right square bracket `]`
-    RightSquare,
+    RightSquare(Loc),
     /// Left curly bracket `{`
-    LeftCurly,
+    LeftCurly(Loc),
     /// Right curly bracket `}`
-    RightCurly,
+    RightCurly(Loc),
     /// Left arrow, for assignment `<-`
-    LeftArrow,
+    LeftArrow(Loc),
     /// Right arrow, used in function type `->`
-    RightArrow,
+    RightArrow(Loc),
     /// End-of-file indicator
-    Eof,
+    Eof(Loc),
 }
 
 impl ToString for Token {
     fn to_string(&self) -> String {
         match self {
-            Token::GlobalId(s) | Token::LocalId(s) | Token::Label(s) | Token::Reserved(s)
-            | Token::Integer(s) => s.clone(),
-            Token::Comma => ",".to_string(),
-            Token::Colon => ":".to_string(),
-            Token::Semicolon => ";".to_string(),
-            Token::Question => "?".to_string(),
-            Token::LeftParent => "(".to_string(),
-            Token::RightParent => ")".to_string(),
-            Token::LeftSquare => "[".to_string(),
-            Token::RightSquare => "]".to_string(),
-            Token::LeftCurly => "{".to_string(),
-            Token::RightCurly => "}".to_string(),
-            Token::LeftArrow => "<-".to_string(),
-            Token::RightArrow => "->".to_string(),
-            Token::Eof => "".to_string()
+            Token::GlobalId(_, s) | Token::LocalId(_, s) | Token::Label(_, s)
+            | Token::Reserved(_, s) | Token::Integer(_, s) => s.clone(),
+            Token::Comma(_) => ",".to_string(),
+            Token::Colon(_) => ":".to_string(),
+            Token::Semicolon(_) => ";".to_string(),
+            Token::Question(_) => "?".to_string(),
+            Token::LeftParent(_) => "(".to_string(),
+            Token::RightParent(_) => ")".to_string(),
+            Token::LeftSquare(_) => "[".to_string(),
+            Token::RightSquare(_) => "]".to_string(),
+            Token::LeftCurly(_) => "{".to_string(),
+            Token::RightCurly(_) => "}".to_string(),
+            Token::LeftArrow(_) => "<-".to_string(),
+            Token::RightArrow(_) => "->".to_string(),
+            Token::Eof(_) => "".to_string()
         }
     }
 }
@@ -68,22 +68,33 @@ impl Token {
 
     pub fn is_id(&self) -> bool {
         match self {
-            Token::GlobalId(_) | Token::LocalId(_) => true,
+            Token::GlobalId(_, _) | Token::LocalId(_, _) => true,
             _ => false
         }
     }
 
     pub fn is_local_opd(&self) -> bool {
         match self {
-            Token::LocalId(_) | Token::Integer(_) => true,
+            Token::LocalId(_, _) | Token::Integer(_, _) => true,
             _ => false
         }
     }
 
     pub fn is_opd(&self) -> bool {
         match self {
-            Token::GlobalId(_) | Token::LocalId(_) | Token::Integer(_) => true,
+            Token::GlobalId(_, _) | Token::LocalId(_, _) | Token::Integer(_, _) => true,
             _ => false
+        }
+    }
+
+    pub fn loc(&self) -> Loc {
+        match self {
+            Token::GlobalId(l, _) | Token::LocalId(l, _) | Token::Label(l, _)
+            | Token::Reserved(l, _) | Token::Integer(l, _) => l.clone(),
+            Token::Comma(l) | Token::Colon(l) | Token::Semicolon(l) | Token::Question(l)
+            | Token::LeftParent(l) | Token::RightParent(l) | Token::LeftSquare(l)
+            | Token::RightSquare(l) | Token::LeftCurly(l) | Token::RightCurly(l)
+            | Token::LeftArrow(l) | Token::RightArrow(l) | Token::Eof(l) => l.clone()
         }
     }
 }
@@ -179,7 +190,7 @@ pub enum Term {
     /// CtrlInstr : RetInstr | JmpInstr | `call` FnCall | Branch ;
     /// FIRST = { `ret` -> RetInstr, `jmp` -> JmpInstr, `br` -> Branch }
     /// FOLLOW = { `;` }
-    CtrlInstr { loc: Loc, name: Token, tgt: Box<Term> },
+    CtrlInstr { loc: Loc, instr: Box<Term> },
 
     /// RetInstr : `ret` Opd
     /// FIRST = { `ret` }

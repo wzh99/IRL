@@ -1,21 +1,21 @@
 use std::collections::VecDeque;
 
 use crate::compile::{CompileErr, Loc};
-use crate::compile::lex::{Lexeme, Lexer};
+use crate::compile::lex::Lexer;
 use crate::compile::syntax::{Term, Token};
 
 pub struct Parser {
     lexer: Lexer,
-    buf: VecDeque<Lexeme>,
+    buf: VecDeque<Token>,
     loc: Loc,
 }
 
 type ParseResult = Result<Term, CompileErr>;
 
 macro_rules! check_op {
-    ($parser:ident, $tok:ident, $term: ident) => {
-        if let Token::$term = $tok {} else {
-            return $parser.err(vec![&Token::$term.to_string()], $tok)
+    ($parser:ident, $tok:ident, $tgt: expr) => {
+        if $tok.to_string().as_str() != $tgt {
+            return $parser.err(vec![$tgt], $tok)
         }
     };
 }
@@ -36,9 +36,9 @@ impl Parser {
         let mut def = Vec::new();
         loop {
             let term = match self.peek(0)? {
-                Token::GlobalId(_) => self.var_def()?,
-                Token::Reserved(k) if &k == "fn" => self.fn_def()?,
-                Token::Eof => break,
+                Token::GlobalId(_, _) => self.var_def()?,
+                Token::Reserved(_, k) if &k == "fn" => self.fn_def()?,
+                Token::Eof(_) => break,
                 tok => self.err(vec!["{GlobalId}", "{Reserved}", "Eof"], tok)?
             };
             def.push(term);
@@ -49,35 +49,33 @@ impl Parser {
     fn var_def(&mut self) -> ParseResult {
         let loc = self.loc.clone();
         let id = self.consume()?; // GlobalId
-        if let Token::GlobalId(_) = id {} else {
+        if let Token::GlobalId(_, _) = id {} else {
             return self.err(vec!["{GlobalId}"], id);
         }
         let init = match self.peek(0)? {
-            Token::LeftArrow => { // VarInit
+            Token::LeftArrow(_) => { // VarInit
                 self.consume()?; // `<-`
                 let val = self.consume()?; // Integer
-                if let Token::Integer(_) = val {} else {
+                if let Token::Integer(_, _) = val {} else {
                     return self.err(vec!["Integer"], val);
                 }
                 Some(val)
             }
-            Token::Colon => None,
+            Token::Colon(_) => None,
             tok => return self.err(vec!["<-", ":"], tok)
         };
         let col = self.consume()?;
-        // `:`
-        check_op!(self, col, Colon);
+        check_op!(self, col, ":");
         let ty = self.type_decl()?; // TypeDecl
         let semi = self.consume()?;
-        // `;`
-        check_op!(self, semi, Semicolon);
+        check_op!(self, semi, ";");
         Ok(Term::VarDef { loc, id, init, ty: Box::new(ty) })
     }
 
     fn fn_def(&mut self) -> ParseResult {
         let loc = self.loc.clone();
         match self.consume()? {
-            Token::Reserved(k) if &k == "fn" => (),
+            Token::Reserved(_, k) if &k == "fn" => (),
             kw => return self.err(vec!["fn"], kw)
         }
         let sig = self.fn_sig()?; // FnSig
@@ -88,20 +86,18 @@ impl Parser {
     fn fn_sig(&mut self) -> ParseResult {
         let loc = self.loc.clone();
         let id = self.consume()?; // GlobalId
-        if let Token::GlobalId(_) = id {} else {
+        if let Token::GlobalId(_, _) = id {} else {
             return self.err(vec!["{GlobalId}"], id);
         }
-        let left_par = self.consume()?;
-        // `(`
-        check_op!(self, left_par, LeftParent);
+        let left = self.consume()?;
+        check_op!(self, left, "(");
         let param = self.param_list()?; // ParamList
-        let right_par = self.consume()?;
-        // `)`
-        check_op!(self, right_par, RightParent);
+        let right = self.consume()?;
+        check_op!(self, right, ")");
         let ret: Option<Term>;
         match self.peek(0)? { // FnRet?
-            Token::RightArrow => ret = Some(self.fn_ret()?),
-            Token::LeftCurly => ret = None,
+            Token::RightArrow(_) => ret = Some(self.fn_ret()?),
+            Token::LeftCurly(_) => ret = None,
             tok => return self.err(vec!["->", "{"], tok)
         }
         Ok(Term::FnSig {
@@ -117,12 +113,12 @@ impl Parser {
         let mut list = Vec::new();
         loop {
             match self.peek(0)? {
-                Token::LocalId(_) => list.push(self.param_def()?), // ParamDef
-                Token::Comma => { // (`,` ParamDef)*
+                Token::LocalId(_, _) => list.push(self.param_def()?), // ParamDef
+                Token::Comma(_) => { // (`,` ParamDef)*
                     self.consume()?;
                     list.push(self.param_def()?)
                 }
-                Token::RightParent => break,
+                Token::RightParent(_) => break,
                 tok => return self.err(vec!["{LocalId}", "RightParent"], tok)
             }
         }
@@ -132,12 +128,11 @@ impl Parser {
     fn param_def(&mut self) -> ParseResult {
         let loc = self.loc.clone();
         let id = self.consume()?; // LocalId
-        if let Token::LocalId(_) = id {} else {
+        if let Token::LocalId(_, _) = id {} else {
             return self.err(vec!["{LocalId}"], id);
         }
         let col = self.consume()?;
-        // `:`
-        check_op!(self, col, Colon);
+        check_op!(self, col, ":");
         let ty = self.type_decl()?; // TypeDecl
         Ok(Term::ParamDef { loc, id, ty: Box::new(ty) })
     }
@@ -145,8 +140,7 @@ impl Parser {
     fn fn_ret(&mut self) -> ParseResult {
         let loc = self.loc.clone();
         let right_arr = self.consume()?;
-        // `->`
-        check_op!(self, right_arr, RightArrow);
+        check_op!(self, right_arr, "->");
         let ty = self.type_decl()?;
         Ok(Term::FnRet { loc, ty: Box::new(ty) })
     }
@@ -155,15 +149,15 @@ impl Parser {
         let loc = self.loc.clone();
         let left_cur = self.consume()?;
         // `{`
-        check_op!(self, left_cur, LeftCurly);
+        check_op!(self, left_cur, "{");
         let mut bb = Vec::new();
         loop {
             match self.peek(0)? { // BlockDef+
                 // Until at least a basic block is parsed, `}` cannot be accepted.
-                Token::Label(_) => bb.push(self.block_def()?),
-                Token::RightCurly if !bb.is_empty() => {
+                Token::Label(_, _) => bb.push(self.block_def()?),
+                Token::RightCurly(_) if !bb.is_empty() => {
                     let right = self.consume()?;
-                    check_op!(self, right, RightCurly);
+                    check_op!(self, right, "}");
                     break;
                 }
                 tok => {
@@ -179,18 +173,18 @@ impl Parser {
     fn block_def(&mut self) -> ParseResult {
         let loc = self.loc.clone();
         let lab = self.consume()?; // Label
-        if let Token::Label(_) = lab {} else {
+        if let Token::Label(_, _) = lab {} else {
             return self.err(vec!["{Label}"], lab);
         }
         let col = self.consume()?;
         // `:`
-        check_op!(self, col, Colon);
+        check_op!(self, col, ":");
         let mut instr = Vec::new();
         loop {
             match self.peek(0)? {
                 id if id.is_id() => instr.push(self.instr_def()?), // AssignInstr
-                Token::Reserved(_) => instr.push(self.instr_def()?), // CtrlInstr
-                Token::Label(_) | Token::RightCurly if !instr.is_empty() => break,
+                Token::Reserved(_, _) => instr.push(self.instr_def()?), // CtrlInstr
+                Token::Label(_, _) | Token::RightCurly(_) if !instr.is_empty() => break,
                 tok => {
                     let mut expect = vec!["{Id}", "{Reserved}"];
                     if !instr.is_empty() { expect.append(&mut vec!["{Label}", "}"]) }
@@ -204,11 +198,11 @@ impl Parser {
     fn instr_def(&mut self) -> ParseResult {
         let term = match self.peek(0)? {
             id if id.is_id() => self.assign_instr(),
-            Token::Reserved(_) => self.ctrl_instr(),
+            Token::Reserved(_, _) => self.ctrl_instr(),
             tok => return self.err(vec!["{Id}", "{Reserved}"], tok)
         };
         let semi = self.consume()?;
-        check_op!(self, semi, Semicolon);
+        check_op!(self, semi, ";");
         term
     }
 
@@ -217,8 +211,7 @@ impl Parser {
         let id = self.consume()?; // Id
         if !id.is_id() { return self.err(vec!["{Id}"], id); }
         let arr = self.consume()?;
-        // `<-`
-        check_op!(self, arr, LeftArrow);
+        check_op!(self, arr, "<-");
         let expr = self.assign_rhs()?;
         Ok(Term::AssignInstr { loc, id, rhs: Box::new(expr) })
     }
@@ -226,7 +219,7 @@ impl Parser {
     fn assign_rhs(&mut self) -> ParseResult {
         let loc = self.loc.clone();
         let name = self.consume()?; // Reserved
-        if let Token::Reserved(_) = name {} else {
+        if let Token::Reserved(_, _) = name {} else {
             return self.err(vec!["{Reserved}"], name);
         }
         let ty = self.type_decl()?; // TypeDecl
@@ -237,11 +230,11 @@ impl Parser {
     fn arith_opd(&mut self) -> ParseResult {
         Ok(match self.peek(0)? {
             opd if opd.is_opd() => match self.peek(1)? {
-                Token::Comma | Token::Semicolon => self.opd_list()?, // OpdList
-                Token::LeftParent => self.fn_call()?, // FnCall
+                Token::Comma(_) | Token::Semicolon(_) => self.opd_list()?, // OpdList
+                Token::LeftParent(_) => self.fn_call()?, // FnCall
                 tok => self.err(vec![",", ";", "(", "["], tok)?
             }
-            Token::LeftSquare => self.phi_list()?,
+            Token::LeftSquare(_) => self.phi_list()?,
             tok => return self.err(vec!["{Operand}"], tok)
         })
     }
@@ -255,13 +248,13 @@ impl Parser {
                     self.consume()?;
                     list.push(opd)
                 }
-                Token::Comma => { // `,` Opd
+                Token::Comma(_) => { // `,` Opd
                     self.consume()?;
                     let opd = self.consume()?;
                     if !opd.is_opd() { return self.err(vec!["{Operand}"], opd); }
                     list.push(opd)
                 }
-                Token::Semicolon | Token::RightParent => break,
+                Token::Semicolon(_) | Token::RightParent(_) => break,
                 tok => return self.err(vec!["{Operand}", ",", ";"], tok)
             }
         }
@@ -273,8 +266,8 @@ impl Parser {
         let mut list = Vec::new();
         loop {
             match self.peek(0)? {
-                Token::LeftSquare => list.push(self.phi_opd()?),
-                Token::Semicolon if !list.is_empty() => break,
+                Token::LeftSquare(_) => list.push(self.phi_opd()?),
+                Token::Semicolon(_) if !list.is_empty() => break,
                 tok => {
                     let mut expect = vec!["["];
                     if !list.is_empty() { expect.push(";") }
@@ -289,13 +282,13 @@ impl Parser {
         let loc = self.loc.clone();
         let left = self.consume()?;
         // `[`
-        check_op!(self, left, LeftSquare);
+        check_op!(self, left, "[");
         let bb = match self.peek(0)? {
-            Token::Label(l) => {
+            Token::Label(l, s) => {
                 self.consume()?; // Label
                 let col = self.consume()?;
-                check_op!(self, col, Colon);
-                Some(Token::Label(l))
+                check_op!(self, col, ":");
+                Some(Token::Label(l, s))
             }
             opd if opd.is_local_opd() => None,
             tok => return self.err(vec!["{Label}", "{LocalOperand}"], tok)
@@ -306,35 +299,37 @@ impl Parser {
         }
         let right = self.consume()?;
         // `]`
-        check_op!(self, right, RightSquare);
+        check_op!(self, right, "]");
         Ok(Term::PhiOpd { loc, bb, opd })
     }
 
     fn fn_call(&mut self) -> ParseResult {
         let loc = self.loc.clone();
         let func = self.consume()?;
-        if let Token::GlobalId(_) = func {} else {
+        if let Token::GlobalId(_, _) = func {} else {
             return self.err(vec!["{GlobalId}"], func);
         }
         let left = self.consume()?;
-        check_op!(self, left, LeftParent);
+        check_op!(self, left, "(");
         let arg = self.opd_list()?;
         let right = self.consume()?;
-        check_op!(self, right, RightParent);
+        check_op!(self, right, ")");
         Ok(Term::FnCall { loc, func, arg: Box::new(arg) })
     }
 
     fn ctrl_instr(&mut self) -> ParseResult {
-        match self.peek(0)? {
-            Token::Reserved(k) if &k == "ret" => self.ret_instr(),
-            Token::Reserved(k) if &k == "jmp" => self.jmp_instr(),
-            Token::Reserved(k) if &k == "fn" => {
+        let loc = self.loc.clone();
+        let ctrl = match self.peek(0)? {
+            Token::Reserved(_, k) if &k == "ret" => self.ret_instr()?,
+            Token::Reserved(_, k) if &k == "jmp" => self.jmp_instr()?,
+            Token::Reserved(_, k) if &k == "fn" => {
                 self.consume()?;
-                self.fn_call()
+                self.fn_call()?
             }
-            Token::Reserved(k) if &k == "br" => self.branch(),
-            tok => self.err(vec!["ret", "jmp", "fn", "br"], tok)
-        }
+            Token::Reserved(_, k) if &k == "br" => self.branch()?,
+            tok => self.err(vec!["ret", "jmp", "fn", "br"], tok)?
+        };
+        Ok(Term::CtrlInstr { loc, instr: Box::new(ctrl) })
     }
 
     fn ret_instr(&mut self) -> ParseResult {
@@ -345,7 +340,7 @@ impl Parser {
                 self.consume()?;
                 Some(opd)
             }
-            Token::Semicolon => None,
+            Token::Semicolon(_) => None,
             tok => return self.err(vec!["{Operand}"], tok)
         };
         Ok(Term::RetInstr { loc, opd })
@@ -355,7 +350,7 @@ impl Parser {
         let loc = self.loc.clone();
         self.consume()?; // `jmp`
         match self.consume()? {
-            Token::Label(l) => Ok(Term::JmpInstr { loc, tgt: Token::Label(l) }),
+            Token::Label(l, s) => Ok(Term::JmpInstr { loc, tgt: Token::Label(l, s) }),
             tok => self.err(vec!["{Label}"], tok)
         }
     }
@@ -367,16 +362,16 @@ impl Parser {
         if !cond.is_opd() { return self.err(vec!["{Operand}"], cond); }
         let ques = self.consume()?;
         // `?`
-        check_op!(self, ques, Question);
+        check_op!(self, ques, "?");
         let tr = self.consume()?; // Label
-        if let Token::Label(_) = tr {} else {
+        if let Token::Label(_, _) = tr {} else {
             return self.err(vec!["{Label}"], tr);
         }
         let col = self.consume()?;
         // `:`
-        check_op!(self, col, Colon);
+        check_op!(self, col, ":");
         let fls = self.consume()?; // Label
-        if let Token::Label(_) = fls {} else {
+        if let Token::Label(_, _) = fls {} else {
             return self.err(vec!["{Label}"], fls);
         }
         Ok(Term::Branch { loc, cond, tr, fls })
@@ -385,7 +380,7 @@ impl Parser {
     fn type_decl(&mut self) -> ParseResult {
         let loc = self.loc.clone();
         let ty = self.consume()?; // Reserved
-        if let Token::Reserved(_) = ty {} else {
+        if let Token::Reserved(_, _) = ty {} else {
             return self.err(vec!["{Reserved}"], ty);
         }
         Ok(Term::TypeDecl { loc, ty })
@@ -393,12 +388,12 @@ impl Parser {
 
     /// Consume one lexeme from stream
     fn consume(&mut self) -> Result<Token, CompileErr> {
-        let lex = match self.buf.pop_front() {
+        let tok = match self.buf.pop_front() {
             Some(l) => l,
             None => self.lexer.next()?
         };
-        self.loc = lex.loc.clone();
-        Ok(lex.tok)
+        self.loc = tok.loc().clone();
+        Ok(tok)
     }
 
     /// Look ahead certain lexeme in the stream.
@@ -409,8 +404,8 @@ impl Parser {
             }
         }
         let lex = self.buf[idx].clone();
-        self.loc = lex.loc.clone();
-        Ok(lex.tok)
+        self.loc = lex.loc();
+        Ok(lex)
     }
 
     /// Report error with current location

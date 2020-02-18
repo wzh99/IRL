@@ -57,7 +57,7 @@ pub trait Typed {
     fn get_type(&self) -> Type;
 }
 
-#[derive(Eq, PartialEq)]
+#[derive(Eq, PartialEq, Clone, Debug)]
 pub enum Value {
     /// A variable holding reference to corresponding symbol
     Var(SymbolRef),
@@ -112,8 +112,6 @@ pub struct Func {
     pub ent: RefCell<ExtRc<BasicBlock>>,
     /// Set of exit blocks of this function
     pub exit: RefCell<HashSet<ExtRc<BasicBlock>>>,
-    /// If this function is in SSA form
-    pub ssa: RefCell<bool>,
 }
 
 impl PartialEq for Func {

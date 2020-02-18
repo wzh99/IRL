@@ -1,22 +1,9 @@
-use std::fmt::{self, Display, Formatter};
 use std::io::{self, Read};
 use std::iter::FromIterator;
 use std::str::FromStr;
 
 use crate::compile::{CompileErr, Loc};
 use crate::compile::syntax::Token;
-
-#[derive(Clone)]
-pub struct Lexeme {
-    pub loc: Loc,
-    pub tok: Token,
-}
-
-impl Display for Lexeme {
-    fn fmt(&self, f: &mut Formatter<'_>) -> Result<(), fmt::Error> {
-        write!(f, "{} {:?}", self.loc, self.tok)
-    }
-}
 
 pub struct Lexer {
     /// Characters from source
@@ -69,7 +56,7 @@ enum NfaState {
     Int,
 }
 
-type LexResult = Result<Lexeme, CompileErr>;
+type LexResult = Result<Token, CompileErr>;
 
 impl Lexer {
     /// Get next lexeme. This function simulates an NFA to perform lexical analysis.
@@ -146,7 +133,7 @@ impl Lexer {
                             }
                             '>' => {
                                 skip_char!();
-                                return self.lex(Token::RightArrow);
+                                return Ok(Token::RightArrow(self.loc.clone()));
                             }
                             _ => return self.err("expect [0-9>]")
                         }
@@ -157,7 +144,7 @@ impl Lexer {
                             return self.err("expect -");
                         }
                         skip_char!(); // '-'
-                        return self.lex(Token::LeftArrow);
+                        return Ok(Token::LeftArrow(self.loc.clone()));
                     }
                     '0'..='9' => {
                         read_char!();
@@ -165,43 +152,43 @@ impl Lexer {
                     }
                     ',' => {
                         skip_char!();
-                        return self.lex(Token::Comma);
+                        return Ok(Token::Comma(self.loc.clone()));
                     }
                     '(' => {
                         skip_char!();
-                        return self.lex(Token::LeftParent);
+                        return Ok(Token::LeftParent(self.loc.clone()));
                     }
                     ')' => {
                         skip_char!();
-                        return self.lex(Token::RightParent);
+                        return Ok(Token::RightParent(self.loc.clone()));
                     }
                     '[' => {
                         skip_char!();
-                        return self.lex(Token::LeftSquare);
+                        return Ok(Token::LeftSquare(self.loc.clone()));
                     }
                     ']' => {
                         skip_char!();
-                        return self.lex(Token::RightSquare);
+                        return Ok(Token::RightSquare(self.loc.clone()));
                     }
                     '{' => {
                         skip_char!();
-                        return self.lex(Token::LeftCurly);
+                        return Ok(Token::LeftCurly(self.loc.clone()));
                     }
                     '}' => {
                         skip_char!();
-                        return self.lex(Token::RightCurly);
+                        return Ok(Token::RightCurly(self.loc.clone()));
                     }
                     ':' => {
                         skip_char!();
-                        return self.lex(Token::Colon);
+                        return Ok(Token::Colon(self.loc.clone()));
                     }
                     ';' => {
                         skip_char!();
-                        return self.lex(Token::Semicolon);
+                        return Ok(Token::Semicolon(self.loc.clone()));
                     }
                     '?' => {
                         skip_char!();
-                        return self.lex(Token::Question);
+                        return Ok(Token::Question(self.loc.clone()));
                     }
                     ' ' | '\t' | '\r' | '\n' => { skip_char!(); }
                     _ => return self.err("unknown character")
@@ -250,7 +237,7 @@ impl Lexer {
 
         // Possibly clear the buffer and create the final lexeme
         if buf.is_empty() {
-            self.lex(Token::Eof)
+            Ok(Token::Eof(self.loc.clone()))
         } else {
             self.pop_buf(state, buf)
         }
@@ -265,13 +252,6 @@ impl Lexer {
         }
     }
 
-    /// Create lexeme from given token
-    fn lex(&self, tok: Token) -> LexResult {
-        let mut loc = self.loc.clone();
-        loc.col -= tok.len();
-        Ok(Lexeme { loc, tok })
-    }
-
     fn err(&mut self, msg: &str) -> LexResult {
         let err = CompileErr { loc: self.loc.clone(), msg: msg.to_string() };
         self.err = Some(err.clone());
@@ -284,11 +264,12 @@ impl Lexer {
         match state {
             // When the buffer is not empty, it cannot be in the start state.
             NfaState::Start => unreachable!(),
-            NfaState::GlobalName => self.lex(Token::GlobalId(s)),
-            NfaState::LocalName | NfaState::LocalVer => self.lex(Token::LocalId(s)),
-            NfaState::LabelName => self.lex(Token::Label(s)),
-            NfaState::ResName => self.lex(Token::Reserved(s)),
-            NfaState::Int => self.lex(Token::Integer(s))
+            NfaState::GlobalName => Ok(Token::GlobalId(self.loc.clone(), s)),
+            NfaState::LocalName | NfaState::LocalVer =>
+                Ok(Token::LocalId(self.loc.clone(), s)),
+            NfaState::LabelName => Ok(Token::Label(self.loc.clone(), s)),
+            NfaState::ResName => Ok(Token::Reserved(self.loc.clone(), s)),
+            NfaState::Int => Ok(Token::Integer(self.loc.clone(), s))
         }
     }
 
@@ -306,8 +287,8 @@ fn test_lex() {
     let mut lexer = Lexer::from_read(&mut file).unwrap();
     loop {
         match lexer.next() {
-            Ok(Lexeme { loc: _, tok: Token::Eof }) => break,
-            Ok(l) => println!("{}", l),
+            Ok(Token::Eof(_)) => break,
+            Ok(l) => println!("{:?}", l),
             Err(e) => {
                 println!("{}", e);
                 break;

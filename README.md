@@ -16,10 +16,10 @@ fn @max($a: i64, $b: i64) -> i64 {
     $c <- ge i64 $a, $b;
     br $c ? %True : %False;
 %True:
-    $x.0 <- $a;
+    $x.0 <- mov i64 $a;
     jmp %End;
 %False:
-    $x.1 <- $b;
+    $x.1 <- mov i64 $b;
     jmp %End;
 %End:
     $x.2 <- phi i64 [%True: $x.0] [%False: $x.1];
