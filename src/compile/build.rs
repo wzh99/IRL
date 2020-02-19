@@ -1,5 +1,5 @@
 use std::cell::RefCell;
-use std::collections::{HashMap, HashSet};
+use std::collections::HashMap;
 use std::ops::Deref;
 use std::rc::Rc;
 use std::str::FromStr;
@@ -7,10 +7,9 @@ use std::str::FromStr;
 use crate::compile::{CompileErr, Loc};
 use crate::compile::syntax::{Term, Token};
 use crate::lang::{ExtRc, Program};
-use crate::lang::block::{BasicBlock, BlockRef};
-use crate::lang::func::{Func, Scope};
+use crate::lang::func::{BasicBlock, BlockRef, Func};
 use crate::lang::instr::{BinOp, Instr, UnOp};
-use crate::lang::val::{Const, GlobalVar, Symbol, SymbolRef, Type, Typed, Value};
+use crate::lang::val::{Const, GlobalVar, Scope, Symbol, SymbolRef, Type, Typed, Value};
 
 pub struct Builder {
     root: Term,
@@ -43,9 +42,13 @@ impl Builder {
                         let var = Rc::new(self.build_global_var(id, ty, init)?);
                         pro.vars.push(var.clone());
                         let sym = ExtRc::new(Symbol::Global(var));
-                        pro.global.add(sym).map_err(
-                            |e| CompileErr { loc: loc.clone(), msg: e }
-                        )?;
+                        let added = pro.global.add(sym.clone());
+                        if !added {
+                            return Err(CompileErr {
+                                loc: loc.clone(),
+                                msg: format!("variable {} already in global scope", sym.name()),
+                            });
+                        }
                     }
                     // Create signature part for function, while its body are left empty for a
                     // later pass.
@@ -53,9 +56,13 @@ impl Builder {
                         let func = Rc::new(self.build_fn_sig(sig)?);
                         pro.funcs.push(func.clone());
                         let sym = ExtRc::new(Symbol::Func(func));
-                        pro.global.add(sym).map_err(
-                            |e| CompileErr { loc: loc.clone(), msg: e }
-                        )?;
+                        let added = pro.global.add(sym.clone());
+                        if !added {
+                            return Err(CompileErr {
+                                loc: loc.clone(),
+                                msg: format!("function {} already defined", sym.name()),
+                            });
+                        }
                         bodies.push(body.deref())
                     }
                     _ => unreachable!()
@@ -64,12 +71,12 @@ impl Builder {
         } else { unreachable!() }
 
         // Build basic blocks in each function
-        for i in 0..pro.funcs.len() {
+        for (i, func) in pro.funcs.iter().enumerate() {
             let blocks = match bodies[i] {
                 Term::FnBody { loc: _, bb } => bb,
                 _ => unreachable!()
             };
-            self.build_body(blocks, pro.funcs[i].clone(), pro.global.clone())?;
+            self.build_body(blocks, func.clone(), pro.global.clone())?;
         }
 
         Ok(pro)
@@ -102,7 +109,13 @@ impl Builder {
                     if let Term::ParamDef { loc, id: Token::LocalId(_, s), ty } = p {
                         let sym = ExtRc::new(self.create_local(s, self.create_type(ty)?)?);
                         plist.push(sym.clone());
-                        scope.add(sym).map_err(|e| CompileErr { loc: loc.clone(), msg: e })?
+                        let added = scope.add(sym.clone());
+                        if !added {
+                            return Err(CompileErr {
+                                loc: loc.clone(),
+                                msg: format!("parameter {} already defined", sym.id()),
+                            });
+                        }
                     } else { unreachable!() }
                 }
             } else { unreachable!() }
@@ -116,14 +129,7 @@ impl Builder {
             };
 
             // Return incomplete function object
-            Ok(Func {
-                name: name.to_string(),
-                scope: Rc::new(scope),
-                param: plist,
-                ret,
-                ent: RefCell::new(ExtRc::new(BasicBlock::default())),
-                exit: RefCell::new(HashSet::new()),
-            })
+            Ok(Func::new(name.to_string(), scope, plist, ret, BasicBlock::default()))
         } else { unreachable!() }
     }
 
@@ -152,11 +158,13 @@ impl Builder {
             labels,
             block: RefCell::new(func.ent.borrow().clone()),
         };
+        let mut asm_ssa = false; // whether this function is assumed to be in SSA form
         for (b, loc, terms) in blocks {
             // Build instructions
             for t in terms {
                 ctx.block.replace(b.clone());
                 let instr = self.build_instr(t, &ctx)?;
+                if !asm_ssa { asm_ssa = self.assume_ssa(&instr) }
                 b.push_back(instr);
             }
             // Check if the block is ended with control flow instructions
@@ -168,7 +176,31 @@ impl Builder {
             }
         }
 
+        // Compute dominators of blocks
+        func.build_dom();
+
         Ok(())
+    }
+
+    /// Make assumption about whether the instruction is in SSA form.
+    /// Whether the function is really in SSA form remained to be verified.
+    fn assume_ssa(&self, instr: &Instr) -> bool {
+        // Criteria 1: Phi instruction
+        if let Instr::Phi { src: _, dst: _ } = instr { return true; }
+        // Criteria 2: Contain versioned symbol
+        if let Some(sym) = instr.def() {
+            if let Symbol::Local { name: _, ty: _, ver: Some(_) } = sym.borrow().as_ref() {
+                return true;
+            }
+        }
+        for u in instr.opd() {
+            if let Value::Var(sym) = u.borrow().deref() {
+                if let Symbol::Local { name: _, ty: _, ver: Some(_) } = sym.deref() {
+                    return true;
+                }
+            }
+        }
+        false
     }
 
     fn build_instr(&self, term: &Term, ctx: &Context) -> Result<Instr, CompileErr> {
@@ -415,7 +447,7 @@ impl Builder {
                 let tgt = self.trim_tag(tgt);
                 match ctx.labels.get(tgt) {
                     Some(tgt) => {
-                        ctx.block.borrow().connect_to(tgt.clone());
+                        ctx.block.borrow().connect(tgt.clone());
                         Ok(Instr::Jmp { tgt: RefCell::new(tgt.clone()) })
                     }
                     None => Err(CompileErr {
@@ -443,8 +475,8 @@ impl Builder {
                         msg: format!("label {} not found", f_lab),
                     }
                 )?;
-                ctx.block.borrow().connect_to(tr.clone());
-                ctx.block.borrow().connect_to(fls.clone());
+                ctx.block.borrow().connect(tr.clone());
+                ctx.block.borrow().connect(fls.clone());
                 Ok(Instr::Br {
                     cond: RefCell::new(cond),
                     tr: RefCell::new(tr.clone()),
@@ -473,7 +505,7 @@ impl Builder {
                 Some(sym) => {
                     self.check_type(sym.deref(), ty, l)?;
                     Ok(sym)
-                },
+                }
                 None => {
                     let sym = ExtRc::new(self.create_local(s, ty.clone())?);
                     let _ = ctx.func.scope.add(sym.clone());
@@ -544,8 +576,11 @@ fn test_build() {
     use crate::compile::lex::Lexer;
     use crate::compile::parse::Parser;
     use std::fs::File;
-    let mut file = File::open("test/parse.ir").unwrap();
-    let lexer = Lexer::from_read(&mut file).unwrap();
+    use std::convert::TryFrom;
+    use std::io::Read;
+
+    let mut file = File::open("test/example.ir").unwrap();
+    let lexer = Lexer::try_from(&mut file as &mut dyn Read).unwrap();
     let parser = Parser::new(lexer);
     let tree = parser.parse().unwrap();
     let builder = Builder::new(tree);

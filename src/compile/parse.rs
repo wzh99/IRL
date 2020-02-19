@@ -418,8 +418,11 @@ impl Parser {
 #[test]
 fn test_parse() {
     use std::fs::File;
-    let mut file = File::open("test/parse.ir").unwrap();
-    let lexer = Lexer::from_read(&mut file).unwrap();
+    use std::convert::TryFrom;
+    use std::io::Read;
+
+    let mut file = File::open("test/example.ir").unwrap();
+    let lexer = Lexer::try_from(&mut file as &mut dyn Read).unwrap();
     let parser = Parser::new(lexer);
     println!("{:#?}", parser.parse())
 }

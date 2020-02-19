@@ -1,3 +1,4 @@
+use std::convert::TryFrom;
 use std::io::{self, Read};
 use std::iter::FromIterator;
 use std::str::FromStr;
@@ -29,8 +30,10 @@ impl FromStr for Lexer {
     }
 }
 
-impl Lexer {
-    pub fn from_read(read: &mut dyn Read) -> Result<Lexer, io::Error> {
+impl TryFrom<&mut dyn Read> for Lexer {
+    type Error = io::Error;
+
+    fn try_from(read: &mut dyn Read) -> Result<Self, Self::Error> {
         let mut s = String::new();
         read.read_to_string(&mut s)?;
         Ok(Self::from_str(&s)?)
@@ -300,8 +303,8 @@ impl Lexer {
 #[test]
 fn test_lex() {
     use std::fs::File;
-    let mut file = File::open("test/parse.ir").unwrap();
-    let mut lexer = Lexer::from_read(&mut file).unwrap();
+    let mut file = File::open("test/example.ir").unwrap();
+    let mut lexer = Lexer::try_from(&mut file as &mut dyn Read).unwrap();
     loop {
         match lexer.next() {
             Ok(Token::Eof(_)) => break,
