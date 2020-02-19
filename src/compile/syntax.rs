@@ -37,6 +37,8 @@ pub enum Token {
     LeftArrow(Loc),
     /// Right arrow, used in function type `->`
     RightArrow(Loc),
+    /// Comment `//`
+    Comment(Loc),
     /// End-of-file indicator
     Eof(Loc),
 }
@@ -58,6 +60,7 @@ impl ToString for Token {
             Token::RightCurly(_) => "}".to_string(),
             Token::LeftArrow(_) => "<-".to_string(),
             Token::RightArrow(_) => "->".to_string(),
+            Token::Comment(_) => "//".to_string(),
             Token::Eof(_) => "".to_string()
         }
     }
@@ -94,7 +97,8 @@ impl Token {
             Token::Comma(l) | Token::Colon(l) | Token::Semicolon(l) | Token::Question(l)
             | Token::LeftParent(l) | Token::RightParent(l) | Token::LeftSquare(l)
             | Token::RightSquare(l) | Token::LeftCurly(l) | Token::RightCurly(l)
-            | Token::LeftArrow(l) | Token::RightArrow(l) | Token::Eof(l) => l.clone()
+            | Token::LeftArrow(l) | Token::RightArrow(l) | Token::Comment(l)
+            | Token::Eof(l) => l.clone()
         }
     }
 }
@@ -187,8 +191,8 @@ pub enum Term {
     /// FOLLOW = { `[`, `;` }
     PhiOpd { loc: Loc, bb: Option<Token>, opd: Token },
 
-    /// CtrlInstr : RetInstr | JmpInstr | `call` FnCall | Branch ;
-    /// FIRST = { `ret` -> RetInstr, `jmp` -> JmpInstr, `br` -> Branch }
+    /// CtrlInstr : RetInstr | JmpInstr | `call` FnCall | BrInstr ;
+    /// FIRST = { `ret` -> RetInstr, `jmp` -> JmpInstr, `br` -> BrInstr }
     /// FOLLOW = { `;` }
     CtrlInstr { loc: Loc, instr: Box<Term> },
 
@@ -205,7 +209,7 @@ pub enum Term {
     /// Branch : `br` Opd `?` Label `:` Label ;
     /// FIRST = { Opd }
     /// FOLLOW = { `;` }
-    Branch { loc: Loc, cond: Token, tr: Token, fls: Token },
+    BrInstr { loc: Loc, cond: Token, tr: Token, fls: Token },
 
     /// Id : GlobalId | LocalId
 

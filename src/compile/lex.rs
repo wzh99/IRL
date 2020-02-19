@@ -54,6 +54,8 @@ enum NfaState {
     ResName,
     /// Expect integer
     Int,
+    /// In comment, ignore all characters until a new line
+    Comment
 }
 
 type LexResult = Result<Token, CompileErr>;
@@ -190,6 +192,14 @@ impl Lexer {
                         skip_char!();
                         return Ok(Token::Question(self.loc.clone()));
                     }
+                    '/' => {
+                        skip_char!(); // `/`
+                        if self.peek() != '/' {
+                            return self.err("expect /")
+                        }
+                        skip_char!(); // `/`
+                        state = NfaState::Comment
+                    }
                     ' ' | '\t' | '\r' | '\n' => { skip_char!(); }
                     _ => return self.err("unknown character")
                 }
@@ -232,6 +242,13 @@ impl Lexer {
                     '0'..='9' => { read_char!(); }
                     _ => return self.pop_buf(state, buf)
                 }
+                NfaState::Comment => {
+                    skip_char!();
+                    match c {
+                        '\n' => state = NfaState::Start,
+                        _ => continue
+                    }
+                }
             }
         }
 
@@ -263,7 +280,7 @@ impl Lexer {
         let s = String::from_iter(buf.into_iter());
         match state {
             // When the buffer is not empty, it cannot be in the start state.
-            NfaState::Start => unreachable!(),
+            NfaState::Start | NfaState::Comment => unreachable!(),
             NfaState::GlobalName => Ok(Token::GlobalId(self.loc.clone(), s)),
             NfaState::LocalName | NfaState::LocalVer =>
                 Ok(Token::LocalId(self.loc.clone(), s)),

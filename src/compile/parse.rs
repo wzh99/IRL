@@ -326,7 +326,7 @@ impl Parser {
                 self.consume()?;
                 self.fn_call()?
             }
-            Token::Reserved(_, k) if &k == "br" => self.branch()?,
+            Token::Reserved(_, k) if &k == "br" => self.br_instr()?,
             tok => self.err(vec!["ret", "jmp", "fn", "br"], tok)?
         };
         Ok(Term::CtrlInstr { loc, instr: Box::new(ctrl) })
@@ -355,26 +355,24 @@ impl Parser {
         }
     }
 
-    fn branch(&mut self) -> ParseResult {
+    fn br_instr(&mut self) -> ParseResult {
         let loc = self.loc.clone();
         self.consume()?;
         let cond = self.consume()?; // Opd
         if !cond.is_opd() { return self.err(vec!["{Operand}"], cond); }
         let ques = self.consume()?;
-        // `?`
         check_op!(self, ques, "?");
         let tr = self.consume()?; // Label
         if let Token::Label(_, _) = tr {} else {
             return self.err(vec!["{Label}"], tr);
         }
         let col = self.consume()?;
-        // `:`
         check_op!(self, col, ":");
         let fls = self.consume()?; // Label
         if let Token::Label(_, _) = fls {} else {
             return self.err(vec!["{Label}"], fls);
         }
-        Ok(Term::Branch { loc, cond, tr, fls })
+        Ok(Term::BrInstr { loc, cond, tr, fls })
     }
 
     fn type_decl(&mut self) -> ParseResult {
