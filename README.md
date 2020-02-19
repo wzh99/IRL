@@ -2,11 +2,11 @@
 
 ## Introduction
 
-This project is for experimenting some techniques of IR (intermediate representation) language, including parsing, optimization, execution, etc. The organization is quite similar to [LLVM](https://www.llvm.org), with complexity greatly reduced. Some of the implementation are ported from my previous project [GoCompiler](https://github.com/wzh99/GoCompiler). This project is also inspired by [LLIRInterpreter](https://github.com/abcdabcd987/LLIRInterpreter) and [ssa-anf](https://github.com/jacobstanley/ssa-anf)
+This project is for experimenting some techniques of IR (intermediate representation) language, including parsing, optimization, execution, etc. The organization is quite similar to [LLVM](https://www.llvm.org), with complexity greatly reduced. Some of the implementation is ported from my previous project [GoCompiler](https://github.com/wzh99/GoCompiler). This project is also inspired by [LLIRInterpreter](https://github.com/abcdabcd987/LLIRInterpreter) and [ssa-anf](https://github.com/jacobstanley/ssa-anf)
 
 ## Language
 
-The language involved is an CFG-based, register-to-register model IR. Phi instruction is provided to build SSA form, but is not mandatory. The following is an example to show the structure of a simple program. The program is not very practical, but should suffice to show some characteristics of this language. This example can also be seen in [parse.ir](test/parse.ir)
+The language involved is an CFG-based, register-to-register model IR. Phi instruction is provided to build SSA form, but is not mandatory. The following is an example to show the structure of a simple program. The program is not very practical, but should suffice to show some characteristics of this language. This example can also be seen in [example.ir](test/example.ir)
 
 ```assembly
 @g <- 0: i64;
@@ -33,7 +33,7 @@ fn @main() {
 }
 ```
 
-It could be seen from the example that the syntax is similar to [LLVM IR](https://www.llvm.org/docs/LangRef.html), but adopts the type annotation style different from LLVM. Also, it tries to reduce type annotation required in the language, as long as it can be inferred from context or expressions.
+It could be seen from the example that the syntax is similar to [LLVM IR](https://www.llvm.org/docs/LangRef.html), but adopts some syntax features commonly seen in higher level programming languages. It tries to reduce type annotation required in the language, as long as it can be inferred from context or expressions.
 
 The type system and instruction set are all quite simple, but they are fairly enough support most of the following work. For type definition, see [`lang::val::Type`](src/lang/val.rs). For instruction set, see [`lang::instr`](src/lang/instr.rs).
 

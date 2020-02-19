@@ -3,12 +3,11 @@ use std::fmt::{Debug, Error, Formatter};
 use std::rc::Rc;
 use std::str::FromStr;
 
-use crate::lang::block::BlockRef;
 use crate::lang::ExtRc;
-use crate::lang::func::Func;
+use crate::lang::func::{BlockRef, Func};
 use crate::lang::val::{SymbolRef, Value};
 
-#[derive(Debug)]
+#[derive(Clone, Debug)]
 pub enum Instr {
     /// Move (copy) data from one virtual register to another
     Mov { src: RefCell<Value>, dst: RefCell<SymbolRef> },
@@ -80,7 +79,7 @@ impl Instr {
     }
 }
 
-#[derive(Debug)]
+#[derive(Clone, Copy, Debug)]
 pub enum UnOp {
     /// 2's complement of signed number
     Neg,
@@ -106,7 +105,7 @@ impl ToString for UnOp {
     }
 }
 
-#[derive(Debug)]
+#[derive(Clone, Copy, Debug)]
 pub enum BinOp {
     /// Addition
     Add,

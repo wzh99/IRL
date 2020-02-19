@@ -3,8 +3,7 @@ use std::io::{Error, Write};
 use std::ops::Deref;
 use std::rc::Rc;
 
-use crate::lang::block::BlockRef;
-use crate::lang::func::Func;
+use crate::lang::func::{BlockRef, Func};
 use crate::lang::instr::{Instr, InstrRef};
 use crate::lang::Program;
 use crate::lang::val::{GlobalVar, Type, Typed, Value};
@@ -132,11 +131,12 @@ fn test_print() {
     use crate::compile::lex::Lexer;
     use crate::compile::parse::Parser;
     use std::fs::File;
-    use std::io::stdout;
+    use std::io::{Read, stdout};
+    use std::convert::TryFrom;
 
     // Build program from source
-    let mut file = File::open("test/parse.ir").unwrap();
-    let lexer = Lexer::from_read(&mut file).unwrap();
+    let mut file = File::open("test/example.ir").unwrap();
+    let lexer = Lexer::try_from(&mut file as &mut dyn Read).unwrap();
     let parser = Parser::new(lexer);
     let tree = parser.parse().unwrap();
     let builder = Builder::new(tree);

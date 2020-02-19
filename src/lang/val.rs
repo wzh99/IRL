@@ -1,3 +1,5 @@
+use std::cell::RefCell;
+use std::collections::HashMap;
 use std::fmt::{Debug, Error, Formatter};
 use std::ops::Deref;
 use std::rc::Rc;
@@ -174,4 +176,42 @@ pub struct GlobalVar {
 
 impl Typed for GlobalVar {
     fn get_type(&self) -> Type { return self.ty.clone(); }
+}
+
+#[derive(Debug)]
+/// Encapsulation of hash map to provide
+pub struct Scope {
+    /// Maps variable identifier to symbol
+    /// For local variable, its identifier is `{$name}(.{$ver})?`
+    sym: RefCell<HashMap<String, SymbolRef>>,
+}
+
+impl Scope {
+    /// Create a new scope.
+    /// If `parent` is `Some(p)`, a function scope with parent pointer `p` will be created.
+    /// Otherwise, a global scope will be created.
+    pub fn new() -> Scope {
+        Scope {
+            sym: RefCell::new(HashMap::new())
+        }
+    }
+
+    /// Add a symbol to the scope, and return if this symbol was successfully added.
+    pub fn add(&self, sym: SymbolRef) -> bool {
+        let id = sym.id();
+        self.sym.borrow_mut().insert(id, sym).is_none()
+    }
+
+    /// Lookup a symbol with given `id`.
+    pub fn find(&self, id: &str) -> Option<SymbolRef> {
+        self.sym.borrow_mut().get(id).cloned()
+    }
+
+    /// Remove symbol with `name` from scope.
+    pub fn remove(&self, name: &String) { self.sym.borrow_mut().remove(name); }
+
+    /// Return vector containing all the symbols in the scope.
+    pub fn collect(&self) -> Vec<SymbolRef> {
+        self.sym.borrow().values().cloned().collect()
+    }
 }
