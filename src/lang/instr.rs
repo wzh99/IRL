@@ -3,7 +3,7 @@ use std::fmt::{Debug, Error, Formatter};
 use std::rc::Rc;
 use std::str::FromStr;
 
-use crate::lang::bb::BlockRef;
+use crate::lang::block::BlockRef;
 use crate::lang::ExtRc;
 use crate::lang::func::Func;
 use crate::lang::val::{SymbolRef, Value};
@@ -39,12 +39,13 @@ impl Debug for ExtRc<Instr> {
 }
 
 impl Instr {
-    /// Decide if this instruction is a control flow instruction
-    /// Currently, only `Br`, `Call` and `Ret`are control flow instructions.
+    /// Decide if this instruction is a control flow instruction.
+    /// A control flow instruction correspond to a directed edge in the CFG.
+    /// Currently, only `jmp`, `br` and `ret`are control flow instructions.
     pub fn is_ctrl(&self) -> bool {
         match self {
-            Instr::Br { cond: _, tr: _, fls: _ } | Instr::Call { func: _, arg: _, dst: _ } |
-            Instr::Ret { val: _ } => true,
+            Instr::Jmp { tgt: _ } | Instr::Br { cond: _, tr: _, fls: _ }
+            | Instr::Ret { val: _ } => true,
             _ => false
         }
     }
@@ -169,4 +170,15 @@ impl FromStr for BinOp {
 
 impl ToString for BinOp {
     fn to_string(&self) -> String { format!("{:?}", self).to_lowercase() }
+}
+
+impl BinOp {
+    pub fn is_arith(&self) -> bool { !self.is_cmp() }
+
+    pub fn is_cmp(&self) -> bool {
+        match self {
+            BinOp::Eq | BinOp::Ne | BinOp::Lt | BinOp::Le | BinOp::Gt | BinOp::Ge => true,
+            _ => false
+        }
+    }
 }

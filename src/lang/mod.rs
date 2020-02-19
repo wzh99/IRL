@@ -10,7 +10,7 @@ use crate::lang::val::GlobalVar;
 
 pub mod val;
 pub mod instr;
-pub mod bb;
+pub mod block;
 pub mod func;
 pub mod print;
 

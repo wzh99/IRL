@@ -3,7 +3,7 @@ use std::collections::{HashMap, HashSet, VecDeque};
 use std::iter::FromIterator;
 use std::rc::Rc;
 
-use crate::lang::bb::{BasicBlock, BlockRef};
+use crate::lang::block::{BasicBlock, BlockRef};
 use crate::lang::ExtRc;
 use crate::lang::val::{SymbolRef, Type, Typed};
 

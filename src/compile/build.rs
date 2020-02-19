@@ -7,7 +7,7 @@ use std::str::FromStr;
 use crate::compile::{CompileErr, Loc};
 use crate::compile::syntax::{Term, Token};
 use crate::lang::{ExtRc, Program};
-use crate::lang::bb::{BasicBlock, BlockRef};
+use crate::lang::block::{BasicBlock, BlockRef};
 use crate::lang::func::{Func, Scope};
 use crate::lang::instr::{BinOp, Instr, UnOp};
 use crate::lang::val::{Const, GlobalVar, Symbol, SymbolRef, Type, Typed, Value};
@@ -132,15 +132,15 @@ impl Builder {
     {
         // Build block labels
         let mut labels: HashMap<String, BlockRef> = HashMap::new();
-        let mut blocks: Vec<(BlockRef, &Vec<Term>)> = vec![];
+        let mut blocks: Vec<(BlockRef, &Loc, &Vec<Term>)> = vec![];
         for i in 0..terms.len() {
-            if let Term::BlockDef { loc: _, id, instr } = &terms[i] {
+            if let Term::BlockDef { loc, id, instr } = &terms[i] {
                 let name = if let Token::Label(_, s) = id {
                     self.trim_tag(s).to_string()
                 } else { unreachable!() };
                 let block = ExtRc::new(BasicBlock::new(name.clone()));
                 labels.insert(name, block.clone());
-                blocks.push((block.clone(), instr));
+                blocks.push((block.clone(), loc, instr));
                 if i == 0 { func.ent.replace(block); } // replace dummy entrance with real one
             } else { unreachable!() };
         }
@@ -152,11 +152,19 @@ impl Builder {
             labels,
             block: RefCell::new(func.ent.borrow().clone()),
         };
-        for (b, terms) in blocks {
+        for (b, loc, terms) in blocks {
+            // Build instructions
             for t in terms {
                 ctx.block.replace(b.clone());
                 let instr = self.build_instr(t, &ctx)?;
                 b.push_back(instr);
+            }
+            // Check if the block is ended with control flow instructions
+            if !b.is_complete() {
+                return Err(CompileErr {
+                    loc: loc.clone(),
+                    msg: format!("block {} is not complete", b.name),
+                });
             }
         }
 
@@ -175,25 +183,30 @@ impl Builder {
         if let Term::AssignRhs { loc: _, name: Token::Reserved(_, op), ty, opd } = rhs {
             // Create symbols for destination
             let ref ty = self.create_type(ty)?;
-            let dst = self.build_symbol(dst, &ty, ctx)?;
 
             // Deal with operands
             match opd.deref() {
                 Term::OpdList { loc, list } =>
-                    self.build_arith(&ty, dst.clone(), op.as_str(), list, ctx, loc),
-                Term::FnCall { loc, func: Token::GlobalId(_, func), arg } =>
-                    self.build_fn_call(func, arg.deref(), Some(dst), ctx, loc),
-                Term::PhiList { loc: _, list } => self.build_phi_instr(list, ty, dst, ctx),
+                    self.build_op(&ty, dst, op.as_str(), list, ctx, loc),
+                Term::FnCall { loc, func: Token::GlobalId(_, func), arg } => {
+                    let dst = self.build_symbol(dst, &ty, ctx)?;
+                    self.build_fn_call(func, arg.deref(), Some(dst), ctx, loc)
+                }
+                Term::PhiList { loc: _, list } => {
+                    let dst = self.build_symbol(dst, &ty, ctx)?;
+                    self.build_phi_instr(list, ty, dst, ctx)
+                }
                 _ => unreachable!()
             }
         } else { unreachable!() }
     }
 
-    fn build_arith(&self, ty: &Type, dst: SymbolRef, op: &str, opd: &Vec<Token>, ctx: &Context,
-                   loc: &Loc) -> Result<Instr, CompileErr>
+    fn build_op(&self, ty: &Type, dst: &Token, op: &str, opd: &Vec<Token>, ctx: &Context,
+                loc: &Loc) -> Result<Instr, CompileErr>
     {
         match op {
             "mov" => {
+                let dst = self.build_symbol(dst, ty, ctx)?;
                 if opd.len() == 1 {
                     let src = self.build_opd_list(ty, opd, ctx)?[0].clone();
                     Ok(Instr::Mov {
@@ -208,6 +221,7 @@ impl Builder {
                 }
             }
             op if UnOp::from_str(op).is_ok() => {
+                let dst = self.build_symbol(dst, ty, ctx)?;
                 let op = UnOp::from_str(op).unwrap();
                 if opd.len() == 1 {
                     let opd = self.build_opd_list(ty, opd, ctx)?;
@@ -225,6 +239,11 @@ impl Builder {
             }
             op if BinOp::from_str(op).is_ok() => {
                 let op = BinOp::from_str(op).unwrap();
+                let dst = if op.is_cmp() { // compare result is always `i1`
+                    self.build_symbol(dst, &Type::I1, ctx)?
+                } else {
+                    self.build_symbol(dst, ty, ctx)?
+                };
                 if opd.len() == 2 {
                     let opd = self.build_opd_list(ty, opd, ctx)?;
                     Ok(Instr::Bin {
@@ -405,7 +424,7 @@ impl Builder {
                     })
                 }
             }
-            Term::Branch {
+            Term::BrInstr {
                 loc: _, cond, tr: Token::Label(t_loc, t_lab),
                 fls: Token::Label(f_loc, f_lab)
             } => {
@@ -442,7 +461,7 @@ impl Builder {
         match tok {
             Token::GlobalId(l, s) => match ctx.global.find(self.trim_tag(s)) {
                 Some(sym) => {
-                    self.check_type(sym.deref(), &ty, l)?;
+                    self.check_type(sym.deref(), ty, l)?;
                     Ok(sym)
                 }
                 None => Err(CompileErr {
@@ -450,8 +469,11 @@ impl Builder {
                     msg: format!("identifier {} not found in global scope", s),
                 })
             }
-            Token::LocalId(_, s) => match ctx.func.scope.find(self.trim_tag(s)) {
-                Some(sym) => Ok(sym),
+            Token::LocalId(l, s) => match ctx.func.scope.find(self.trim_tag(s)) {
+                Some(sym) => {
+                    self.check_type(sym.deref(), ty, l)?;
+                    Ok(sym)
+                },
                 None => {
                     let sym = ExtRc::new(self.create_local(s, ty.clone())?);
                     let _ = ctx.func.scope.add(sym.clone());

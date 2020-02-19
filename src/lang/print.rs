@@ -3,7 +3,7 @@ use std::io::{Error, Write};
 use std::ops::Deref;
 use std::rc::Rc;
 
-use crate::lang::bb::BlockRef;
+use crate::lang::block::BlockRef;
 use crate::lang::func::Func;
 use crate::lang::instr::{Instr, InstrRef};
 use crate::lang::Program;
@@ -80,9 +80,15 @@ impl Printer<'_> {
             Instr::Un { op, opd, dst } =>
                 format!("{} <- {} {} {}", fmt_val!(dst), op.to_string(), fmt_ty!(dst),
                         fmt_val!(opd)),
-            Instr::Bin { op, fst, snd, dst } =>
-                format!("{} <- {} {} {}, {}", fmt_val!(dst), op.to_string(), fmt_ty!(dst),
-                        fmt_val!(fst), fmt_val!(snd)),
+            Instr::Bin { op, fst, snd, dst } => {
+                let opd_ty = if op.is_cmp() {
+                    fst.borrow().get_type()
+                } else {
+                    dst.borrow().get_type()
+                };
+                format!("{} <- {} {} {}, {}", fmt_val!(dst), op.to_string(), opd_ty.to_string(),
+                        fmt_val!(fst), fmt_val!(snd))
+            }
             Instr::Call { func, arg, dst } => {
                 let mut s = format!("call {} @{}({})", func.ret.to_string(), func.name,
                                     self.fmt_opd_list(arg));
