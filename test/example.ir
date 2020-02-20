@@ -1,3 +1,5 @@
+// Demonstrate basic syntax of this language
+
 @g <- 0: i64;
 
 fn @max($a: i64, $b: i64) -> i64 {

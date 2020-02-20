@@ -23,7 +23,7 @@ pub struct Program {
 }
 
 /// A auxiliary structure to make `Rc` act like pointer.
-/// The extended behavior include pointer-equality testing, comparison and hash.
+/// The extended behavior include pointer-equality testing and hash.
 pub struct ExtRc<T>(pub Rc<T>);
 
 impl<T> ExtRc<T> {

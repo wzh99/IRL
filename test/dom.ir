@@ -1,0 +1,18 @@
+// Test dominator tree algorithm
+// Refer to Fig. 19.8 of Tiger Book
+
+fn @main($c: i1) {
+%A: br $c ? %B : %C;
+%B: br $c ? %D : %G;
+%C: br $c ? %E : %H;
+%D: br $c ? %F : %G;
+%E: br $c ? %C : %H;
+%F: br $c ? %I : %K;
+%G: jmp %J;
+%H: jmp %M;
+%I: jmp %L;
+%J: jmp %I;
+%K: jmp %L;
+%L: br $c ? %B : %M;
+%M: ret;
+}

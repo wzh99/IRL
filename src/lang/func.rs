@@ -260,7 +260,7 @@ struct DfNode {
     /// Tree root in the forest
     ancestor: Cell<usize>,
     /// Record intermediate evaluation result
-    label: Cell<usize>,
+    best: Cell<usize>,
     /// Size of subtree with current node as root
     size: Cell<usize>,
     /// Child of current node
@@ -277,7 +277,7 @@ impl Func {
         // Perform depth-first search on the CFG
         let mut nodes = Vec::new();
         let mut block_num = HashMap::new(); // map block to number
-        self.dfs().enumerate().for_each(|(i, block)| {
+        for (i, block) in self.dfs().enumerate() {
             block_num.insert(block.clone(), i);
             nodes.push(DfNode { // store nodes as the order of traversal
                 block,
@@ -286,101 +286,143 @@ impl Func {
                 bucket: RefCell::new(HashSet::new()),
                 dom: Cell::new(NONE),
                 ancestor: Cell::new(NONE),
-                label: Cell::new(i),
+                best: Cell::new(i),
                 size: Cell::new(0),
                 child: Cell::new(NONE),
             })
-        });
+        }
+        if nodes.len() <= 1 { return; } // no point in building dominator tree
 
         let semi = |v: usize| nodes[v].semi.get();
-        let parent = |v_num: usize| nodes[v_num].parent.get();
+        let parent = |v: usize| nodes[v].parent.get();
+        let dom = |v: usize| nodes[v].dom.get();
 
-        if nodes.len() <= 1 { return; } // no point in building dominator tree
         for (v_num, v_node) in nodes.iter().enumerate() { // find parent for each node
             v_node.semi.replace(v_num);
             for w_block in v_node.block.succ.borrow().iter() {
                 let w_num = block_num.get(w_block).copied().unwrap();
                 let w_node = &nodes[w_num];
                 if w_node.semi.get() == NONE {
-                    w_node.parent.replace(v_num);
+                    w_node.parent.set(v_num);
                 }
             }
         }
 
-        for w_num in (1..nodes.len()).rev() {
+        for w in (1..nodes.len()).rev() {
             // Compute semidominator of each vertex
-            let w_node = &nodes[w_num];
-            for v_block in w_node.block.pred.borrow().iter() {
-                let v_num = block_num.get(v_block).copied().unwrap();
-                let u_num = self.eval(&nodes, v_num);
-                if semi(u_num) < semi(w_num) {
-                    w_node.semi.replace(semi(u_num));
+            let p = parent(w);
+            for v_block in nodes[w].block.pred.borrow().iter() {
+                let v = block_num.get(v_block).copied().unwrap();
+                let u = self.eval(&nodes, v);
+                if semi(w) > semi(u) {
+                    nodes[w].semi.set(semi(u))
                 }
-                nodes[w_node.semi.get()].bucket.borrow_mut().insert(w_num);
-                self.link(&nodes, parent(w_num), w_num);
             }
+            nodes[semi(w)].bucket.borrow_mut().insert(w);
+            self.link(&nodes, p, w);
+
+            // Implicitly define immediate dominator
+            for v in nodes[p].bucket.borrow().iter().copied() {
+                let u = self.eval(&nodes, v);
+                nodes[v].dom.set(if semi(u) < semi(v) { u } else { p });
+            }
+            nodes[p].bucket.replace(HashSet::new());
+        }
+
+        // Explicitly define immediate dominator
+        for w in 1..nodes.len() {
+            if dom(w) != semi(w) {
+                nodes[w].dom.set(dom(dom(w)));
+            }
+        }
+        nodes[0].dom.set(0);
+
+        for (i, n) in nodes.iter().enumerate() {
+            println!("{:?}: {:?}", n.block, nodes[dom(i)].block)
         }
     }
 
     /// Find ancestor of node `v` with smallest semidominator.
     fn eval(&self, nodes: &Vec<DfNode>, v: usize) -> usize {
-        let label = |v: usize| nodes[v].label.get();
+        let best = |v: usize| nodes[v].best.get();
         let ancestor = |v: usize| nodes[v].ancestor.get();
         let semi = |v: usize| nodes[v].semi.get();
 
-        if ancestor(v) == NONE { label(v) } else {
+        if ancestor(v) == NONE { v } else {
             self.compress(nodes, v);
-            if semi(label(ancestor(v))) >= semi(label(v)) {
-                label(v)
+            if semi(best(ancestor(v))) >= semi(best(v)) {
+                best(v)
             } else {
-                label(ancestor(v))
+                best(ancestor(v))
             }
         }
     }
 
-    /// Compress path to ancestor
     fn compress(&self, nodes: &Vec<DfNode>, v: usize) {
-        let label = |v: usize| nodes[v].label.get();
+        let best = |v: usize| nodes[v].best.get();
         let ancestor = |v: usize| nodes[v].ancestor.get();
         let semi = |v: usize| nodes[v].semi.get();
 
-        if ancestor(ancestor(v)) == NONE { return; } // cannot compress
+        if ancestor(ancestor(v)) == NONE { return; }
         self.compress(nodes, ancestor(v));
-        if semi(label(ancestor(v))) < semi(label(v)) {
-            nodes[v].label.replace(label(ancestor(v)));
+        if semi(best(ancestor(v))) < semi(best(v)) {
+            nodes[v].best.set(best(ancestor(v)))
         }
-        nodes[v].ancestor.replace(ancestor(ancestor(v)));
+        nodes[v].ancestor.set(ancestor(ancestor(v)))
     }
 
     /// Add edge `(v, w)` to the forest
+    /// See [https://www.cl.cam.ac.uk/~mr10/lengtarj.pdf].
     fn link(&self, nodes: &Vec<DfNode>, v: usize, w: usize) {
         let size = |v: usize| if v == NONE { 0 } else { nodes[v].size.get() };
-        let label = |v: usize| if v == NONE { NONE } else { nodes[v].label.get() };
+        let best = |v: usize| if v == NONE { NONE } else { nodes[v].best.get() };
         let semi = |v: usize| if v == NONE { NONE } else { nodes[v].semi.get() };
-        let child = |v: usize| nodes[v].child.get();
-        let parent = |v: usize| nodes[v].parent.get();
+        let child = |v: usize| if v == NONE { NONE } else { nodes[v].child.get() };
 
         let mut s = w;
-        while semi(label(w)) < semi(label(child(s))) {
+        while child(s) != NONE && semi(best(w)) < semi(best(child(s))) {
+            // Combine the first two trees in the child chain, making the larger one the combined
+            // root.
             if size(s) + size(child(child(s))) >= 2 * size(child(s)) {
-                nodes[child(s)].parent.replace(s);
+                nodes[child(s)].ancestor.replace(s);
                 nodes[s].child.replace(child(child(s)));
             } else {
                 nodes[child(s)].size.replace(size(s));
-                nodes[s].parent.replace(child(s));
-                s = parent(s);
+                nodes[s].ancestor.replace(child(s));
+                s = child(s);
             }
         }
-        nodes[s].label.replace(label(w));
-        nodes[v].size.replace(size(v) + size(w));
-        if size(v) < 2 * size(w) {
+
+        // Now combine the two forests giving the combination the child chain of the smaller
+        // forest. The other child chain is then collapsed, giving all its trees ancestor links
+        // to v.
+        nodes[s].best.replace(best(w));
+        if size(v) < size(w) {
             let tmp = child(v);
             nodes[v].child.replace(s);
-            s = tmp;
+            s = tmp
         }
+        nodes[v].size.replace(size(v) + size(w));
         while s != NONE {
-            nodes[s].parent.replace(v);
+            nodes[s].ancestor.replace(v);
             s = child(s)
         }
     }
+}
+
+#[test]
+fn test_build() {
+    use crate::compile::lex::Lexer;
+    use crate::compile::parse::Parser;
+    use crate::compile::build::Builder;
+    use std::fs::File;
+    use std::convert::TryFrom;
+    use std::io::Read;
+
+    let mut file = File::open("test/dom.ir").unwrap();
+    let lexer = Lexer::try_from(&mut file as &mut dyn Read).unwrap();
+    let parser = Parser::new(lexer);
+    let tree = parser.parse().unwrap();
+    let builder = Builder::new(tree);
+    println!("{:?}", builder.build());
 }
