@@ -1,5 +1,5 @@
 // Test dominator tree algorithm
-// Refer to Fig. 19.8 of Tiger Book
+// Refer to Figure 19.8 of Tiger Book
 
 fn @main($c: i1) {
 %A: br $c ? %B : %C;

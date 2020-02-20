@@ -24,8 +24,9 @@ pub struct Func {
     pub ent: RefCell<BlockRef>,
     /// Set of exit blocks of this function
     pub exit: RefCell<HashSet<BlockRef>>,
-    /// Whether this program is verified to be in SSA form.
-    ssa: RefCell<bool>,
+    /// Whether this function is in SSA form.
+    /// This tag should only be set by verification and transformation function.
+    pub ssa: Cell<bool>
 }
 
 impl PartialEq for Func {
@@ -56,25 +57,7 @@ impl Func {
             ret,
             ent: RefCell::new(ExtRc::new(ent)),
             exit: RefCell::new(HashSet::new()),
-            ssa: RefCell::new(false),
-        }
-    }
-
-    /// Return an iterator to breadth-first search the CFG.
-    pub fn bfs(&self) -> BfsIter {
-        let ent = self.ent.borrow().clone();
-        BfsIter {
-            queue: VecDeque::from_iter(vec![ent.clone()]),
-            visited: HashSet::from_iter(vec![ent]),
-        }
-    }
-
-    /// Return an iterator to depth-first search the CFG.
-    pub fn dfs(&self) -> DfsIter {
-        let ent = self.ent.borrow().clone();
-        DfsIter {
-            stack: vec![ent.clone()],
-            visited: HashSet::from_iter(vec![ent]),
+            ssa: Cell::new(false)
         }
     }
 }
@@ -101,6 +84,17 @@ impl Iterator for BfsIter {
     }
 }
 
+impl Func {
+    /// Return an iterator to breadth-first search the CFG.
+    pub fn bfs(&self) -> BfsIter {
+        let ent = self.ent.borrow().clone();
+        BfsIter {
+            queue: VecDeque::from_iter(vec![ent.clone()]),
+            visited: HashSet::from_iter(vec![ent]),
+        }
+    }
+}
+
 /// Depth-first iterator of blocks
 pub struct DfsIter {
     stack: Vec<BlockRef>,
@@ -120,6 +114,56 @@ impl Iterator for DfsIter {
             }
             next
         })
+    }
+}
+
+impl Func {
+    /// Return an iterator to depth-first search the CFG.
+    pub fn dfs(&self) -> DfsIter {
+        let ent = self.ent.borrow().clone();
+        DfsIter {
+            stack: vec![ent.clone()],
+            visited: HashSet::from_iter(vec![ent]),
+        }
+    }
+}
+
+/// Visitor trait of dominance tree
+pub trait DomVisitor<E> {
+    /// Called on the very beginning of visiting.
+    fn on_begin(&mut self, func: &Func) -> Result<(), E>;
+
+    /// Called when the subtree whose root is current block is entered.
+    fn on_enter(&mut self, block: BlockRef) -> Result<(), E>;
+
+    /// Called when the offspring of this block have already been visited, and ready to leave
+    /// this subtree.
+    fn on_exit(&mut self, block: BlockRef) -> Result<(), E>;
+
+    /// Called when the visiting is finished, to enable reuse of visitor object.
+    fn on_end(&mut self, func: &Func) -> Result<(), E>;
+}
+
+impl Func {
+    /// Visit the dominator tree of this function with given visitor trait object
+    pub fn visit_dom<E, V>(&self, visitor: &mut V) -> Result<(), E>
+        where V: DomVisitor<E>
+    {
+        visitor.on_begin(self)?;
+        self.visit_block(self.ent.borrow().clone(), visitor)?;
+        visitor.on_end(self)?;
+        Ok(())
+    }
+
+    fn visit_block<E, V>(&self, block: BlockRef, visitor: &mut V) -> Result<(), E>
+        where V: DomVisitor<E>
+    {
+        visitor.on_enter(block.clone())?;
+        for c in block.child.borrow().iter() {
+            self.visit_block(c.clone(), visitor)?
+        }
+        visitor.on_exit(block)?;
+        Ok(())
     }
 }
 
@@ -213,11 +257,6 @@ impl BasicBlock {
             self.push_back(ins)
         }
     }
-
-    /// Visit each instruction in this block
-    pub fn for_each<F>(&self, f: F) where F: FnMut(&InstrRef) {
-        self.instr.borrow().iter().for_each(f)
-    }
 }
 
 impl BlockRef {
@@ -273,6 +312,7 @@ impl Func {
     /// Build dominator tree according to current CFG using Lengauer-Tarjan algorithm.
     /// Only after calling this method can `parent` and `children` methods of `BasicBlock`
     /// return valid results.
+    /// See [https://www.cl.cam.ac.uk/~mr10/lengtarj.pdf].
     pub fn build_dom(&self) {
         // Perform depth-first search on the CFG
         let mut nodes = Vec::new();
@@ -334,11 +374,9 @@ impl Func {
             if dom(w) != semi(w) {
                 nodes[w].dom.set(dom(dom(w)));
             }
-        }
-        nodes[0].dom.set(0);
-
-        for (i, n) in nodes.iter().enumerate() {
-            println!("{:?}: {:?}", n.block, nodes[dom(i)].block)
+            let d = dom(w);
+            nodes[w].block.parent.borrow_mut().replace(nodes[d].block.clone());
+            nodes[d].block.child.borrow_mut().push(nodes[w].block.clone())
         }
     }
 
@@ -372,7 +410,6 @@ impl Func {
     }
 
     /// Add edge `(v, w)` to the forest
-    /// See [https://www.cl.cam.ac.uk/~mr10/lengtarj.pdf].
     fn link(&self, nodes: &Vec<DfNode>, v: usize, w: usize) {
         let size = |v: usize| if v == NONE { 0 } else { nodes[v].size.get() };
         let best = |v: usize| if v == NONE { NONE } else { nodes[v].best.get() };
@@ -381,8 +418,8 @@ impl Func {
 
         let mut s = w;
         while child(s) != NONE && semi(best(w)) < semi(best(child(s))) {
-            // Combine the first two trees in the child chain, making the larger one the combined
-            // root.
+            // Combine the first two trees in the child chain, making the larger one the
+            // combined root.
             if size(s) + size(child(child(s))) >= 2 * size(child(s)) {
                 nodes[child(s)].ancestor.replace(s);
                 nodes[s].child.replace(child(child(s)));
@@ -394,8 +431,8 @@ impl Func {
         }
 
         // Now combine the two forests giving the combination the child chain of the smaller
-        // forest. The other child chain is then collapsed, giving all its trees ancestor links
-        // to v.
+        // forest. The other child chain is then collapsed, giving all its trees ancestor
+        // links to v.
         nodes[s].best.replace(best(w));
         if size(v) < size(w) {
             let tmp = child(v);
@@ -411,7 +448,7 @@ impl Func {
 }
 
 #[test]
-fn test_build() {
+fn test_dom() {
     use crate::compile::lex::Lexer;
     use crate::compile::parse::Parser;
     use crate::compile::build::Builder;

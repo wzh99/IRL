@@ -9,6 +9,7 @@ use crate::compile::syntax::{Term, Token};
 use crate::lang::{ExtRc, Program};
 use crate::lang::func::{BasicBlock, BlockRef, Func};
 use crate::lang::instr::{BinOp, Instr, UnOp};
+use crate::lang::ssa::Verifier;
 use crate::lang::val::{Const, GlobalVar, Scope, Symbol, SymbolRef, Type, Typed, Value};
 
 pub struct Builder {
@@ -158,16 +159,32 @@ impl Builder {
             labels,
             block: RefCell::new(func.ent.borrow().clone()),
         };
-        let mut asm_ssa = false; // whether this function is assumed to be in SSA form
+        let mut may_ssa = false; // whether this function is assumed to be in SSA form
         for (b, loc, terms) in blocks {
-            // Build instructions
+            let mut in_phis = true;
             for t in terms {
+                // Build instruction
                 ctx.block.replace(b.clone());
                 let instr = self.build_instr(t, &ctx)?;
-                if !asm_ssa { asm_ssa = self.assume_ssa(&instr) }
+
+                // Check SSA assumption
+                if !may_ssa { may_ssa = self.assume_ssa(&instr) }
+
+                // Check location of phi instruction
+                match &instr {
+                    Instr::Phi { src: _, dst: _ } => if !in_phis {
+                        return Err(CompileErr {
+                            loc: loc.clone(),
+                            msg: format!(
+                                "non-phi instruction found before phi's in block {}", b.name
+                            ),
+                        });
+                    }
+                    _ => in_phis = false
+                };
                 b.push_back(instr);
             }
-            // Check if the block is ended with control flow instructions
+            // Check if the block is ended with control flow instruction
             if !b.is_complete() {
                 return Err(CompileErr {
                     loc: loc.clone(),
@@ -176,8 +193,17 @@ impl Builder {
             }
         }
 
-        // Compute dominators of blocks
+        // Build dominator tree of blocks
         func.build_dom();
+        if may_ssa {
+            let mut ver = Verifier::new();
+            func.visit_dom(&mut ver).map_err(|s| {
+                CompileErr {
+                    loc: Loc { line: 0, col: 0 },
+                    msg: s,
+                }
+            })?;
+        }
 
         Ok(())
     }
@@ -187,6 +213,7 @@ impl Builder {
     fn assume_ssa(&self, instr: &Instr) -> bool {
         // Criteria 1: Phi instruction
         if let Instr::Phi { src: _, dst: _ } = instr { return true; }
+
         // Criteria 2: Contain versioned symbol
         if let Some(sym) = instr.def() {
             if let Symbol::Local { name: _, ty: _, ver: Some(_) } = sym.borrow().as_ref() {

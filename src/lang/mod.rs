@@ -9,6 +9,7 @@ use crate::lang::val::{GlobalVar, Scope};
 pub mod val;
 pub mod instr;
 pub mod func;
+pub mod ssa;
 pub mod print;
 
 /// Top level program structure

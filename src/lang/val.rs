@@ -83,6 +83,32 @@ impl ToString for Value {
     }
 }
 
+impl Value {
+    /// Whether this value is variable, including global and local.
+    pub fn is_var(&self) -> bool {
+        match self {
+            Value::Var(_) => true,
+            _ => false
+        }
+    }
+
+    /// Whether this value is constant.
+    pub fn is_const(&self) -> bool {
+        match self {
+            Value::Const(_) => true,
+            _ => false
+        }
+    }
+
+    /// Whether this value is local variable
+    pub fn is_local_var(&self) -> bool {
+        match self {
+            Value::Var(sym) if sym.is_local_var() => true,
+            _ => false
+        }
+    }
+}
+
 #[derive(Eq, PartialEq, Clone, Debug)]
 pub enum Const {
     I1(bool),
@@ -165,6 +191,14 @@ impl Symbol {
             }
         } else { self.name().to_string() }
     }
+
+    /// Whether this symbol refers to local variable.
+    pub fn is_local_var(&self) -> bool {
+        match self {
+            Symbol::Local { name: _, ty: _, ver: _ } => true,
+            _ => false
+        }
+    }
 }
 
 #[derive(Eq, PartialEq, Clone, Debug)]
@@ -213,5 +247,10 @@ impl Scope {
     /// Return vector containing all the symbols in the scope.
     pub fn collect(&self) -> Vec<SymbolRef> {
         self.sym.borrow().values().cloned().collect()
+    }
+
+    /// Run the given function on each symbol in this scope
+    pub fn for_each<F>(&self, f: F) where F: FnMut(SymbolRef) {
+        self.sym.borrow().values().cloned().for_each(f)
     }
 }
