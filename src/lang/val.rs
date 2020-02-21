@@ -5,8 +5,8 @@ use std::ops::Deref;
 use std::rc::Rc;
 use std::str::FromStr;
 
-use crate::lang::ExtRc;
 use crate::lang::func::Func;
+use crate::lang::util::ExtRc;
 
 #[derive(Clone, Eq, PartialEq, Debug)]
 pub enum Type {

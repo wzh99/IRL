@@ -6,10 +6,11 @@ use std::str::FromStr;
 
 use crate::compile::{CompileErr, Loc};
 use crate::compile::syntax::{Term, Token};
-use crate::lang::{ExtRc, Program};
 use crate::lang::func::{BasicBlock, BlockRef, Func};
 use crate::lang::instr::{BinOp, Instr, UnOp};
+use crate::lang::Program;
 use crate::lang::ssa::Verifier;
+use crate::lang::util::ExtRc;
 use crate::lang::val::{Const, GlobalVar, Scope, Symbol, SymbolRef, Type, Typed, Value};
 
 pub struct Builder {
@@ -103,13 +104,13 @@ impl Builder {
             } else { unreachable!() };
 
             // Build parameter list, also add parameter to function scope
-            let mut plist: Vec<SymbolRef> = Vec::new();
+            let mut plist: Vec<RefCell<SymbolRef>> = Vec::new();
             let scope = Scope::new();
             if let Term::ParamList { loc: _, list } = param.as_ref() {
                 for p in list {
                     if let Term::ParamDef { loc, id: Token::LocalId(_, s), ty } = p {
                         let sym = ExtRc::new(self.create_local(s, self.create_type(ty)?)?);
-                        plist.push(sym.clone());
+                        plist.push(RefCell::new(sym.clone()));
                         let added = scope.add(sym.clone());
                         if !added {
                             return Err(CompileErr {
@@ -357,7 +358,7 @@ impl Builder {
         // Check argument type
         let mut arg_list = Vec::new();
         for (p, a) in func.param.iter().zip(arg.iter()) {
-            let a = self.build_value(&p.get_type(), a, ctx)?;
+            let a = self.build_value(&p.borrow().get_type(), a, ctx)?;
             arg_list.push(RefCell::new(a))
         }
 
@@ -401,7 +402,7 @@ impl Builder {
                     None => match &val { // ensure this operand is from parameter
                         Value::Var(sym) => match sym.deref() {
                             Symbol::Local { name: _, ty: _, ver: _ } =>
-                                if ctx.func.param.iter().find(|s| *s == sym).is_some() {
+                                if ctx.func.param.iter().find(|s| *s.borrow() == *sym).is_some() {
                                     None
                                 } else {
                                     return Err(CompileErr {

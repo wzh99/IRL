@@ -45,7 +45,7 @@ impl Printer<'_> {
         // Print signature
         let mut s = format!("fn @{}(", func.name);
         let params: Vec<String> = func.param.iter().map(|s| {
-            format!("${}: {}", s.id(), s.get_type().to_string())
+            format!("${}: {}", s.borrow().id(), s.borrow().get_type().to_string())
         }).collect();
         s += &params.join(", ");
         s += ")";

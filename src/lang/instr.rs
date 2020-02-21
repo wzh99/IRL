@@ -3,8 +3,8 @@ use std::fmt::{Debug, Error, Formatter};
 use std::rc::Rc;
 use std::str::FromStr;
 
-use crate::lang::ExtRc;
 use crate::lang::func::{BlockRef, Func};
+use crate::lang::util::ExtRc;
 use crate::lang::val::{SymbolRef, Value};
 
 #[derive(Clone, Debug)]
@@ -28,8 +28,10 @@ pub enum Instr {
     /// A phi instruction hold a list of block-value pairs. The blocks are all predecessors of
     /// current block (where this instruction is defined). The values are different versions of
     /// of a certain variable.
-    Phi { src: Vec<(Option<BlockRef>, RefCell<Value>)>, dst: RefCell<SymbolRef> },
+    Phi { src: Vec<PhiSrc>, dst: RefCell<SymbolRef> },
 }
+
+pub type PhiSrc = (Option<BlockRef>, RefCell<Value>);
 
 pub type InstrRef = ExtRc<Instr>;
 

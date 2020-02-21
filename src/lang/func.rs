@@ -6,9 +6,9 @@ use std::iter::FromIterator;
 use std::ops::Deref;
 use std::rc::Rc;
 
-use crate::lang::ExtRc;
 use crate::lang::instr::{Instr, InstrRef};
 use crate::lang::ssa::SsaFlag;
+use crate::lang::util::ExtRc;
 use crate::lang::val::{Scope, SymbolRef, Type, Typed};
 
 #[derive(Debug)]
@@ -18,7 +18,7 @@ pub struct Func {
     /// Scope of this function
     pub scope: Rc<Scope>,
     /// Parameter list
-    pub param: Vec<SymbolRef>,
+    pub param: Vec<RefCell<SymbolRef>>,
     /// Return type
     pub ret: Type,
     /// Entrance block of this function
@@ -27,7 +27,7 @@ pub struct Func {
     pub exit: RefCell<HashSet<BlockRef>>,
     /// Whether this function is in SSA form.
     /// This tag should only be set by verification and transformation function.
-    pub ssa: SsaFlag
+    pub ssa: SsaFlag,
 }
 
 impl PartialEq for Func {
@@ -41,15 +41,15 @@ impl Eq for Func {}
 impl Typed for Func {
     fn get_type(&self) -> Type {
         Type::Fn {
-            param: self.param.iter().map(|p| p.get_type()).collect(),
+            param: self.param.iter().map(|p| p.borrow().get_type()).collect(),
             ret: Box::new(self.ret.clone()),
         }
     }
 }
 
 impl Func {
-    pub fn new(name: String, scope: Scope, param: Vec<SymbolRef>, ret: Type, ent: BasicBlock)
-               -> Func
+    pub fn new(name: String, scope: Scope, param: Vec<RefCell<SymbolRef>>, ret: Type,
+               ent: BasicBlock) -> Func
     {
         Func {
             name,
@@ -58,7 +58,7 @@ impl Func {
             ret,
             ent: RefCell::new(ExtRc::new(ent)),
             exit: RefCell::new(HashSet::new()),
-            ssa: SsaFlag::new()
+            ssa: SsaFlag::new(),
         }
     }
 }
@@ -238,6 +238,10 @@ impl BasicBlock {
     /// Get children of this block in the dominator tree.
     pub fn children(&self) -> Vec<BlockRef> { self.child.borrow().clone() }
 
+    /// Whether this block is entrance of the function.
+    /// This replies on the correct computation of dominator tree.
+    pub fn is_entrance(&self) -> bool { self.parent.borrow().is_none() }
+
     /// A basic block is complete iff. it ends with control instructions.
     pub fn is_complete(&self) -> bool {
         match self.instr.borrow().back() {
@@ -266,6 +270,18 @@ impl BasicBlock {
             self.push_back(ins)
         }
     }
+
+    /// Generate predecessor list from for phi instructions.
+    /// The difference is that this allows one predecessor to be `None` if it is the entrance
+    /// block.
+    pub fn phi_pred(&self) -> Vec<Option<BlockRef>> {
+        let mut pred: Vec<Option<BlockRef>> = self.pred.borrow().iter().cloned()
+            .map(|p| Some(p)).collect();
+        if self.is_entrance() { // entrance block
+            pred.push(None)
+        }
+        pred
+    }
 }
 
 impl BlockRef {
@@ -289,6 +305,20 @@ impl BlockRef {
         pos.map(|i| to.pred.borrow_mut().remove(i));
         let pos = self.succ.borrow().iter().position(|b| b == &to);
         pos.map(|i| self.succ.borrow_mut().remove(i));
+    }
+
+    /// Decide if this block dominates the given block.
+    /// This method has logarithm time complexity. Though a linear time algorithm is possible,
+    /// it requires keeping extra data in the block structure.
+    pub fn dominates(&self, other: BlockRef) -> bool {
+        let mut cur = Some(other);
+        loop {
+            match cur {
+                Some(block) if *self == block => return true,
+                None => return false,
+                _ => cur = cur.unwrap().parent.borrow().clone()
+            }
+        }
     }
 }
 
@@ -477,11 +507,54 @@ impl Func {
     }
 }
 
+struct DfCreator {
+    stack: Vec<HashSet<BlockRef>>,
+    df: HashMap<BlockRef, Vec<BlockRef>>,
+}
+
+impl DomVisitor<()> for DfCreator {
+    fn on_begin(&mut self, _: &Func) -> Result<(), ()> { Ok(()) }
+
+    fn on_end(&mut self, _: &Func) -> Result<(), ()> { Ok(()) }
+
+    fn on_enter(&mut self, block: BlockRef) -> Result<(), ()> {
+        self.stack.push(HashSet::new());
+        for succ in block.succ.borrow().iter() {
+            if *succ.parent.borrow() != Some(block.clone()) {
+                self.stack.last_mut().unwrap().insert(succ.clone());
+            }
+        }
+        Ok(())
+    }
+
+    fn on_exit(&mut self, block: BlockRef) -> Result<(), ()> {
+        let df_set = Vec::from_iter(self.stack.pop().unwrap().into_iter());
+        self.df.insert(block, df_set);
+        Ok(())
+    }
+
+    fn on_enter_child(&mut self, _: BlockRef, _: BlockRef) -> Result<(), ()> { Ok(()) }
+
+    fn on_exit_child(&mut self, this: BlockRef, child: BlockRef) -> Result<(), ()> {
+        for w in self.df.get(&child).cloned().unwrap() {
+            if !this.dominates(w.clone()) || this == w { // this does not strictly dominates w
+                self.stack.last_mut().unwrap().insert(w);
+            }
+        }
+        Ok(())
+    }
+}
+
 impl Func {
     /// Compute dominance frontiers for all basic blocks.
     /// This should be called after dominator tree is built.
-    pub fn compute_df(&self) -> HashMap<BlockRef, HashSet<BlockRef>> {
-        Default::default()
+    pub fn compute_df(&self) -> HashMap<BlockRef, Vec<BlockRef>> {
+        let mut creator = DfCreator {
+            stack: vec![],
+            df: HashMap::new(),
+        };
+        self.visit_dom(&mut creator).unwrap();
+        creator.df
     }
 }
 
