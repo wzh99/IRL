@@ -49,8 +49,9 @@ impl Instr {
         }
     }
 
-    /// Possible return the symbol defined by this instruction.
-    pub fn def(&self) -> Option<&RefCell<SymbolRef>> {
+    /// Possible return the destination symbol of this instruction. This symbol is defined by
+    /// this instruction.
+    pub fn dst(&self) -> Option<&RefCell<SymbolRef>> {
         match self {
             Instr::Mov { src: _, dst } => Some(dst),
             Instr::Un { op: _, opd: _, dst } => Some(dst),
@@ -61,12 +62,12 @@ impl Instr {
         }
     }
 
-    /// Return list of all the operands used by this instruction.
-    pub fn opd(&self) -> Vec<&RefCell<Value>> {
+    /// Return list of all the source operands used by this instruction.
+    pub fn src(&self) -> Vec<&RefCell<Value>> {
         match self {
             Instr::Mov { src, dst: _ } => vec![src],
             Instr::Un { op: _, opd, dst: _ } => vec![opd],
-            Instr::Bin { op: _, fst: left, snd: right, dst: _ } => vec![left, right],
+            Instr::Bin { op: _, fst, snd, dst: _ } => vec![fst, snd],
             Instr::Br { cond, tr: _, fls: _ } => vec![cond],
             Instr::Call { func: _, arg, dst: _ } => arg.iter().map(|a| a).collect(),
             Instr::Ret { val } => match val {

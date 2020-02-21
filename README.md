@@ -51,8 +51,8 @@ After parsing, the memory representation will be constructed, and the semantic c
 
 If a function contains one or more phi instruction, *or* if any versioned symbol appears in this function, it is assumed to be in SSA form, and another pass is required to verify this assumption. To be in SSA form, the following requirement should be satisfied: 
 
-* Each local variable should be defined only once in the static program. Global variables are not in consideration.
+* Each local variable should be defined only once in the static program.
 
-* Each variable is defined before used;
+* Each local variable is defined before used.
 
 * Each phi instruction has source operands for all predecessors.

@@ -215,12 +215,12 @@ impl Builder {
         if let Instr::Phi { src: _, dst: _ } = instr { return true; }
 
         // Criteria 2: Contain versioned symbol
-        if let Some(sym) = instr.def() {
+        if let Some(sym) = instr.dst() {
             if let Symbol::Local { name: _, ty: _, ver: Some(_) } = sym.borrow().as_ref() {
                 return true;
             }
         }
-        for u in instr.opd() {
+        for u in instr.src() {
             if let Value::Var(sym) = u.borrow().deref() {
                 if let Symbol::Local { name: _, ty: _, ver: Some(_) } = sym.deref() {
                     return true;

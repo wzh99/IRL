@@ -8,6 +8,7 @@ use std::rc::Rc;
 
 use crate::lang::ExtRc;
 use crate::lang::instr::{Instr, InstrRef};
+use crate::lang::ssa::SsaFlag;
 use crate::lang::val::{Scope, SymbolRef, Type, Typed};
 
 #[derive(Debug)]
@@ -26,7 +27,7 @@ pub struct Func {
     pub exit: RefCell<HashSet<BlockRef>>,
     /// Whether this function is in SSA form.
     /// This tag should only be set by verification and transformation function.
-    pub ssa: Cell<bool>
+    pub ssa: SsaFlag
 }
 
 impl PartialEq for Func {
@@ -57,7 +58,7 @@ impl Func {
             ret,
             ent: RefCell::new(ExtRc::new(ent)),
             exit: RefCell::new(HashSet::new()),
-            ssa: Cell::new(false)
+            ssa: SsaFlag::new()
         }
     }
 }
@@ -133,6 +134,9 @@ pub trait DomVisitor<E> {
     /// Called on the very beginning of visiting.
     fn on_begin(&mut self, func: &Func) -> Result<(), E>;
 
+    /// Called when the visiting is finished.
+    fn on_end(&mut self, func: &Func) -> Result<(), E>;
+
     /// Called when the subtree whose root is current block is entered.
     fn on_enter(&mut self, block: BlockRef) -> Result<(), E>;
 
@@ -140,8 +144,11 @@ pub trait DomVisitor<E> {
     /// this subtree.
     fn on_exit(&mut self, block: BlockRef) -> Result<(), E>;
 
-    /// Called when the visiting is finished, to enable reuse of visitor object.
-    fn on_end(&mut self, func: &Func) -> Result<(), E>;
+    /// Called when a child subtree is entered.
+    fn on_enter_child(&mut self, this: BlockRef, child: BlockRef) -> Result<(), E>;
+
+    /// Called when leaving a child subtree
+    fn on_exit_child(&mut self, this: BlockRef, child: BlockRef) -> Result<(), E>;
 }
 
 impl Func {
@@ -159,8 +166,10 @@ impl Func {
         where V: DomVisitor<E>
     {
         visitor.on_enter(block.clone())?;
-        for c in block.child.borrow().iter() {
-            self.visit_block(c.clone(), visitor)?
+        for child in block.child.borrow().iter() {
+            visitor.on_enter_child(block.clone(), child.clone())?;
+            self.visit_block(child.clone(), visitor)?;
+            visitor.on_exit_child(block.clone(), child.clone())?;
         }
         visitor.on_exit(block)?;
         Ok(())
@@ -276,10 +285,10 @@ impl BlockRef {
     /// If there was an edge before, this is the inverse operation of `connect`. Otherwise,
     /// nothing will be actually done.
     pub fn disconnect(&self, to: BlockRef) {
-        to.pred.borrow().iter().position(|b| b == self)
-            .map(|i| to.pred.borrow_mut().remove(i));
-        self.succ.borrow().iter().position(|b| b == &to)
-            .map(|i| self.succ.borrow_mut().remove(i));
+        let pos = to.pred.borrow().iter().position(|b| b == self);
+        pos.map(|i| to.pred.borrow_mut().remove(i));
+        let pos = self.succ.borrow().iter().position(|b| b == &to);
+        pos.map(|i| self.succ.borrow_mut().remove(i));
     }
 }
 
@@ -309,11 +318,32 @@ struct DfNode {
 const NONE: usize = usize::max_value();
 
 impl Func {
+    /// Remove unreachable blocks in this function. This is necessary for algorithms that rely
+    /// on predecessors of blocks.
+    pub fn remove_unreachable(&self) {
+        // Mark all reachable blocks
+        let mut marked = HashSet::new();
+        self.dfs().for_each(|block| { marked.insert(block); });
+
+        // Sweep unmarked blocks
+        self.dfs().for_each(|block| {
+            let pred_list: Vec<BlockRef> = block.pred.borrow().clone();
+            for pred in pred_list {
+                if !marked.contains(&pred) {
+                    pred.disconnect(block.clone())
+                }
+            }
+        })
+    }
+
     /// Build dominator tree according to current CFG using Lengauer-Tarjan algorithm.
     /// Only after calling this method can `parent` and `children` methods of `BasicBlock`
     /// return valid results.
     /// See [https://www.cl.cam.ac.uk/~mr10/lengtarj.pdf].
     pub fn build_dom(&self) {
+        // Remove unreachable blocks
+        self.remove_unreachable();
+
         // Perform depth-first search on the CFG
         let mut nodes = Vec::new();
         let mut block_num = HashMap::new(); // map block to number
@@ -444,6 +474,14 @@ impl Func {
             nodes[s].ancestor.replace(v);
             s = child(s)
         }
+    }
+}
+
+impl Func {
+    /// Compute dominance frontiers for all basic blocks.
+    /// This should be called after dominator tree is built.
+    pub fn compute_df(&self) -> HashMap<BlockRef, HashSet<BlockRef>> {
+        Default::default()
     }
 }
 

@@ -1,40 +1,49 @@
-use std::cell::RefCell;
+use std::cell::{Cell, RefCell};
 use std::collections::HashSet;
 use std::ops::Deref;
 
 use crate::lang::func::{BlockRef, DomVisitor, Func};
-use crate::lang::instr::Instr;
+use crate::lang::instr::{Instr, InstrRef};
 use crate::lang::val::{SymbolRef, Value};
 
-/// Abstraction of common SSA visiting pattern.
-pub trait SsaVisitor<E>: DomVisitor<E> {
-    /// Default method when entering a block. Normally this should override the one in
-    /// `DomVisitor`
+/// Wrapper of SSA flag to make it only modifiable in this module.
+#[derive(Debug)]
+pub struct SsaFlag(Cell<bool>);
+
+impl SsaFlag {
+    pub fn new() -> SsaFlag { SsaFlag(Cell::new(false)) }
+    pub fn get(&self) -> bool { self.0.get() }
+    fn set(&self, val: bool) { self.0.set(val) }
+}
+
+/// Visitor of instructions in SSA program.
+pub trait InstrVisitor<E>: DomVisitor<E> {
+    fn on_begin(&mut self, func: &Func) -> Result<(), E> {
+        // Visit phi instructions in the entrance block
+        for instr in func.ent.borrow().instr.borrow().iter().cloned() {
+            match instr.deref() {
+                Instr::Phi { src: _, dst: _ } => self.on_succ_phi(None, instr)?,
+                _ => break
+            }
+        }
+        Ok(())
+    }
+
     fn on_enter(&mut self, block: BlockRef) -> Result<(), E> {
         // Perform first-access action before visiting instructions
         self.on_access(block.clone())?;
 
-        // Visit non-phi instructions
-        for instr in block.instr.borrow().iter() {
-            match instr.deref() {
-                Instr::Phi { src: _, dst: _ } => self.on_def(instr.def())?, // skip phis
-                _ => {
-                    self.on_use(instr.opd())?;
-                    self.on_def(instr.def())?;
-                }
-            }
+        // Visit instructions
+        for instr in block.instr.borrow().iter().cloned() {
+            self.on_instr(instr)?;
         }
 
         // Visit phi instructions in successors
         for succ in block.succ.borrow().iter() {
             for instr in succ.instr.borrow().iter() {
                 match instr.deref() {
-                    Instr::Phi { src, dst: _ } => for pair in src {
-                        match pair {
-                            (Some(pred), opd) if block == *pred => self.on_phi_use(opd)?,
-                            _ => ()
-                        }
-                    }
+                    Instr::Phi { src: _, dst: _ } =>
+                        self.on_succ_phi(Some(block.clone()), instr.clone())?,
                     _ => break // phi instructions must be at front of each block
                 }
             }
@@ -43,8 +52,41 @@ pub trait SsaVisitor<E>: DomVisitor<E> {
         Ok(())
     }
 
-    /// Called when `block` is accessed for the first time.
+    /// Called when `block` is accessed for the first time, before visiting instructions inside.
     fn on_access(&mut self, block: BlockRef) -> Result<(), E>;
+
+    /// Called when visiting each instruction.
+    fn on_instr(&mut self, instr: InstrRef) -> Result<(), E>;
+
+    /// Called when visiting phi instructions in successor blocks.
+    fn on_succ_phi(&mut self, this: Option<BlockRef>, instr: InstrRef) -> Result<(), E>;
+}
+
+/// Visitor of variables in SSA program.
+pub trait VarVisitor<E>: InstrVisitor<E> {
+    fn on_instr(&mut self, instr: InstrRef) -> Result<(), E> {
+        match instr.deref() {
+            Instr::Phi { src: _, dst: _ } => self.on_def(instr.dst())?, // skip phis
+            _ => {
+                self.on_use(instr.src())?;
+                self.on_def(instr.dst())?;
+            }
+        }
+        Ok(())
+    }
+
+    fn on_succ_phi(&mut self, this: Option<BlockRef>, instr: InstrRef) -> Result<(), E> {
+        if let Instr::Phi { src, dst: _ } = instr.deref() {
+            for (pred, opd) in src {
+                match (&this, pred, opd) {
+                    (Some(this), Some(pred), opd) if this == pred => self.on_phi_use(opd)?,
+                    (None, None, opd) => self.on_phi_use(opd)?,
+                    _ => ()
+                }
+            }
+        }
+        Ok(())
+    }
 
     /// Call on possible definition of the instruction.
     fn on_def(&mut self, def: Option<&RefCell<SymbolRef>>) -> Result<(), E>;
@@ -52,9 +94,7 @@ pub trait SsaVisitor<E>: DomVisitor<E> {
     /// Call on operands (uses) of the instruction.
     fn on_use(&mut self, opd_list: Vec<&RefCell<Value>>) -> Result<(), E>;
 
-    /// Call on operand of the the phi instruction in successor block.
-    /// This method may be called several times in each block, depending on the total number of
-    /// phi instructions in successor blocks
+    /// Call on operands of the the phi instructions in successor blocks..
     fn on_phi_use(&mut self, opd: &RefCell<Value>) -> Result<(), E>;
 }
 
@@ -69,28 +109,16 @@ pub struct Verifier {
 impl DomVisitor<String> for Verifier {
     fn on_begin(&mut self, func: &Func) -> Result<(), String> {
         // Add parameters as the first frame
-        func.scope.for_each(|s| { self.def.insert(s); });
         func.param.iter().cloned().for_each(|p| { self.def.insert(p); });
         self.avail.push(func.param.iter().cloned().collect());
 
         // Check phi operands in entrance block
-        for instr in func.ent.borrow().instr.borrow().iter() {
-            match instr.deref() {
-                Instr::Phi { src, dst: _ } =>
-                    for (pred, opd) in src {
-                        if pred.is_none() {
-                            self.on_phi_use(opd)?;
-                        }
-                    }
-                _ => break
-            }
-        }
-
+        InstrVisitor::on_begin(self, func)?;
         Ok(())
     }
 
     fn on_enter(&mut self, block: BlockRef) -> Result<(), String> {
-        SsaVisitor::on_enter(self, block)
+        InstrVisitor::on_enter(self, block)
     }
 
     fn on_exit(&mut self, _: BlockRef) -> Result<(), String> {
@@ -104,14 +132,59 @@ impl DomVisitor<String> for Verifier {
         self.avail.clear();
         Ok(())
     }
+
+    fn on_enter_child(&mut self, _: BlockRef, _: BlockRef) -> Result<(), String> { Ok(()) }
+
+    fn on_exit_child(&mut self, _: BlockRef, _: BlockRef) -> Result<(), String> { Ok(()) }
 }
 
-impl SsaVisitor<String> for Verifier {
-    fn on_access(&mut self, _: BlockRef) -> Result<(), String> {
+impl InstrVisitor<String> for Verifier {
+    fn on_access(&mut self, block: BlockRef) -> Result<(), String> {
+        // Push current frame to stack
         self.avail.push(vec![]);
+
+        // Build predecessor list
+        let mut req_pred: Vec<Option<BlockRef>> = block.pred.borrow().iter().cloned()
+            .map(|p| Some(p)).collect();
+        if block.parent().is_none() { // entrance block
+            req_pred.push(None)
+        }
+
+        // Check correspondence of phi operands to predecessors
+        for instr in block.instr.borrow().iter() {
+            match instr.deref() {
+                Instr::Phi { src, dst: _ } => {
+                    let phi_pred: Vec<Option<BlockRef>> = src.iter()
+                        .map(|(pred, _)| pred.clone()).collect();
+                    for pred in &req_pred {
+                        if !phi_pred.contains(pred) {
+                            return Err(format!(
+                                "phi operand not found for {}",
+                                match pred {
+                                    Some(p) => format!("predecessor {}", p.name),
+                                    None => "function parameter".to_string()
+                                }
+                            ))
+                        }
+                    }
+                }
+                _ => break
+            }
+        }
+
         Ok(())
     }
 
+    fn on_instr(&mut self, instr: InstrRef) -> Result<(), String> {
+        VarVisitor::on_instr(self, instr)
+    }
+
+    fn on_succ_phi(&mut self, this: Option<BlockRef>, instr: InstrRef) -> Result<(), String> {
+        VarVisitor::on_succ_phi(self, this, instr)
+    }
+}
+
+impl VarVisitor<String> for Verifier {
     fn on_def(&mut self, def: Option<&RefCell<SymbolRef>>) -> Result<(), String> {
         match def {
             Some(sym) if sym.borrow().is_local_var() => {
@@ -164,5 +237,11 @@ impl Verifier {
 
     fn is_avail(&self, sym: &SymbolRef) -> bool {
         self.avail.iter().any(|frame| frame.contains(sym))
+    }
+}
+
+impl Func {
+    pub fn to_ssa(&self) {
+        if self.ssa.get() { return; } // already in SSA form
     }
 }
