@@ -507,12 +507,12 @@ impl Func {
     }
 }
 
-struct DfCreator {
+struct DfVisitor {
     stack: Vec<HashSet<BlockRef>>,
     df: HashMap<BlockRef, Vec<BlockRef>>,
 }
 
-impl DomVisitor<()> for DfCreator {
+impl DomVisitor<()> for DfVisitor {
     fn on_begin(&mut self, _: &Func) -> Result<(), ()> { Ok(()) }
 
     fn on_end(&mut self, _: &Func) -> Result<(), ()> { Ok(()) }
@@ -549,7 +549,7 @@ impl Func {
     /// Compute dominance frontiers for all basic blocks.
     /// This should be called after dominator tree is built.
     pub fn compute_df(&self) -> HashMap<BlockRef, Vec<BlockRef>> {
-        let mut creator = DfCreator {
+        let mut creator = DfVisitor {
             stack: vec![],
             df: HashMap::new(),
         };

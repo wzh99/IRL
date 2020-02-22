@@ -2,7 +2,7 @@
 
 ## Introduction
 
-This project is for experimenting some techniques of IR (intermediate representation) language, including compilation, optimization, execution, etc. The functionality is quite similar to [LLVM](https://www.llvm.org), but with complexity greatly reduced. Some of the implementation is ported from my previous project [GoCompiler](https://github.com/wzh99/GoCompiler). This project is also inspired by [LLIRInterpreter](https://github.com/abcdabcd987/LLIRInterpreter) and [ssa-anf](https://github.com/jacobstanley/ssa-anf)
+This project is for experimenting some techniques of IR (intermediate representation) language, including compilation, analysis, optimization, execution, etc. The functionality is quite similar to [LLVM](https://www.llvm.org), but substantially simplified. Some of the implementation is ported from my previous project [GoCompiler](https://github.com/wzh99/GoCompiler). This project is also inspired by [LLIRInterpreter](https://github.com/abcdabcd987/LLIRInterpreter) and [ssa-anf](https://github.com/jacobstanley/ssa-anf)
 
 ## Language
 
@@ -56,3 +56,9 @@ If a function contains one or more phi instruction, *or* if any versioned symbol
 * Each local variable is defined before used.
 
 * Each phi instruction has source operands for all predecessors.
+
+## Visiting pattern
+
+In this project, most of accesses to the program, including verification, analysis, transformation are all based on the visitor design pattern. This pattern derives from the insight that most of the algorithms related to these work have some common pattern inside. If we could factor out these common part, we could improve code reuse and make program less prone to bugs.
+
+Most of the code with visitor pattern are in order of dominator tree traversal. Three visitor traits with different granularity are provided in the program: `DomVisitor` at block level, `InstrVisitor` at instruction level, and `ValueVisitor` at variable level. Visitor trait with finer granularity are extended trait of the visitor with coarser one. They can be chosen on demand. Furthermore, different visitors can be combined to support more sophisticated work. 

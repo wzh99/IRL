@@ -5,7 +5,7 @@ use std::str::FromStr;
 
 use crate::lang::func::{BlockRef, Func};
 use crate::lang::util::ExtRc;
-use crate::lang::val::{SymbolRef, Value};
+use crate::lang::val::{Symbol, SymbolRef, Value};
 
 #[derive(Clone, Debug)]
 pub enum Instr {
@@ -35,11 +35,27 @@ pub type PhiSrc = (Option<BlockRef>, RefCell<Value>);
 
 pub type InstrRef = ExtRc<Instr>;
 
-impl Debug for ExtRc<Instr> {
-    fn fmt(&self, f: &mut Formatter<'_>) -> Result<(), Error> { self.0.fmt(f) }
+impl Debug for InstrRef {
+    fn fmt(&self, f: &mut Formatter<'_>) -> Result<(), Error> {
+        write!(f, "{}", self.0.name())
+    }
 }
 
 impl Instr {
+    /// Get instruction name
+    pub fn name(&self) -> String {
+        match self {
+            Instr::Mov { src: _, dst: _ } => "mov".to_string(),
+            Instr::Un { op, opd: _, dst: _ } => op.to_string(),
+            Instr::Bin { op, fst: _, snd: _, dst: _ } => op.to_string(),
+            Instr::Jmp { tgt: _ } => "jmp".to_string(),
+            Instr::Br { cond: _, tr: _, fls: _ } => "br".to_string(),
+            Instr::Call { func: _, arg: _, dst: _ } => "call".to_string(),
+            Instr::Ret { val: _ } => "ret".to_string(),
+            Instr::Phi { src: _, dst: _ } => "phi".to_string()
+        }
+    }
+
     /// Decide if this instruction is a control flow instruction.
     /// A control flow instruction correspond to a directed edge in the CFG.
     /// Currently, only `jmp`, `br` and `ret`are control flow instructions.
@@ -78,6 +94,23 @@ impl Instr {
             }
             Instr::Phi { src, dst: _ } => src.iter().map(|(_, v)| v).collect(),
             _ => vec![]
+        }
+    }
+
+    /// Decide whether this instruction has side effects
+    pub fn has_side_effect(&self) -> bool {
+        match self {
+            // Called function may or may not have side effect, here we assume it has
+            Instr::Call { func: _, arg: _, dst: _ } => true,
+            // For other instructions, check if it assigns to global variable
+            instr if instr.dst().is_some() => {
+                let sym = instr.dst().unwrap();
+                match sym.borrow().as_ref() {
+                    Symbol::Global(_) => true,
+                    _ => false
+                }
+            }
+            _ => false
         }
     }
 }

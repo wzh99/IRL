@@ -1,11 +1,13 @@
 use std::cell::{Cell, RefCell};
 use std::collections::{HashMap, HashSet};
+use std::iter::FromIterator;
 use std::ops::Deref;
+use std::rc::Rc;
 
 use crate::lang::func::{BlockRef, DomVisitor, Func};
 use crate::lang::instr::{Instr, InstrRef, PhiSrc};
 use crate::lang::util::{ExtRc, WorkList};
-use crate::lang::val::{Symbol, SymbolRef, Typed, Value};
+use crate::lang::val::{Scope, Symbol, SymbolRef, Typed, Value};
 
 /// Wrapper of SSA flag to make it only modifiable in this module.
 #[derive(Debug)]
@@ -64,18 +66,18 @@ pub trait InstrVisitor<E>: DomVisitor<E> {
 }
 
 /// Visitor of variables in SSA program.
-pub trait VarVisitor<E>: InstrVisitor<E> {
+pub trait ValueVisitor<E>: InstrVisitor<E> {
     fn on_instr(&mut self, instr: InstrRef) -> Result<(), E> {
         match instr.deref() {
             Instr::Phi { src: _, dst: _ } => if let Some(dst) = instr.dst() {
-                self.on_def(dst)?;
+                self.on_def(instr.clone(), dst)?;
             }
             _ => {
                 for opd in instr.src() {
-                    self.on_use(opd)?;
+                    self.on_use(instr.clone(), opd)?;
                 }
                 if let Some(dst) = instr.dst() {
-                    self.on_def(dst)?;
+                    self.on_def(instr.clone(), dst)?;
                 }
             }
         }
@@ -86,8 +88,9 @@ pub trait VarVisitor<E>: InstrVisitor<E> {
         if let Instr::Phi { src, dst: _ } = instr.deref() {
             for (pred, opd) in src {
                 match (&this, pred, opd) {
-                    (Some(this), Some(pred), opd) if this == pred => self.on_use(opd)?,
-                    (None, None, opd) => self.on_use(opd)?,
+                    (Some(this), Some(pred), opd) if this == pred =>
+                        self.on_use(instr.clone(), opd)?,
+                    (None, None, opd) => self.on_use(instr.clone(), opd)?,
                     _ => ()
                 }
             }
@@ -96,10 +99,10 @@ pub trait VarVisitor<E>: InstrVisitor<E> {
     }
 
     /// Call on operands (uses) of the instruction.
-    fn on_use(&mut self, opd_list: &RefCell<Value>) -> Result<(), E>;
+    fn on_use(&mut self, instr: InstrRef, opd: &RefCell<Value>) -> Result<(), E>;
 
     /// Call on possible definition of the instruction.
-    fn on_def(&mut self, def: &RefCell<SymbolRef>) -> Result<(), E>;
+    fn on_def(&mut self, instr: InstrRef, def: &RefCell<SymbolRef>) -> Result<(), E>;
 }
 
 pub struct Verifier {
@@ -176,16 +179,16 @@ impl InstrVisitor<String> for Verifier {
     }
 
     fn on_instr(&mut self, instr: InstrRef) -> Result<(), String> {
-        VarVisitor::on_instr(self, instr)
+        ValueVisitor::on_instr(self, instr)
     }
 
     fn on_succ_phi(&mut self, this: Option<BlockRef>, instr: InstrRef) -> Result<(), String> {
-        VarVisitor::on_succ_phi(self, this, instr)
+        ValueVisitor::on_succ_phi(self, this, instr)
     }
 }
 
-impl VarVisitor<String> for Verifier {
-    fn on_use(&mut self, opd: &RefCell<Value>) -> Result<(), String> {
+impl ValueVisitor<String> for Verifier {
+    fn on_use(&mut self, _: InstrRef, opd: &RefCell<Value>) -> Result<(), String> {
         match opd.borrow().deref() {
             Value::Var(sym) if sym.is_local_var() && !self.is_avail(sym) => {
                 return Err(format!(
@@ -197,7 +200,7 @@ impl VarVisitor<String> for Verifier {
         Ok(())
     }
 
-    fn on_def(&mut self, def: &RefCell<SymbolRef>) -> Result<(), String> {
+    fn on_def(&mut self, _: InstrRef, def: &RefCell<SymbolRef>) -> Result<(), String> {
         if def.borrow().is_local_var() {
             let sym = def.borrow().clone();
             if self.def.contains(&sym) { // already statically defined
@@ -229,13 +232,12 @@ impl Verifier {
 
 impl Func {
     pub fn to_ssa(&self) {
-        // Compute dominance frontiers of blocks
         if self.ssa.get() { return; } // already in SSA form
         let df = self.compute_df();
-        // Insert phi instructions
         self.insert_phi(&df);
-        // Rename variables
-        self.rename()
+        self.rename();
+        self.elim_dead_code();
+        self.ssa.set(true);
     }
 
     fn insert_phi(&self, df: &HashMap<BlockRef, Vec<BlockRef>>) {
@@ -286,6 +288,7 @@ impl Func {
         let mut visitor = RenameVisitor {
             sym: HashMap::new(),
             def: vec![],
+            scope: None
         };
         self.visit_dom(&mut visitor).unwrap();
     }
@@ -331,23 +334,30 @@ struct RenameVisitor {
     sym: HashMap<String, RenamedSym>,
     /// Stack of frames for defined symbols in each block
     def: Vec<Vec<String>>,
+    /// The scope we are interested
+    scope: Option<Rc<Scope>>,
 }
 
 impl DomVisitor<()> for RenameVisitor {
     fn on_begin(&mut self, func: &Func) -> Result<(), ()> {
         // Initialize renaming stack
+        let mut added = vec![];
         func.scope.for_each(|sym| {
+            let new_sym = ExtRc::new(Symbol::Local {
+                name: sym.name().to_string(),
+                ty: sym.get_type(),
+                ver: Some(0),
+            });
+            added.push(new_sym.clone());
             self.sym.insert(sym.name().to_string(), RenamedSym {
                 count: 0,
-                stack: vec![
-                    ExtRc::new(Symbol::Local {
-                        name: sym.name().to_string(),
-                        ty: sym.get_type(),
-                        ver: Some(0),
-                    })
-                ],
+                stack: vec![new_sym],
             });
         });
+
+        // Reset scope
+        func.scope.clear();
+        func.scope.append(added.into_iter());
 
         // Replace function parameters
         func.param.iter().for_each(|param| {
@@ -356,12 +366,14 @@ impl DomVisitor<()> for RenameVisitor {
             param.replace(new_sym);
         });
 
+        self.scope = Some(func.scope.clone());
         InstrVisitor::on_begin(self, func)
     }
 
     fn on_end(&mut self, _: &Func) -> Result<(), ()> {
         self.sym.clear();
         self.def.clear();
+        self.scope = None;
         Ok(())
     }
 
@@ -387,16 +399,16 @@ impl InstrVisitor<()> for RenameVisitor {
     fn on_access(&mut self, _: BlockRef) -> Result<(), ()> { Ok(()) }
 
     fn on_instr(&mut self, instr: InstrRef) -> Result<(), ()> {
-        VarVisitor::on_instr(self, instr)
+        ValueVisitor::on_instr(self, instr)
     }
 
     fn on_succ_phi(&mut self, this: Option<BlockRef>, instr: InstrRef) -> Result<(), ()> {
-        VarVisitor::on_succ_phi(self, this, instr)
+        ValueVisitor::on_succ_phi(self, this, instr)
     }
 }
 
-impl VarVisitor<()> for RenameVisitor {
-    fn on_use(&mut self, opd: &RefCell<Value>) -> Result<(), ()> {
+impl ValueVisitor<()> for RenameVisitor {
+    fn on_use(&mut self, _: InstrRef, opd: &RefCell<Value>) -> Result<(), ()> {
         opd.replace_with(|opd| {
             if let Value::Var(sym) = opd.deref() {
                 let latest = self.sym.get(sym.name()).unwrap().latest();
@@ -406,13 +418,157 @@ impl VarVisitor<()> for RenameVisitor {
         Ok(())
     }
 
-    fn on_def(&mut self, def: &RefCell<SymbolRef>) -> Result<(), ()> {
+    fn on_def(&mut self, _: InstrRef, def: &RefCell<SymbolRef>) -> Result<(), ()> {
         def.replace_with(|sym| {
             let new_sym = self.sym.get_mut(sym.name()).unwrap().rename();
             self.def.last_mut().unwrap().push(new_sym.name().to_string());
+            self.scope.as_deref().unwrap().add(new_sym.clone());
             new_sym
         });
         Ok(())
+    }
+}
+
+/// Carry definition point and use points of a certain symbol
+#[derive(Debug)]
+pub struct DefUse {
+    pub def: DefPos,
+    pub uses: Vec<InstrRef>,
+}
+
+/// Specify the definition position
+#[derive(Clone, Debug)]
+pub enum DefPos {
+    /// Defined in parameter list
+    Param,
+    /// Defined in instruction
+    Instr(InstrRef),
+    None,
+}
+
+struct DefUseVisitor {
+    info: HashMap<SymbolRef, DefUse>
+}
+
+impl DomVisitor<()> for DefUseVisitor {
+    fn on_begin(&mut self, func: &Func) -> Result<(), ()> {
+        // Build parameter definition
+        func.param.iter().for_each(|param| {
+            self.info.insert(param.borrow().clone(), DefUse {
+                def: DefPos::Param,
+                uses: vec![],
+            });
+        });
+        InstrVisitor::on_begin(self, func)
+    }
+
+    fn on_end(&mut self, _: &Func) -> Result<(), ()> { Ok(()) }
+
+    fn on_enter(&mut self, block: BlockRef) -> Result<(), ()> {
+        InstrVisitor::on_enter(self, block)
+    }
+
+    fn on_exit(&mut self, _: BlockRef) -> Result<(), ()> { Ok(()) }
+
+    fn on_enter_child(&mut self, _: BlockRef, _: BlockRef) -> Result<(), ()> { Ok(()) }
+
+    fn on_exit_child(&mut self, _: BlockRef, _: BlockRef) -> Result<(), ()> { Ok(()) }
+}
+
+impl InstrVisitor<()> for DefUseVisitor {
+    fn on_access(&mut self, _: BlockRef) -> Result<(), ()> { Ok(()) }
+
+    fn on_instr(&mut self, instr: InstrRef) -> Result<(), ()> {
+        ValueVisitor::on_instr(self, instr)
+    }
+
+    fn on_succ_phi(&mut self, this: Option<BlockRef>, instr: InstrRef) -> Result<(), ()> {
+        ValueVisitor::on_succ_phi(self, this, instr)
+    }
+}
+
+impl ValueVisitor<()> for DefUseVisitor {
+    fn on_use(&mut self, instr: InstrRef, opd: &RefCell<Value>) -> Result<(), ()> {
+        if let Value::Var(sym) = opd.borrow().deref() {
+            match self.info.get_mut(sym) {
+                Some(info) => info.uses.push(instr),
+                None => { // some symbols may be undefined in transformed SSA
+                    self.info.insert(sym.clone(), DefUse {
+                        def: DefPos::None,
+                        uses: vec![instr.clone()],
+                    });
+                }
+            }
+        }
+        Ok(())
+    }
+
+    fn on_def(&mut self, instr: InstrRef, def: &RefCell<SymbolRef>) -> Result<(), ()> {
+        self.info.insert(def.borrow().clone(), DefUse {
+            def: DefPos::Instr(instr),
+            uses: vec![],
+        });
+        Ok(())
+    }
+}
+
+impl Func {
+    /// Compute define-use information for symbols
+    pub fn def_use(&self) -> HashMap<SymbolRef, DefUse> {
+        let mut visitor = DefUseVisitor { info: HashMap::new() };
+        self.visit_dom(&mut visitor).unwrap();
+        visitor.info
+    }
+
+    /// Dead code elimination
+    /// This is placed here, not in `opt` module, because SSA transformation need this procedure.
+    pub fn elim_dead_code(&self) {
+        // Compute define-use information
+        let mut def_use = self.def_use();
+
+        // Use work list algorithm to create target set
+        let mut target = HashSet::new();
+        let mut work: WorkList<SymbolRef> = WorkList::from_iter(def_use.keys().cloned());
+
+        while !work.is_empty() {
+            // Pick one variable.
+            let sym = work.pick().unwrap();
+            // Cannot decide if it is still in use.
+            if !def_use.get(&sym).unwrap().uses.is_empty() { continue; }
+            // Find the instruction where it is defined.
+            match def_use.get(&sym).unwrap().def.clone() {
+                DefPos::Instr(instr) if !instr.has_side_effect() => {
+                    // Mark this instruction, if it has no other effects
+                    target.insert(instr.clone());
+                    for opd in instr.src() {
+                        match opd.borrow().deref() {
+                            // Also remove this instruction from the use list of the symbols it
+                            // uses.
+                            Value::Var(opd) if opd.is_local_var() => {
+                                let pos = def_use.get(opd).unwrap().uses.iter().position(|elem| {
+                                    *elem == instr
+                                }).unwrap();
+                                def_use.get_mut(opd).unwrap().uses.remove(pos);
+                                // Add these symbols to work list, as they may be dead this time.
+                                work.add(opd.clone())
+                            }
+                            _ => ()
+                        }
+                    }
+                }
+                _ => continue
+            }
+        }
+
+        // Actually remove these instructions
+        self.dfs().for_each(|block| {
+            block.instr.borrow_mut().retain(|instr| {
+                if target.contains(instr) {
+                    instr.dst().map(|dst| self.scope.remove(&dst.borrow().id()));
+                    false
+                } else { true }
+            })
+        })
     }
 }
 

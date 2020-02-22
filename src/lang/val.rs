@@ -213,11 +213,12 @@ impl Typed for GlobalVar {
 }
 
 #[derive(Debug)]
-/// Encapsulation of hash map to provide
+/// Encapsulation of hash map to provide common operations to scope.
+/// Internal mutability is utilized, so be careful not to violate the borrowing rules.
 pub struct Scope {
     /// Maps variable identifier to symbol
     /// For local variable, its identifier is `{$name}(.{$ver})?`
-    sym: RefCell<HashMap<String, SymbolRef>>,
+    map: RefCell<HashMap<String, SymbolRef>>,
 }
 
 impl Scope {
@@ -226,31 +227,39 @@ impl Scope {
     /// Otherwise, a global scope will be created.
     pub fn new() -> Scope {
         Scope {
-            sym: RefCell::new(HashMap::new())
+            map: RefCell::new(HashMap::new())
         }
     }
 
     /// Add a symbol to the scope, and return if this symbol was successfully added.
     pub fn add(&self, sym: SymbolRef) -> bool {
         let id = sym.id();
-        self.sym.borrow_mut().insert(id, sym).is_none()
+        self.map.borrow_mut().insert(id, sym).is_none()
+    }
+
+    /// Append a collection of symbols to Scope
+    pub fn append<I>(&self, iter: I) where I: Iterator<Item=SymbolRef> {
+        iter.for_each(|sym| { self.add(sym); })
     }
 
     /// Lookup a symbol with given `id`.
     pub fn find(&self, id: &str) -> Option<SymbolRef> {
-        self.sym.borrow_mut().get(id).cloned()
+        self.map.borrow_mut().get(id).cloned()
     }
 
     /// Remove symbol with `name` from scope.
-    pub fn remove(&self, name: &String) { self.sym.borrow_mut().remove(name); }
+    pub fn remove(&self, name: &str) { self.map.borrow_mut().remove(name); }
+
+    /// Clear all the symbols in the scope
+    pub fn clear(&self) { self.map.borrow_mut().clear() }
 
     /// Return vector containing all the symbols in the scope.
     pub fn collect(&self) -> Vec<SymbolRef> {
-        self.sym.borrow().values().cloned().collect()
+        self.map.borrow().values().cloned().collect()
     }
 
     /// Run the given function on each symbol in this scope
     pub fn for_each<F>(&self, f: F) where F: FnMut(SymbolRef) {
-        self.sym.borrow().values().cloned().for_each(f)
+        self.map.borrow().values().cloned().for_each(f)
     }
 }
