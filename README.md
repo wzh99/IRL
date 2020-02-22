@@ -57,8 +57,12 @@ If a function contains one or more phi instruction, *or* if any versioned symbol
 
 * Each phi instruction has source operands for all predecessors.
 
-## Visiting pattern
+## Design pattern
 
-In this project, most of accesses to the program, including verification, analysis, transformation are all based on the visitor design pattern. This pattern derives from the insight that most of the algorithms related to these work have some common pattern inside. If we could factor out these common part, we could improve code reuse and make program less prone to bugs.
+In this project, most of accesses to the program, including verification, analysis, optimization are all based on the listener design pattern. This derives from the insight that most of the algorithms related to these work follow the basic routine of dominator tree traversal. If we could factor out this routine, we could improve code reuse and make program less prone to bugs.
 
-Most of the code with visitor pattern are in order of dominator tree traversal. Three visitor traits with different granularity are provided in the program: `DomVisitor` at block level, `InstrVisitor` at instruction level, and `ValueVisitor` at variable level. Visitor trait with finer granularity are extended trait of the visitor with coarser one. They can be chosen on demand. Furthermore, different visitors can be combined to support more sophisticated work. 
+ Three listener traits with different granularity are provided in the program: `BlockListener` at block level, `InstrListener` at instruction level, and `ValueListener` at value level. Listener trait with finer granularity are extended trait of the listener with coarser one. They can be chosen on demand. Furthermore, different listeners can be combined to support more sophisticated work. 
+
+## Optimization
+
+Optimization on the program are implemented as passes, which is usually the case in modern compilers. Most of the global (function-level) optimizations depend on 

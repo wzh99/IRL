@@ -4,7 +4,7 @@ use std::iter::FromIterator;
 use std::ops::Deref;
 use std::rc::Rc;
 
-use crate::lang::func::{BlockRef, DomVisitor, Func};
+use crate::lang::func::{BlockListener, BlockRef, Func};
 use crate::lang::instr::{Instr, InstrRef, PhiSrc};
 use crate::lang::util::{ExtRc, WorkList};
 use crate::lang::val::{Scope, Symbol, SymbolRef, Typed, Value};
@@ -20,25 +20,24 @@ impl SsaFlag {
 }
 
 /// Visitor of instructions in SSA program.
-pub trait InstrVisitor<E>: DomVisitor<E> {
-    fn on_begin(&mut self, func: &Func) -> Result<(), E> {
+pub trait InstrListener: BlockListener {
+    fn on_begin(&mut self, func: &Func) {
         // Visit phi instructions in the entrance block
         for instr in func.ent.borrow().instr.borrow().iter().cloned() {
             match instr.deref() {
-                Instr::Phi { src: _, dst: _ } => self.on_succ_phi(None, instr)?,
+                Instr::Phi { src: _, dst: _ } => self.on_succ_phi(None, instr),
                 _ => break
             }
         }
-        Ok(())
     }
 
-    fn on_enter(&mut self, block: BlockRef) -> Result<(), E> {
+    fn on_enter(&mut self, block: BlockRef) {
         // Perform first-access action before visiting instructions
-        self.on_access(block.clone())?;
+        self.on_access(block.clone());
 
         // Visit instructions
         for instr in block.instr.borrow().iter().cloned() {
-            self.on_instr(instr)?;
+            self.on_instr(instr);
         }
 
         // Visit phi instructions in successors
@@ -46,63 +45,59 @@ pub trait InstrVisitor<E>: DomVisitor<E> {
             for instr in succ.instr.borrow().iter() {
                 match instr.deref() {
                     Instr::Phi { src: _, dst: _ } =>
-                        self.on_succ_phi(Some(block.clone()), instr.clone())?,
+                        self.on_succ_phi(Some(block.clone()), instr.clone()),
                     _ => break // phi instructions must be at front of each block
                 }
             }
         }
-
-        Ok(())
     }
 
     /// Called when `block` is accessed for the first time, before visiting instructions inside.
-    fn on_access(&mut self, block: BlockRef) -> Result<(), E>;
+    fn on_access(&mut self, block: BlockRef);
 
     /// Called when visiting each instruction.
-    fn on_instr(&mut self, instr: InstrRef) -> Result<(), E>;
+    fn on_instr(&mut self, instr: InstrRef);
 
     /// Called when visiting phi instructions in successor blocks.
-    fn on_succ_phi(&mut self, this: Option<BlockRef>, instr: InstrRef) -> Result<(), E>;
+    fn on_succ_phi(&mut self, this: Option<BlockRef>, instr: InstrRef);
 }
 
 /// Visitor of variables in SSA program.
-pub trait ValueVisitor<E>: InstrVisitor<E> {
-    fn on_instr(&mut self, instr: InstrRef) -> Result<(), E> {
+pub trait ValueListener: InstrListener {
+    fn on_instr(&mut self, instr: InstrRef) {
         match instr.deref() {
             Instr::Phi { src: _, dst: _ } => if let Some(dst) = instr.dst() {
-                self.on_def(instr.clone(), dst)?;
+                self.on_def(instr.clone(), dst);
             }
             _ => {
                 for opd in instr.src() {
-                    self.on_use(instr.clone(), opd)?;
+                    self.on_use(instr.clone(), opd);
                 }
                 if let Some(dst) = instr.dst() {
-                    self.on_def(instr.clone(), dst)?;
+                    self.on_def(instr.clone(), dst);
                 }
             }
         }
-        Ok(())
     }
 
-    fn on_succ_phi(&mut self, this: Option<BlockRef>, instr: InstrRef) -> Result<(), E> {
+    fn on_succ_phi(&mut self, this: Option<BlockRef>, instr: InstrRef) {
         if let Instr::Phi { src, dst: _ } = instr.deref() {
             for (pred, opd) in src {
                 match (&this, pred, opd) {
                     (Some(this), Some(pred), opd) if this == pred =>
-                        self.on_use(instr.clone(), opd)?,
-                    (None, None, opd) => self.on_use(instr.clone(), opd)?,
+                        self.on_use(instr.clone(), opd),
+                    (None, None, opd) => self.on_use(instr.clone(), opd),
                     _ => ()
                 }
             }
         }
-        Ok(())
     }
 
     /// Call on operands (uses) of the instruction.
-    fn on_use(&mut self, instr: InstrRef, opd: &RefCell<Value>) -> Result<(), E>;
+    fn on_use(&mut self, instr: InstrRef, opd: &RefCell<Value>);
 
     /// Call on possible definition of the instruction.
-    fn on_def(&mut self, instr: InstrRef, def: &RefCell<SymbolRef>) -> Result<(), E>;
+    fn on_def(&mut self, instr: InstrRef, def: &RefCell<SymbolRef>);
 }
 
 pub struct Verifier {
@@ -111,42 +106,41 @@ pub struct Verifier {
     // Whether variables are available when reaching this block.
     // Organized as stack of frames, representing nodes on the path from root to current block
     avail: Vec<Vec<SymbolRef>>,
+    // Error information
+    pub err: Vec<String>,
 }
 
-impl DomVisitor<String> for Verifier {
-    fn on_begin(&mut self, func: &Func) -> Result<(), String> {
+impl BlockListener for Verifier {
+    fn on_begin(&mut self, func: &Func) {
         // Add parameters as the first frame
         func.param.iter().for_each(|p| { self.def.insert(p.borrow().clone()); });
         self.avail.push(func.param.iter().map(|p| p.borrow().clone()).collect());
 
         // Check phi operands in entrance block
-        InstrVisitor::on_begin(self, func)?;
-        Ok(())
+        InstrListener::on_begin(self, func);
     }
 
-    fn on_end(&mut self, func: &Func) -> Result<(), String> {
+    fn on_end(&mut self, func: &Func) {
         func.ssa.set(true);
         self.def.clear();
         self.avail.clear();
-        Ok(())
     }
 
-    fn on_enter(&mut self, block: BlockRef) -> Result<(), String> {
-        InstrVisitor::on_enter(self, block)
+    fn on_enter(&mut self, block: BlockRef) {
+        InstrListener::on_enter(self, block)
     }
 
-    fn on_exit(&mut self, _: BlockRef) -> Result<(), String> {
+    fn on_exit(&mut self, _: BlockRef) {
         self.avail.pop();
-        Ok(())
     }
 
-    fn on_enter_child(&mut self, _: BlockRef, _: BlockRef) -> Result<(), String> { Ok(()) }
+    fn on_enter_child(&mut self, _: BlockRef, _: BlockRef) {}
 
-    fn on_exit_child(&mut self, _: BlockRef, _: BlockRef) -> Result<(), String> { Ok(()) }
+    fn on_exit_child(&mut self, _: BlockRef, _: BlockRef) {}
 }
 
-impl InstrVisitor<String> for Verifier {
-    fn on_access(&mut self, block: BlockRef) -> Result<(), String> {
+impl InstrListener for Verifier {
+    fn on_access(&mut self, block: BlockRef) {
         // Push current frame to stack
         self.avail.push(vec![]);
 
@@ -161,7 +155,7 @@ impl InstrVisitor<String> for Verifier {
                         .map(|(pred, _)| pred.clone()).collect();
                     for pred in &req_pred {
                         if !phi_pred.contains(pred) {
-                            return Err(format!(
+                            self.err.push(format!(
                                 "phi operand not found for {}",
                                 match pred {
                                     Some(p) => format!("predecessor {}", p.name),
@@ -174,46 +168,40 @@ impl InstrVisitor<String> for Verifier {
                 _ => break
             }
         }
-
-        Ok(())
     }
 
-    fn on_instr(&mut self, instr: InstrRef) -> Result<(), String> {
-        ValueVisitor::on_instr(self, instr)
+    fn on_instr(&mut self, instr: InstrRef) {
+        ValueListener::on_instr(self, instr)
     }
 
-    fn on_succ_phi(&mut self, this: Option<BlockRef>, instr: InstrRef) -> Result<(), String> {
-        ValueVisitor::on_succ_phi(self, this, instr)
+    fn on_succ_phi(&mut self, this: Option<BlockRef>, instr: InstrRef) {
+        ValueListener::on_succ_phi(self, this, instr)
     }
 }
 
-impl ValueVisitor<String> for Verifier {
-    fn on_use(&mut self, _: InstrRef, opd: &RefCell<Value>) -> Result<(), String> {
+impl ValueListener for Verifier {
+    fn on_use(&mut self, _: InstrRef, opd: &RefCell<Value>) {
         match opd.borrow().deref() {
             Value::Var(sym) if sym.is_local_var() && !self.is_avail(sym) => {
-                return Err(format!(
+                self.err.push(format!(
                     "variable {} is used before defined", sym.id()
                 ));
             }
             _ => ()
         }
-        Ok(())
     }
 
-    fn on_def(&mut self, _: InstrRef, def: &RefCell<SymbolRef>) -> Result<(), String> {
+    fn on_def(&mut self, _: InstrRef, def: &RefCell<SymbolRef>) {
         if def.borrow().is_local_var() {
             let sym = def.borrow().clone();
             if self.def.contains(&sym) { // already statically defined
-                return Err(format!(
-                    "variable {} already defined", sym.id()
-                ));
+                self.err.push(format!("variable {} already defined", sym.id()));
             } else {
                 self.def.insert(sym.clone()); // mark this static definition
                 // add to current frame of availability stack
                 self.avail.last_mut().unwrap().push(sym)
             }
         }
-        Ok(())
     }
 }
 
@@ -222,6 +210,7 @@ impl Verifier {
         Verifier {
             def: HashSet::new(),
             avail: vec![],
+            err: vec![]
         }
     }
 
@@ -285,12 +274,12 @@ impl Func {
     }
 
     fn rename(&self) {
-        let mut visitor = RenameVisitor {
+        let mut listener = Renamer {
             sym: HashMap::new(),
             def: vec![],
-            scope: None
+            scope: None,
         };
-        self.visit_dom(&mut visitor).unwrap();
+        self.walk_dom(&mut listener);
     }
 
     fn defined_sym(&self, block: &BlockRef) -> HashSet<SymbolRef> {
@@ -329,7 +318,7 @@ impl RenamedSym {
     }
 }
 
-struct RenameVisitor {
+struct Renamer {
     /// Map symbol name to its renaming status
     sym: HashMap<String, RenamedSym>,
     /// Stack of frames for defined symbols in each block
@@ -338,8 +327,8 @@ struct RenameVisitor {
     scope: Option<Rc<Scope>>,
 }
 
-impl DomVisitor<()> for RenameVisitor {
-    fn on_begin(&mut self, func: &Func) -> Result<(), ()> {
+impl BlockListener for Renamer {
+    fn on_begin(&mut self, func: &Func) {
         // Initialize renaming stack
         let mut added = vec![];
         func.scope.for_each(|sym| {
@@ -367,65 +356,61 @@ impl DomVisitor<()> for RenameVisitor {
         });
 
         self.scope = Some(func.scope.clone());
-        InstrVisitor::on_begin(self, func)
+        InstrListener::on_begin(self, func)
     }
 
-    fn on_end(&mut self, _: &Func) -> Result<(), ()> {
+    fn on_end(&mut self, _: &Func) {
         self.sym.clear();
         self.def.clear();
         self.scope = None;
-        Ok(())
     }
 
-    fn on_enter(&mut self, block: BlockRef) -> Result<(), ()> {
+    fn on_enter(&mut self, block: BlockRef) {
         self.def.push(vec![]);
-        InstrVisitor::on_enter(self, block)
+        InstrListener::on_enter(self, block)
     }
 
-    fn on_exit(&mut self, _: BlockRef) -> Result<(), ()> {
+    fn on_exit(&mut self, _: BlockRef) {
         for name in self.def.last().unwrap() {
             self.sym.get_mut(name).unwrap().pop();
         }
         self.def.pop();
-        Ok(())
     }
 
-    fn on_enter_child(&mut self, _: BlockRef, _: BlockRef) -> Result<(), ()> { Ok(()) }
+    fn on_enter_child(&mut self, _: BlockRef, _: BlockRef) {}
 
-    fn on_exit_child(&mut self, _: BlockRef, _: BlockRef) -> Result<(), ()> { Ok(()) }
+    fn on_exit_child(&mut self, _: BlockRef, _: BlockRef) {}
 }
 
-impl InstrVisitor<()> for RenameVisitor {
-    fn on_access(&mut self, _: BlockRef) -> Result<(), ()> { Ok(()) }
+impl InstrListener for Renamer {
+    fn on_access(&mut self, _: BlockRef) {}
 
-    fn on_instr(&mut self, instr: InstrRef) -> Result<(), ()> {
-        ValueVisitor::on_instr(self, instr)
+    fn on_instr(&mut self, instr: InstrRef) {
+        ValueListener::on_instr(self, instr)
     }
 
-    fn on_succ_phi(&mut self, this: Option<BlockRef>, instr: InstrRef) -> Result<(), ()> {
-        ValueVisitor::on_succ_phi(self, this, instr)
+    fn on_succ_phi(&mut self, this: Option<BlockRef>, instr: InstrRef) {
+        ValueListener::on_succ_phi(self, this, instr)
     }
 }
 
-impl ValueVisitor<()> for RenameVisitor {
-    fn on_use(&mut self, _: InstrRef, opd: &RefCell<Value>) -> Result<(), ()> {
+impl ValueListener for Renamer {
+    fn on_use(&mut self, _: InstrRef, opd: &RefCell<Value>) {
         opd.replace_with(|opd| {
             if let Value::Var(sym) = opd.deref() {
                 let latest = self.sym.get(sym.name()).unwrap().latest();
                 Value::Var(latest)
             } else { opd.clone() }
         });
-        Ok(())
     }
 
-    fn on_def(&mut self, _: InstrRef, def: &RefCell<SymbolRef>) -> Result<(), ()> {
+    fn on_def(&mut self, _: InstrRef, def: &RefCell<SymbolRef>) {
         def.replace_with(|sym| {
             let new_sym = self.sym.get_mut(sym.name()).unwrap().rename();
             self.def.last_mut().unwrap().push(new_sym.name().to_string());
             self.scope.as_deref().unwrap().add(new_sym.clone());
             new_sym
         });
-        Ok(())
     }
 }
 
@@ -446,12 +431,12 @@ pub enum DefPos {
     None,
 }
 
-struct DefUseVisitor {
+struct DefUseBuilder {
     info: HashMap<SymbolRef, DefUse>
 }
 
-impl DomVisitor<()> for DefUseVisitor {
-    fn on_begin(&mut self, func: &Func) -> Result<(), ()> {
+impl BlockListener for DefUseBuilder {
+    fn on_begin(&mut self, func: &Func) {
         // Build parameter definition
         func.param.iter().for_each(|param| {
             self.info.insert(param.borrow().clone(), DefUse {
@@ -459,36 +444,36 @@ impl DomVisitor<()> for DefUseVisitor {
                 uses: vec![],
             });
         });
-        InstrVisitor::on_begin(self, func)
+        InstrListener::on_begin(self, func)
     }
 
-    fn on_end(&mut self, _: &Func) -> Result<(), ()> { Ok(()) }
+    fn on_end(&mut self, _: &Func) {}
 
-    fn on_enter(&mut self, block: BlockRef) -> Result<(), ()> {
-        InstrVisitor::on_enter(self, block)
+    fn on_enter(&mut self, block: BlockRef) {
+        InstrListener::on_enter(self, block)
     }
 
-    fn on_exit(&mut self, _: BlockRef) -> Result<(), ()> { Ok(()) }
+    fn on_exit(&mut self, _: BlockRef) {}
 
-    fn on_enter_child(&mut self, _: BlockRef, _: BlockRef) -> Result<(), ()> { Ok(()) }
+    fn on_enter_child(&mut self, _: BlockRef, _: BlockRef) {}
 
-    fn on_exit_child(&mut self, _: BlockRef, _: BlockRef) -> Result<(), ()> { Ok(()) }
+    fn on_exit_child(&mut self, _: BlockRef, _: BlockRef) {}
 }
 
-impl InstrVisitor<()> for DefUseVisitor {
-    fn on_access(&mut self, _: BlockRef) -> Result<(), ()> { Ok(()) }
+impl InstrListener for DefUseBuilder {
+    fn on_access(&mut self, _: BlockRef) {}
 
-    fn on_instr(&mut self, instr: InstrRef) -> Result<(), ()> {
-        ValueVisitor::on_instr(self, instr)
+    fn on_instr(&mut self, instr: InstrRef) {
+        ValueListener::on_instr(self, instr)
     }
 
-    fn on_succ_phi(&mut self, this: Option<BlockRef>, instr: InstrRef) -> Result<(), ()> {
-        ValueVisitor::on_succ_phi(self, this, instr)
+    fn on_succ_phi(&mut self, this: Option<BlockRef>, instr: InstrRef) {
+        ValueListener::on_succ_phi(self, this, instr)
     }
 }
 
-impl ValueVisitor<()> for DefUseVisitor {
-    fn on_use(&mut self, instr: InstrRef, opd: &RefCell<Value>) -> Result<(), ()> {
+impl ValueListener for DefUseBuilder {
+    fn on_use(&mut self, instr: InstrRef, opd: &RefCell<Value>) {
         if let Value::Var(sym) = opd.borrow().deref() {
             match self.info.get_mut(sym) {
                 Some(info) => info.uses.push(instr),
@@ -500,24 +485,22 @@ impl ValueVisitor<()> for DefUseVisitor {
                 }
             }
         }
-        Ok(())
     }
 
-    fn on_def(&mut self, instr: InstrRef, def: &RefCell<SymbolRef>) -> Result<(), ()> {
+    fn on_def(&mut self, instr: InstrRef, def: &RefCell<SymbolRef>) {
         self.info.insert(def.borrow().clone(), DefUse {
             def: DefPos::Instr(instr),
             uses: vec![],
         });
-        Ok(())
     }
 }
 
 impl Func {
     /// Compute define-use information for symbols
     pub fn def_use(&self) -> HashMap<SymbolRef, DefUse> {
-        let mut visitor = DefUseVisitor { info: HashMap::new() };
-        self.visit_dom(&mut visitor).unwrap();
-        visitor.info
+        let mut listener = DefUseBuilder { info: HashMap::new() };
+        self.walk_dom(&mut listener);
+        listener.info
     }
 
     /// Dead code elimination

@@ -10,6 +10,7 @@ pub mod instr;
 pub mod func;
 pub mod ssa;
 pub mod print;
+pub mod graph;
 
 /// Top level program structure
 #[derive(Debug)]

@@ -1,4 +1,4 @@
-use std::cell::{Cell, RefCell};
+use std::cell::RefCell;
 use std::cmp::Ordering;
 use std::collections::{HashMap, HashSet, VecDeque};
 use std::fmt::{Debug, Error, Formatter};
@@ -6,6 +6,8 @@ use std::iter::FromIterator;
 use std::ops::Deref;
 use std::rc::Rc;
 
+use crate::lang::graph::{BfsIter, DfsIter, Vertex};
+use crate::lang::graph::dom;
 use crate::lang::instr::{Instr, InstrRef};
 use crate::lang::ssa::SsaFlag;
 use crate::lang::util::ExtRc;
@@ -63,116 +65,56 @@ impl Func {
     }
 }
 
-/// Breadth-first iterator of blocks
-pub struct BfsIter {
-    queue: VecDeque<BlockRef>,
-    visited: HashSet<BlockRef>,
-}
-
-impl Iterator for BfsIter {
-    type Item = BlockRef;
-
-    fn next(&mut self) -> Option<Self::Item> {
-        self.queue.pop_front().map(|next| {
-            for succ in next.succ.borrow().iter() {
-                if !self.visited.contains(succ) {
-                    self.queue.push_back(succ.clone());
-                    self.visited.insert(succ.clone());
-                }
-            }
-            next
-        })
-    }
-}
-
 impl Func {
     /// Return an iterator to breadth-first search the CFG.
-    pub fn bfs(&self) -> BfsIter {
-        let ent = self.ent.borrow().clone();
-        BfsIter {
-            queue: VecDeque::from_iter(vec![ent.clone()]),
-            visited: HashSet::from_iter(vec![ent]),
-        }
+    pub fn bfs(&self) -> BfsIter<BlockRef> {
+        Vertex::bfs(self.ent.borrow().deref())
     }
-}
 
-/// Depth-first iterator of blocks
-pub struct DfsIter {
-    stack: Vec<BlockRef>,
-    visited: HashSet<BlockRef>,
-}
-
-impl Iterator for DfsIter {
-    type Item = BlockRef;
-
-    fn next(&mut self) -> Option<Self::Item> {
-        self.stack.pop().map(|next| {
-            for succ in next.succ.borrow().iter().rev() {
-                if !self.visited.contains(succ) {
-                    self.stack.push(succ.clone());
-                    self.visited.insert(succ.clone());
-                }
-            }
-            next
-        })
-    }
-}
-
-impl Func {
     /// Return an iterator to depth-first search the CFG.
-    pub fn dfs(&self) -> DfsIter {
-        let ent = self.ent.borrow().clone();
-        DfsIter {
-            stack: vec![ent.clone()],
-            visited: HashSet::from_iter(vec![ent]),
-        }
+    pub fn dfs(&self) -> DfsIter<BlockRef> {
+        Vertex::dfs(self.ent.borrow().deref())
     }
 }
 
 /// Visitor trait of dominance tree
-pub trait DomVisitor<E> {
+pub trait BlockListener {
     /// Called on the very beginning of visiting.
-    fn on_begin(&mut self, func: &Func) -> Result<(), E>;
+    fn on_begin(&mut self, func: &Func);
 
     /// Called when the visiting is finished.
-    fn on_end(&mut self, func: &Func) -> Result<(), E>;
+    fn on_end(&mut self, func: &Func);
 
     /// Called when the subtree whose root is current block is entered.
-    fn on_enter(&mut self, block: BlockRef) -> Result<(), E>;
+    fn on_enter(&mut self, block: BlockRef);
 
     /// Called when the offspring of this block have already been visited, and ready to leave
     /// this subtree.
-    fn on_exit(&mut self, block: BlockRef) -> Result<(), E>;
+    fn on_exit(&mut self, block: BlockRef);
 
     /// Called when a child subtree is entered.
-    fn on_enter_child(&mut self, this: BlockRef, child: BlockRef) -> Result<(), E>;
+    fn on_enter_child(&mut self, this: BlockRef, child: BlockRef);
 
     /// Called when leaving a child subtree
-    fn on_exit_child(&mut self, this: BlockRef, child: BlockRef) -> Result<(), E>;
+    fn on_exit_child(&mut self, this: BlockRef, child: BlockRef);
 }
 
 impl Func {
-    /// Visit the dominator tree of this function with given visitor trait object
-    pub fn visit_dom<E, V>(&self, visitor: &mut V) -> Result<(), E>
-        where V: DomVisitor<E>
-    {
-        visitor.on_begin(self)?;
-        self.visit_block(self.ent.borrow().clone(), visitor)?;
-        visitor.on_end(self)?;
-        Ok(())
+    /// Walk the dominator tree of this function with given listener trait object
+    pub fn walk_dom<L>(&self, listener: &mut L) where L: BlockListener {
+        listener.on_begin(self);
+        self.visit_block(self.ent.borrow().clone(), listener);
+        listener.on_end(self);
     }
 
-    fn visit_block<E, V>(&self, block: BlockRef, visitor: &mut V) -> Result<(), E>
-        where V: DomVisitor<E>
-    {
-        visitor.on_enter(block.clone())?;
+    fn visit_block<L>(&self, block: BlockRef, listener: &mut L) where L: BlockListener {
+        listener.on_enter(block.clone());
         for child in block.child.borrow().iter() {
-            visitor.on_enter_child(block.clone(), child.clone())?;
-            self.visit_block(child.clone(), visitor)?;
-            visitor.on_exit_child(block.clone(), child.clone())?;
+            listener.on_enter_child(block.clone(), child.clone());
+            self.visit_block(child.clone(), listener);
+            listener.on_exit_child(block.clone(), child.clone());
         }
-        visitor.on_exit(block)?;
-        Ok(())
+        listener.on_exit(block);
     }
 }
 
@@ -322,30 +264,11 @@ impl BlockRef {
     }
 }
 
-/// Node in a depth-first spanning tree
-#[derive(Debug)]
-struct DfNode {
-    /// Point back to the actual block
-    block: BlockRef,
-    /// Parent of this node in the tree
-    parent: Cell<usize>,
-    /// Semidominator of this node
-    semi: Cell<usize>,
-    /// Set of nodes whose semidominator is this node
-    bucket: RefCell<HashSet<usize>>,
-    /// Intermediate dominator
-    dom: Cell<usize>,
-    /// Tree root in the forest
-    ancestor: Cell<usize>,
-    /// Record intermediate evaluation result
-    best: Cell<usize>,
-    /// Size of subtree with current node as root
-    size: Cell<usize>,
-    /// Child of current node
-    child: Cell<usize>,
+impl Vertex<BlockRef> for BlockRef {
+    fn this(&self) -> BlockRef { self.clone() }
+    fn pred(&self) -> Vec<BlockRef> { self.pred.borrow().deref().clone() }
+    fn succ(&self) -> Vec<BlockRef> { self.succ.borrow().deref().clone() }
 }
-
-const NONE: usize = usize::max_value();
 
 impl Func {
     /// Remove unreachable blocks in this function. This is necessary for algorithms that rely
@@ -366,182 +289,57 @@ impl Func {
         })
     }
 
-    /// Build dominator tree according to current CFG using Lengauer-Tarjan algorithm.
-    /// Only after calling this method can `parent` and `children` methods of `BasicBlock`
-    /// return valid results.
-    /// See [https://www.cl.cam.ac.uk/~mr10/lengtarj.pdf].
+    /// Build dominator tree according to current CFG.
+    /// This method is just a wrapper for the generic graph algorithm.
     pub fn build_dom(&self) {
         // Remove unreachable blocks
         self.remove_unreachable();
-
-        // Perform depth-first search on the CFG
-        let mut nodes = Vec::new();
-        let mut block_num = HashMap::new(); // map block to number
-        for (i, block) in self.dfs().enumerate() {
-            block_num.insert(block.clone(), i);
-            nodes.push(DfNode { // store nodes as the order of traversal
-                block,
-                parent: Cell::new(NONE),
-                semi: Cell::new(NONE),
-                bucket: RefCell::new(HashSet::new()),
-                dom: Cell::new(NONE),
-                ancestor: Cell::new(NONE),
-                best: Cell::new(i),
-                size: Cell::new(0),
-                child: Cell::new(NONE),
-            })
-        }
-        if nodes.len() <= 1 { return; } // no point in building dominator tree
-
-        let semi = |v: usize| nodes[v].semi.get();
-        let parent = |v: usize| nodes[v].parent.get();
-        let dom = |v: usize| nodes[v].dom.get();
-
-        for (v_num, v_node) in nodes.iter().enumerate() { // find parent for each node
-            v_node.semi.replace(v_num);
-            for w_block in v_node.block.succ.borrow().iter() {
-                let w_num = block_num.get(w_block).copied().unwrap();
-                let w_node = &nodes[w_num];
-                if w_node.semi.get() == NONE {
-                    w_node.parent.set(v_num);
-                }
-            }
-        }
-
-        for w in (1..nodes.len()).rev() {
-            // Compute semidominator of each vertex
-            let p = parent(w);
-            for v_block in nodes[w].block.pred.borrow().iter() {
-                let v = block_num.get(v_block).copied().unwrap();
-                let u = self.eval(&nodes, v);
-                if semi(w) > semi(u) {
-                    nodes[w].semi.set(semi(u))
-                }
-            }
-            nodes[semi(w)].bucket.borrow_mut().insert(w);
-            self.link(&nodes, p, w);
-
-            // Implicitly define immediate dominator
-            for v in nodes[p].bucket.borrow().iter().copied() {
-                let u = self.eval(&nodes, v);
-                nodes[v].dom.set(if semi(u) < semi(v) { u } else { p });
-            }
-            nodes[p].bucket.replace(HashSet::new());
-        }
-
-        // Explicitly define immediate dominator
-        for w in 1..nodes.len() {
-            if dom(w) != semi(w) {
-                nodes[w].dom.set(dom(dom(w)));
-            }
-            let d = dom(w);
-            nodes[w].block.parent.borrow_mut().replace(nodes[d].block.clone());
-            nodes[d].block.child.borrow_mut().push(nodes[w].block.clone())
-        }
-    }
-
-    /// Find ancestor of node `v` with smallest semidominator.
-    fn eval(&self, nodes: &Vec<DfNode>, v: usize) -> usize {
-        let best = |v: usize| nodes[v].best.get();
-        let ancestor = |v: usize| nodes[v].ancestor.get();
-        let semi = |v: usize| nodes[v].semi.get();
-
-        if ancestor(v) == NONE { v } else {
-            self.compress(nodes, v);
-            if semi(best(ancestor(v))) >= semi(best(v)) {
-                best(v)
-            } else {
-                best(ancestor(v))
-            }
-        }
-    }
-
-    fn compress(&self, nodes: &Vec<DfNode>, v: usize) {
-        let best = |v: usize| nodes[v].best.get();
-        let ancestor = |v: usize| nodes[v].ancestor.get();
-        let semi = |v: usize| nodes[v].semi.get();
-
-        if ancestor(ancestor(v)) == NONE { return; }
-        self.compress(nodes, ancestor(v));
-        if semi(best(ancestor(v))) < semi(best(v)) {
-            nodes[v].best.set(best(ancestor(v)))
-        }
-        nodes[v].ancestor.set(ancestor(ancestor(v)))
-    }
-
-    /// Add edge `(v, w)` to the forest
-    fn link(&self, nodes: &Vec<DfNode>, v: usize, w: usize) {
-        let size = |v: usize| if v == NONE { 0 } else { nodes[v].size.get() };
-        let best = |v: usize| if v == NONE { NONE } else { nodes[v].best.get() };
-        let semi = |v: usize| if v == NONE { NONE } else { nodes[v].semi.get() };
-        let child = |v: usize| if v == NONE { NONE } else { nodes[v].child.get() };
-
-        let mut s = w;
-        while child(s) != NONE && semi(best(w)) < semi(best(child(s))) {
-            // Combine the first two trees in the child chain, making the larger one the
-            // combined root.
-            if size(s) + size(child(child(s))) >= 2 * size(child(s)) {
-                nodes[child(s)].ancestor.replace(s);
-                nodes[s].child.replace(child(child(s)));
-            } else {
-                nodes[child(s)].size.replace(size(s));
-                nodes[s].ancestor.replace(child(s));
-                s = child(s);
-            }
-        }
-
-        // Now combine the two forests giving the combination the child chain of the smaller
-        // forest. The other child chain is then collapsed, giving all its trees ancestor
-        // links to v.
-        nodes[s].best.replace(best(w));
-        if size(v) < size(w) {
-            let tmp = child(v);
-            nodes[v].child.replace(s);
-            s = tmp
-        }
-        nodes[v].size.replace(size(v) + size(w));
-        while s != NONE {
-            nodes[s].ancestor.replace(v);
-            s = child(s)
+        // Clear previously computed dominator
+        self.dfs().for_each(|block| {
+            block.parent.replace(None);
+            block.child.borrow_mut().clear();
+        });
+        // Run the Lengauer-Tarjan algorithm
+        let result = dom::build(self.ent.borrow().clone());
+        for (block, dom) in result {
+            block.parent.replace(Some(dom.clone()));
+            dom.child.borrow_mut().push(block);
         }
     }
 }
 
-struct DfVisitor {
+struct DfBuilder {
     stack: Vec<HashSet<BlockRef>>,
     df: HashMap<BlockRef, Vec<BlockRef>>,
 }
 
-impl DomVisitor<()> for DfVisitor {
-    fn on_begin(&mut self, _: &Func) -> Result<(), ()> { Ok(()) }
+impl BlockListener for DfBuilder {
+    fn on_begin(&mut self, _: &Func) {}
 
-    fn on_end(&mut self, _: &Func) -> Result<(), ()> { Ok(()) }
+    fn on_end(&mut self, _: &Func) {}
 
-    fn on_enter(&mut self, block: BlockRef) -> Result<(), ()> {
+    fn on_enter(&mut self, block: BlockRef) {
         self.stack.push(HashSet::new());
         for succ in block.succ.borrow().iter() {
             if *succ.parent.borrow() != Some(block.clone()) {
                 self.stack.last_mut().unwrap().insert(succ.clone());
             }
         }
-        Ok(())
     }
 
-    fn on_exit(&mut self, block: BlockRef) -> Result<(), ()> {
+    fn on_exit(&mut self, block: BlockRef) {
         let df_set = Vec::from_iter(self.stack.pop().unwrap().into_iter());
         self.df.insert(block, df_set);
-        Ok(())
     }
 
-    fn on_enter_child(&mut self, _: BlockRef, _: BlockRef) -> Result<(), ()> { Ok(()) }
+    fn on_enter_child(&mut self, _: BlockRef, _: BlockRef) {}
 
-    fn on_exit_child(&mut self, this: BlockRef, child: BlockRef) -> Result<(), ()> {
+    fn on_exit_child(&mut self, this: BlockRef, child: BlockRef) {
         for w in self.df.get(&child).cloned().unwrap() {
             if !this.dominates(w.clone()) || this == w { // this does not strictly dominates w
                 self.stack.last_mut().unwrap().insert(w);
             }
         }
-        Ok(())
     }
 }
 
@@ -549,11 +347,11 @@ impl Func {
     /// Compute dominance frontiers for all basic blocks.
     /// This should be called after dominator tree is built.
     pub fn compute_df(&self) -> HashMap<BlockRef, Vec<BlockRef>> {
-        let mut creator = DfVisitor {
+        let mut creator = DfBuilder {
             stack: vec![],
             df: HashMap::new(),
         };
-        self.visit_dom(&mut creator).unwrap();
+        self.walk_dom(&mut creator);
         creator.df
     }
 }

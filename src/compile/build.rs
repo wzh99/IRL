@@ -198,12 +198,13 @@ impl Builder {
         func.build_dom();
         if may_ssa {
             let mut ver = Verifier::new();
-            func.visit_dom(&mut ver).map_err(|s| {
-                CompileErr {
+            func.walk_dom(&mut ver);
+            if !ver.err.is_empty() {
+                Err(CompileErr {
                     loc: Loc { line: 0, col: 0 },
-                    msg: s,
-                }
-            })?;
+                    msg: ver.err.first().unwrap().clone(),
+                })?
+            }
         }
 
         Ok(())
