@@ -10,13 +10,13 @@ use crate::lang::util::ExtRc;
 
 #[derive(Clone, Eq, PartialEq, Debug)]
 pub enum Type {
-    /// Void type, only used in function return type
+    /// Void type, which does not represent any value and has no size.
     Void,
-    /// 1-bit integer, usually serves as booleans
+    /// 1-bit integer, usually serves as booleans.
     I1,
-    /// 64-bit integer
+    /// 64-bit integer.
     I64,
-    /// Function (pointer) with `param` as parameter type(s) and `ret` as return type
+    /// Function (pointer) with `param` as parameter type(s) and `ret` as return type.
     Fn { param: Vec<Type>, ret: Box<Type> },
 }
 

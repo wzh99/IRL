@@ -1,13 +1,13 @@
-use std::borrow::Borrow;
 use std::cell::RefCell;
 use std::collections::HashMap;
 use std::fmt::{Debug, Error, Formatter};
+use std::ops::Deref;
 
 use crate::lang::func::{BlockListener, BlockRef, Func};
 use crate::lang::instr::{Instr, InstrRef};
 use crate::lang::ssa::InstrListener;
 use crate::lang::util::ExtRc;
-use crate::lang::val::{Const, Symbol, SymbolRef};
+use crate::lang::val::{Const, Symbol, SymbolRef, Value};
 
 #[derive(Debug)]
 pub struct SsaVert {
@@ -17,6 +17,16 @@ pub struct SsaVert {
     pub opd: RefCell<Vec<VertRef>>,
     /// Uses of this value (def -> use)
     pub uses: RefCell<Vec<VertRef>>,
+}
+
+impl SsaVert {
+    pub fn new(tag: VertTag) -> SsaVert {
+        SsaVert {
+            tag,
+            opd: RefCell::new(vec![]),
+            uses: RefCell::new(vec![]),
+        }
+    }
 }
 
 pub type VertRef = ExtRc<SsaVert>;
@@ -35,18 +45,19 @@ impl VertRef {
 #[derive(Debug, Eq, PartialEq)]
 pub enum VertTag {
     /// This value is defined by parameter.
-    Param,
+    Param(String),
     /// This is a constant.
     Const(Const),
     /// Variables that can be considered as SSA values, identified by its operation name.
-    Value(String),
+    Var(String),
     /// Variable produced by phi instruction.
     /// This should be list separately from other instructions, because the incoming blocks of a
     /// phi instruction also contribute to its identity.
     Phi(Vec<Option<BlockRef>>),
     /// Memory locations that cannot be considered as SSA values, including global variables,
-    /// heap-allocated memory, etc.
-    Cell,
+    /// heap-allocated memory, etc. The associated datum is the id of the symbol that point to
+    /// this location. Note that a pointer points to a cell, but itself is not a cell.
+    Cell(String),
     /// Refer to instructions that use values but never produce new one, like `br`, `ret`, etc.
     /// Also identified by its name
     Consume(String),
@@ -66,9 +77,20 @@ impl SsaGraph {
             map: Default::default(),
         }
     }
+
+    /// Add vertex `v` to the graph, possibly map `sym` to `v` if it is not `None`.
     pub fn add(&mut self, v: VertRef, sym: Option<SymbolRef>) {
         self.vert.push(v.clone());
         sym.map(|sym| self.map.insert(sym, v));
+    }
+
+    /// Maps `sym` to a existing vertex `v`
+    pub fn map(&mut self, sym: SymbolRef, v: VertRef) {
+        self.map.insert(sym, v);
+    }
+
+    pub fn search(&self, sym: &SymbolRef) -> Option<VertRef> {
+        self.map.get(sym).cloned()
     }
 }
 
@@ -91,11 +113,9 @@ impl BlockListener for GraphBuilder {
         func.param.iter().for_each(|param| {
             let param = param.borrow().clone();
             if let Symbol::Local { name: _, ty: _, ver: _ } = param.as_ref() {
-                let vert = ExtRc::new(SsaVert {
-                    tag: VertTag::Param,
-                    opd: RefCell::new(vec![]),
-                    uses: RefCell::new(vec![]),
-                });
+                let vert = ExtRc::new(SsaVert::new(
+                    VertTag::Param(param.id())
+                ));
                 self.graph.add(vert.clone(), Some(param));
             } else { unreachable!() }
         });
@@ -105,9 +125,7 @@ impl BlockListener for GraphBuilder {
 
     fn on_end(&mut self, _: &Func) {}
 
-    fn on_enter(&mut self, block: BlockRef) {
-        InstrListener::on_enter(self, block)
-    }
+    fn on_enter(&mut self, block: BlockRef) { InstrListener::on_enter(self, block) }
 
     fn on_exit(&mut self, _: BlockRef) {}
 
@@ -120,10 +138,58 @@ impl InstrListener for GraphBuilder {
     fn on_access(&mut self, _: BlockRef) {}
 
     fn on_instr(&mut self, instr: InstrRef) {
-        unimplemented!()
+        match instr.deref() {
+            Instr::Phi { src: _, dst: _ } => (), // only the ones in successors are considered
+            Instr::Mov { src, dst } => {
+                let src = self.build_value(src.borrow().deref(), None);
+                match &src.tag {
+                    // can be regarded as equivalent
+                    VertTag::Var(_) | VertTag::Param(_) | VertTag::Const(_) | VertTag::Phi(_) =>
+                        self.graph.map(dst.borrow().clone(), src),
+                    // load value from a cell
+                    VertTag::Cell(_) => {
+                        let dst = dst.borrow().clone();
+                        let vert = self.build_value(&Value::Var(dst.clone()),
+                                                    Some("mov".to_string()));
+                        vert.add_opd(src.clone());
+                        self.graph.add(vert, Some(dst))
+                    }
+                    // consume vertex has no symbol map
+                    VertTag::Consume(_) => unreachable!(),
+                }
+            }
+            Instr::Un { op: _, opd: _, dst: _ } => {}
+            Instr::Bin { op: _, fst: _, snd: _, dst: _ } => {}
+            Instr::Jmp { tgt: _ } => {}
+            Instr::Br { cond: _, tr: _, fls: _ } => {}
+            Instr::Call { func: _, arg: _, dst: _ } => {}
+            Instr::Ret { val: _ } => {}
+        }
     }
 
-    fn on_succ_phi(&mut self, this: Option<BlockRef>, instr: InstrRef) {
+    fn on_succ_phi(&mut self, _: Option<BlockRef>, _: InstrRef) {
         unimplemented!()
+    }
+}
+
+impl GraphBuilder {
+    /// Possibly build or find SSA vertex from given `Value` argument.
+    /// Name of the operation must be provided if a new variable vertex is to be created.
+    fn build_value(&self, val: &Value, op: Option<String>) -> VertRef {
+        match val {
+            Value::Var(sym) => match sym.deref() {
+                Symbol::Local { name: _, ty: _, ver: _ } => self.graph.search(sym)
+                    .unwrap_or(ExtRc::new(SsaVert::new(
+                        VertTag::Var(op.unwrap())
+                    ))),
+                Symbol::Global(_) => self.graph.search(sym).unwrap_or(
+                    ExtRc::new(SsaVert::new(
+                        VertTag::Cell(sym.id())
+                    ))
+                ),
+                _ => unreachable!()
+            },
+            Value::Const(c) => ExtRc::new(SsaVert::new(VertTag::Const(c.clone())))
+        }
     }
 }
