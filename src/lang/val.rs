@@ -18,13 +18,24 @@ pub enum Type {
     I64,
     /// Function (pointer) with `param` as parameter type(s) and `ret` as return type.
     Fn { param: Vec<Type>, ret: Box<Type> },
+    /// Pointer type
+    Ptr(Box<Type>),
+    /// Array type, whose length should be specified at compile time
+    Array { elem: Box<Type>, len: usize },
+    /// Structure type
+    Struct { field: Vec<Type> },
+    /// Type alias
+    /// Nominal typing is used to decide equivalence for alias types, which means two alias types
+    /// with different names are not equivalent, and an alias type is not equivalent to any non-
+    /// alias type.
+    Alias(SymbolRef),
 }
 
 impl FromStr for Type {
     type Err = String;
 
     /// Currently, this method only recognize primitive type.
-    /// Function type and void will not be accepted, since they will not appear in source code.
+    /// Other type should be resolved by compiler, instead of this method.
     fn from_str(s: &str) -> Result<Self, Self::Err> {
         match s {
             "i1" => Ok(Type::I1),
@@ -41,15 +52,37 @@ impl ToString for Type {
             Type::I1 => "i1".to_string(),
             Type::I64 => "i64".to_string(),
             Type::Fn { param, ret } => {
-                let str_list: Vec<String> = param.iter().map(|p| p.to_string()).collect();
-                let p_str: String = str_list.join(", ");
+                let p_str = Self::vec_to_string(param);
                 let r_str = match ret.deref() {
                     Type::Void => "".to_string(),
                     r => format!(" -> {}", r.to_string()),
                 };
                 format!("fn({}){}", p_str, r_str)
             }
+            Type::Ptr(tgt) => "*".to_owned() + &tgt.to_string(),
+            Type::Array { elem, len } => format!("[{}]{}", len, elem.to_string()),
+            Type::Struct { field } =>
+                format!("{{{}}}", Self::vec_to_string(field)),
+            Type::Alias(def) => "@".to_owned() + def.name()
         }
+    }
+}
+
+impl Type {
+    /// Get original type for this type. This method is mainly for alias types.
+    pub fn orig(&self) -> Type {
+        let mut orig = self.clone();
+        loop {
+            if let Type::Alias(sym) = orig {
+                orig = sym.get_type();
+            } else { break }
+        }
+        orig
+    }
+
+    fn vec_to_string(vec: &Vec<Type>) -> String {
+        let str_list: Vec<String> = vec.iter().map(|p| p.to_string()).collect();
+        str_list.join(", ")
     }
 }
 
@@ -133,7 +166,7 @@ impl ToString for Const {
     }
 }
 
-#[derive(Eq, PartialEq, Clone, Debug)]
+#[derive(Clone, Debug)]
 pub enum Symbol {
     Local {
         name: String,
@@ -141,6 +174,10 @@ pub enum Symbol {
         ver: Option<usize>,
     },
     Global(Rc<GlobalVar>),
+    Type {
+        name: String,
+        ty: RefCell<Type>,
+    },
     Func(Rc<Func>),
 }
 
@@ -151,7 +188,8 @@ impl Typed for Symbol {
         match self {
             Symbol::Local { name: _, ty, ver: _ } => ty.clone(),
             Symbol::Global(v) => v.ty.clone(),
-            Symbol::Func(f) => f.get_type()
+            Symbol::Func(f) => f.get_type(),
+            Symbol::Type { name: _, ty } => ty.borrow().clone()
         }
     }
 }
@@ -176,6 +214,7 @@ impl Symbol {
         match self {
             Symbol::Local { name, ty: _, ver: _ } => name,
             Symbol::Global(v) => &v.name,
+            Symbol::Type { name, ty: _ } => name,
             Symbol::Func(f) => &f.name
         }
     }

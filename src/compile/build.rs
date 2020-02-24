@@ -235,13 +235,13 @@ impl Builder {
     fn build_instr(&self, term: &Term, ctx: &Context) -> Result<Instr, CompileErr> {
         match term {
             Term::AssignInstr { loc: _, id, rhs } => self.build_assign(id, rhs, ctx),
-            Term::CtrlInstr { loc: _, instr } => self.build_ctrl(instr, ctx),
+            Term::NonAssignInstr { loc: _, instr } => self.build_ctrl(instr, ctx),
             _ => unreachable!()
         }
     }
 
     fn build_assign(&self, dst: &Token, rhs: &Term, ctx: &Context) -> Result<Instr, CompileErr> {
-        if let Term::AssignRhs { loc: _, name: Token::Reserved(_, op), ty, opd } = rhs {
+        if let Term::CommonRhs { loc, name: Token::Reserved(_, op), ty, opd } = rhs {
             // Create symbols for destination
             let ref ty = self.create_type(ty)?;
 
@@ -250,10 +250,26 @@ impl Builder {
                 Term::OpdList { loc, list } =>
                     self.build_op(&ty, dst, op.as_str(), list, ctx, loc),
                 Term::FnCall { loc, func: Token::GlobalId(_, func), arg } => {
+                    if op != "call" {
+                        Err(CompileErr {
+                            loc: loc.clone(),
+                            msg: format!(
+                                "function call is provided, but operation is not call"
+                            ),
+                        })?
+                    }
                     let dst = self.build_symbol(dst, &ty, ctx)?;
                     self.build_fn_call(func, arg.deref(), Some(dst), ctx, loc)
                 }
                 Term::PhiList { loc: _, list } => {
+                    if op != "phi" {
+                        Err(CompileErr {
+                            loc: loc.clone(),
+                            msg: format!(
+                                "phi operands are provided, but operation is not phi"
+                            ),
+                        })?
+                    }
                     let dst = self.build_symbol(dst, &ty, ctx)?;
                     self.build_phi_instr(list, ty, dst, ctx)
                 }
@@ -587,7 +603,7 @@ impl Builder {
     }
 
     fn create_type(&self, term: &Term) -> Result<Type, CompileErr> {
-        if let Term::TypeDecl { loc, ty: Token::Reserved(_, s) } = term {
+        if let Term::PrimType { loc, ty: Token::Reserved(_, s) } = term {
             Type::from_str(s).map_err(|e| CompileErr { loc: loc.clone(), msg: e })
         } else { unreachable!() }
     }

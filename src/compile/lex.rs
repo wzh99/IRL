@@ -159,6 +159,14 @@ impl Lexer {
                         skip_char!();
                         return Ok(Token::Comma(self.loc.clone()));
                     }
+                    '*' => {
+                        skip_char!();
+                        return Ok(Token::Asterisk(self.loc.clone()));
+                    }
+                    '=' => {
+                        skip_char!();
+                        return Ok(Token::Equal(self.loc.clone()));
+                    }
                     '(' => {
                         skip_char!();
                         return Ok(Token::LeftParent(self.loc.clone()));

@@ -103,7 +103,19 @@ impl Printer<'_> {
             }
             Instr::Jmp { tgt } => format!("jmp %{}", tgt.borrow().name),
             Instr::Br { cond, tr, fls } =>
-                format!("br {} ? %{} : %{}", fmt_val!(cond), tr.borrow().name, fls.borrow().name)
+                format!("br {} ? %{} : %{}", fmt_val!(cond), tr.borrow().name, fls.borrow().name),
+            Instr::Alloc { dst } => format!("{} <- alloc {}", fmt_val!(dst), fmt_ty!(dst)),
+            Instr::Ptr { base, off, ind, dst } => {
+                let mut s = format!("{} <- ptr {} {}", fmt_val!(dst), fmt_ty!(dst),
+                                    fmt_val!(base));
+                off.as_ref().map(|off| s += format!(", {}", fmt_val!(off)).as_str());
+                ind.as_ref().map(|ind| s += format!(" [{}]", self.fmt_opd_list(ind)).as_str());
+                s
+            }
+            Instr::Ld { ptr, dst } =>
+                format!("{} <- ld {} {}", fmt_val!(dst), fmt_ty!(dst), fmt_val!(ptr)),
+            Instr::St { src, ptr } =>
+                format!("st {} {} -> {}", fmt_ty!(src), fmt_val!(src), fmt_val!(ptr))
         };
 
         writeln!(self.writer, "    {};", s)?;

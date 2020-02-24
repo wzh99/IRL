@@ -29,6 +29,25 @@ pub enum Instr {
     /// current block (where this instruction is defined). The values are different versions of
     /// of a certain variable.
     Phi { src: Vec<PhiSrc>, dst: RefCell<SymbolRef> },
+    /// Allocate memory on stack, and return pointer to the beginning of that location.
+    Alloc { dst: RefCell<SymbolRef> },
+    /// Get pointer to a element of a pointer to value.
+    /// `base` is a pointer value. If `off` is not none, the instruction offset pointer by `off`
+    /// multiplied by the size of target type of `base`. If `ind` is none, the pointer is
+    /// returned. Otherwise, the instruction dereference the pointer and progresses by indexing
+    /// into the aggregate. If `i`th level of the aggregate is a structure type, then `i`th `ind`
+    /// must be an `i64` constant. Otherwise, it can be any `i64` value. Finally, the indexed
+    /// element is referenced again, returning a pointer to that element.
+    Ptr {
+        base: RefCell<Value>,
+        off: Option<RefCell<Value>>,
+        ind: Option<Vec<RefCell<Value>>>,
+        dst: RefCell<SymbolRef>,
+    },
+    /// Load data from a pointer
+    Ld { ptr: RefCell<Value>, dst: RefCell<SymbolRef> },
+    /// Store data to a pointer
+    St { src: RefCell<Value>, ptr: RefCell<Value> },
 }
 
 pub type PhiSrc = (Option<BlockRef>, RefCell<Value>);
@@ -52,7 +71,11 @@ impl Instr {
             Instr::Br { cond: _, tr: _, fls: _ } => "br".to_string(),
             Instr::Call { func: _, arg: _, dst: _ } => "call".to_string(),
             Instr::Ret { val: _ } => "ret".to_string(),
-            Instr::Phi { src: _, dst: _ } => "phi".to_string()
+            Instr::Phi { src: _, dst: _ } => "phi".to_string(),
+            Instr::Alloc { dst: _ } => "alloc".to_string(),
+            Instr::Ptr { base: _, off: _, ind: _, dst: _ } => "ptr".to_string(),
+            Instr::Ld { ptr: _, dst: _ } => "ld".to_string(),
+            Instr::St { src: _, ptr: _ } => "st".to_string(),
         }
     }
 
@@ -76,7 +99,13 @@ impl Instr {
             Instr::Bin { op: _, fst: _, snd: _, dst } => Some(dst),
             Instr::Call { func: _, arg: _, dst } => dst.as_ref(),
             Instr::Phi { src: _, dst } => Some(dst),
-            _ => None
+            Instr::Jmp { tgt: _ } => None,
+            Instr::Br { cond: _, tr: _, fls: _ } => None,
+            Instr::Ret { val: _ } => None,
+            Instr::Alloc { dst } => Some(dst),
+            Instr::Ptr { base: _, off: _, ind: _, dst } => Some(dst),
+            Instr::Ld { ptr: _, dst } => Some(dst),
+            Instr::St { src: _, ptr: _ } => None,
         }
     }
 
@@ -86,14 +115,23 @@ impl Instr {
             Instr::Mov { src, dst: _ } => vec![src],
             Instr::Un { op: _, opd, dst: _ } => vec![opd],
             Instr::Bin { op: _, fst, snd, dst: _ } => vec![fst, snd],
-            Instr::Br { cond, tr: _, fls: _ } => vec![cond],
             Instr::Call { func: _, arg, dst: _ } => arg.iter().map(|a| a).collect(),
+            Instr::Phi { src, dst: _ } => src.iter().map(|(_, v)| v).collect(),
             Instr::Ret { val } => match val {
                 Some(v) => vec![v],
                 None => vec![]
             }
-            Instr::Phi { src, dst: _ } => src.iter().map(|(_, v)| v).collect(),
-            _ => vec![]
+            Instr::Jmp { tgt: _ } => vec![],
+            Instr::Br { cond, tr: _, fls: _ } => vec![cond],
+            Instr::Alloc { dst: _ } => vec![],
+            Instr::Ptr { base, off, ind, dst: _ } => {
+                let mut v = vec![base];
+                off.as_ref().map(|off| v.push(off));
+                ind.as_ref().map(|ind| { for i in ind { v.push(i) } });
+                v
+            }
+            Instr::Ld { ptr, dst: _ } => vec![ptr],
+            Instr::St { src, ptr } => vec![src, ptr]
         }
     }
 
@@ -102,6 +140,8 @@ impl Instr {
         match self {
             // Called function may or may not have side effect, here we assume it has
             Instr::Call { func: _, arg: _, dst: _ } => true,
+            // Store instruction modifies memory
+            Instr::St { src: _, ptr: _ } => true,
             // For other instructions, check if it assigns to global variable
             instr if instr.dst().is_some() => {
                 let sym = instr.dst().unwrap();

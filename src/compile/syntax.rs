@@ -1,5 +1,158 @@
 use crate::compile::Loc;
 
+/// Syntactical rules for the language.
+/// Technically speaking, this is an LL(2) grammar.
+#[derive(Debug)]
+pub enum Term {
+    /// Program : ( VarDef | AliasDef | FnDef)* ;
+    /// FIRST = { GlobalId -> VarDef, `fn` -> FnDef, `` }
+    /// FOLLOW = { EOF }
+    Program { def: Vec<Term> },
+
+    /// VarDef : GlobalId ( `<-` Integer )? `:`  TypeDecl `;` ;
+    /// FIRST = { GlobalId }
+    /// FOLLOW = { GlobalId, `fn`, `type` }
+    VarDef { loc: Loc, id: Token, init: Option<Token>, ty: Box<Term> },
+
+    /// TypeAlias : `type` GlobalId `=` TypeDecl `;` ;
+    /// FIRST = { `type` }
+    /// FOLLOW = { GlobalId, `fn`, `type` }
+    AliasDef { loc: Loc, id: Token, ty: Box<Term> },
+
+    /// FnDef : `fn` FnSig FnBody ;
+    /// FIRST = { `fn` }
+    /// FOLLOW = { GlobalId, `fn`, `type` }
+    FnDef { loc: Loc, sig: Box<Term>, body: Box<Term> },
+
+    /// FnSig : GlobalId `(` ParamList `)` FnRet? ;
+    /// FIRST = { GlobalId }
+    /// FOLLOW = { `{` }
+    FnSig { loc: Loc, id: Token, param: Box<Term>, ret: Option<Box<Term>> },
+
+    /// FnRet : `->` TypeDecl ;
+    /// FIRST = { `->`, `` }
+    /// FOLLOW = { `{` }
+    FnRet { loc: Loc, ty: Box<Term> },
+
+    /// ParamList : ( ParamDef ( `,` ParamDef )* )?  ;
+    /// FIRST = { LocalId, `` }
+    /// FOLLOW = { `)` }
+    ParamList { loc: Loc, list: Vec<Term> },
+
+    /// ParamDef : LocalId `:` TypeDecl ;
+    /// FIRST = { LocalId }
+    /// FOLLOW = { `)`, `,` }
+    ParamDef { loc: Loc, id: Token, ty: Box<Term> },
+
+    /// FnBody : `{` BlockDef+ `}` ;
+    /// FIRST = { `{` }
+    /// FOLLOW = { GlobalId, `fn` }
+    FnBody { loc: Loc, bb: Vec<Term> },
+
+    /// BlockDef : Label `:` InstrDef+ ;
+    /// FIRST = { Label }
+    /// FOLLOW = { Label -> BlockDef, `}` -> FnBody }
+    BlockDef { loc: Loc, id: Token, instr: Vec<Term> },
+
+    /// InstrDef : ( AssignInstr | NonAssignInstr ) `;` ;
+    /// FIRST = { Id -> AssignInstr, Reserved -> NonAssignInstr }
+    /// FOLLOW = { Id -> AssignInstr, Label -> BlockDef , Reserved -> NonAssignInstr,
+    /// `}` -> FnBody }
+
+    /// AssignInstr : Id `<-` AssignRhs ;
+    AssignInstr { loc: Loc, id: Token, rhs: Box<Term> },
+
+    /// AssignRhs : CommonRhs | CallRhs | PhiRhs | PtrRhs ;
+    /// FIRST = { `call` -> CallRhs, `phi` -> PhiRhs, `ptr` -> PtrRhs, Reserved -> CommonRhs }
+    /// FOLLOW = { `;` }
+    AssignRhs { loc: Loc, rhs: Box<Term> },
+
+    /// CommonRhs : Reserved TypeDecl OpdList ;
+    CommonRhs { loc: Loc, name: Token, ty: Box<Term>, opd: Box<Term> },
+
+    /// CallRhs : `call` TypeDecl FnCall ;
+    CallRhs { loc: Loc, ty: Box<Term>, call: Box<Term> },
+
+    /// PhiRhs : `phi` TypeDecl PhiList;
+    PhiRhs { loc: Loc, ty: Box<Term>, list: Box<Term> },
+
+    /// PtrRhs : `ptr` TypeDecl OpdList IndexList? ;
+    /// FOLLOW = { `;` }
+    PtrRhs { loc: Loc, ty: Box<Term>, opd: Box<Term>, idx: Option<Box<Term>> },
+
+    /// OpdList : ( Opd ( `,` Opd )* )?
+    /// FIRST = { Opd, `` }
+    /// FOLLOW = { `;` -> { EvalOpd, CtrlTgt }, `)` -> FnCall, `]` -> IndexList }
+    OpdList { loc: Loc, list: Vec<Token> },
+
+    /// IndexList : `[` OpdList `]`
+    IndexList { loc: Loc, list: Box<Term> },
+
+    /// FnCall : GlobalId `(` OpdList `)` ;
+    FnCall { loc: Loc, func: Token, arg: Box<Term> },
+
+    /// PhiList : PhiOpd+ ;
+    /// FIRST = { `[` }
+    /// FOLLOW = { `[`, `;` }
+    PhiList { loc: Loc, list: Vec<Term> },
+
+    /// PhiOpd : `[` ( Label `:` )? LocalOpd `]`
+    PhiOpd { loc: Loc, bb: Option<Token>, opd: Token },
+
+    /// NonAssignInstr : RetInstr | JmpInstr | NoRetCall | BrInstr | StInstr;
+    /// FIRST = { `ret` -> RetInstr, `jmp` -> JmpInstr, `call` -> NoRetCall, `br` -> BrInstr,
+    ///     `st` -> StInstr }
+    /// FOLLOW = { `;` }
+    NonAssignInstr { loc: Loc, instr: Box<Term> },
+
+    /// RetInstr : `ret` Opd ;
+    RetInstr { loc: Loc, opd: Option<Token> },
+
+    /// NoRetCall : `call` FnCall ;
+    NoRetCall { loc: Loc, call: Box<Term> },
+
+    /// JmpInstr : `jmp` Label ;
+    JmpInstr { loc: Loc, tgt: Token },
+
+    /// BrInstr : `br` Opd `?` Label `:` Label ;
+    BrInstr { loc: Loc, cond: Token, tr: Token, fls: Token },
+
+    /// StInstr : `st` TypeDecl Opd `->` Opd ;
+    StInstr { loc: Loc, ty: Box<Term>, src: Token, dst: Token },
+
+    /// Id : GlobalId | LocalId ;
+
+    /// LocalOpd : LocalId | Integer ;
+
+    /// TypeDecl : PrimType | AliasName | PtrType | ArrayType | StructType
+    /// FIRST = { Reserved -> PrimType, GlobalId -> AliasName, `*` -> PtrType, `[` -> ArrayType,
+    ///     `{` -> StructType }
+    /// FOLLOW = { `;` -> { AliasDef, VarDef }, `,` -> { ParamList, TypeList }, `)` -> FnSig,
+    ///     Opd -> { CommonRhs, PtrRhs }, GlobalId -> CallRhs, `[` -> PhiRhs  `;` -> AssignRhs
+    /// }
+    TypeDecl { loc: Loc, ty: Box<Term> },
+
+    /// PrimType : Reserved ;
+    PrimType { loc: Loc, ty: Token },
+
+    /// AliasName : GlobalId ;
+    AliasName { loc: Loc, id: Token },
+
+    /// PtrType : `*` TypeDecl ;
+    PtrType { loc: Loc, tgt: Box<Term> },
+
+    /// ArrayType : `[` Integer `]` TypeDecl ;
+    ArrayType { loc: Loc, len: Token, elem: Box<Term> },
+
+    /// StructType : `{` TypeList `}` ;
+    StructType { loc: Loc, field: Box<Term> },
+
+    /// TypeList : ( TypeDecl | ( `,` TypeDecl )* )?
+    /// FIRST = { Reserved, GlobalId, `*`, `[`, `{`, `` }
+    /// FOLLOW = { `}` }
+    TypeList { loc: Loc, list: Vec<Term> },
+}
+
 /// Lexical rules for the language.
 #[derive(Clone, Debug)]
 pub enum Token {
@@ -21,6 +174,10 @@ pub enum Token {
     Semicolon(Loc),
     /// Question mark, used in `br` instruction `?`
     Question(Loc),
+    /// Asterisk, for representing pointer type `*`
+    Asterisk(Loc),
+    /// Equal, for type alias declaration `=`
+    Equal(Loc),
     /// Left parenthesis `(`
     LeftParent(Loc),
     /// Right parenthesis  `)`
@@ -52,6 +209,8 @@ impl ToString for Token {
             Token::Colon(_) => ":".to_string(),
             Token::Semicolon(_) => ";".to_string(),
             Token::Question(_) => "?".to_string(),
+            Token::Asterisk(_) => "*".to_string(),
+            Token::Equal(_) => "=".to_string(),
             Token::LeftParent(_) => "(".to_string(),
             Token::RightParent(_) => ")".to_string(),
             Token::LeftSquare(_) => "[".to_string(),
@@ -94,127 +253,15 @@ impl Token {
         match self {
             Token::GlobalId(l, _) | Token::LocalId(l, _) | Token::Label(l, _)
             | Token::Reserved(l, _) | Token::Integer(l, _) => l.clone(),
-            Token::Comma(l) | Token::Colon(l) | Token::Semicolon(l) | Token::Question(l)
-            | Token::LeftParent(l) | Token::RightParent(l) | Token::LeftSquare(l)
-            | Token::RightSquare(l) | Token::LeftCurly(l) | Token::RightCurly(l)
-            | Token::LeftArrow(l) | Token::RightArrow(l) | Token::Comment(l)
+            Token::Comma(l) | Token::Semicolon(l)
+            | Token::Colon(l) | Token::Question(l)
+            | Token::Asterisk(l) | Token::Equal(l)
+            | Token::LeftParent(l) | Token::RightParent(l)
+            | Token::LeftSquare(l) | Token::RightSquare(l)
+            | Token::LeftCurly(l) | Token::RightCurly(l)
+            | Token::LeftArrow(l) | Token::RightArrow(l)
+            | Token::Comment(l)
             | Token::Eof(l) => l.clone()
         }
     }
-}
-
-/// Syntactical rules for the language.
-/// Technically speaking, this is an LL(2) grammar.
-#[derive(Debug)]
-pub enum Term {
-    /// Program : ( VarDef | FnDef )* ;
-    /// FIRST = { GlobalId -> VarDef, `fn` -> FnDef, `` }
-    /// FOLLOW = { EOF }
-    Program { def: Vec<Term> },
-
-    /// VarDef : GlobalId ( `<-` Integer )? `:`  TypeDecl `;` ;
-    /// FIRST = { GlobalId }
-    /// FOLLOW = { GlobalId, `fn` }
-    VarDef { loc: Loc, id: Token, init: Option<Token>, ty: Box<Term> },
-
-    /// FnDef : `fn` FnSig FnBody ;
-    /// FIRST = { `fn` }
-    /// FOLLOW = { GlobalId, `fn` }
-    FnDef { loc: Loc, sig: Box<Term>, body: Box<Term> },
-
-    /// FnSig : GlobalId `(` ParamList `)` FnRet? ;
-    /// FIRST = { GlobalId }
-    /// FOLLOW = { `{` }
-    FnSig { loc: Loc, id: Token, param: Box<Term>, ret: Option<Box<Term>> },
-
-    /// FnRet : `->` TypeDecl ;
-    /// FIRST = { `->`, `` }
-    /// FOLLOW = { `{` }
-    FnRet { loc: Loc, ty: Box<Term> },
-
-    /// ParamList : ( ParamDef ( `,` ParamDef )* )?  ;
-    /// FIRST = { LocalId, `` }
-    /// FOLLOW = { `)` }
-    ParamList { loc: Loc, list: Vec<Term> },
-
-    /// ParamDef : LocalId `:` TypeDecl ;
-    /// FIRST = { LocalId }
-    /// FOLLOW = { `)`, `,` }
-    ParamDef { loc: Loc, id: Token, ty: Box<Term> },
-
-    /// FnBody : `{` BlockDef+ `}` ;
-    /// FIRST = { `{` }
-    /// FOLLOW = { GlobalId, `fn` }
-    FnBody { loc: Loc, bb: Vec<Term> },
-
-    /// BlockDef : Label `:` InstrDef+ ;
-    /// FIRST = { Label }
-    /// FOLLOW = { Label -> BlockDef, `}` -> FnBody }
-    BlockDef { loc: Loc, id: Token, instr: Vec<Term> },
-
-    /// InstrDef : ( AssignInstr | CtrlInstr ) `;` ;
-    /// FIRST = { Id -> AssignInstr, Reserved -> CtrlInstr }
-    /// FOLLOW = { Id -> AssignInstr, Label -> BlockDef , Reserved -> CtrlInstr,
-    /// `}` -> FnBody }
-
-    /// AssignInstr : Id `<-` AssignRhs ;
-    /// FIRST = { Id }
-    /// FOLLOW = { `;` }
-    AssignInstr { loc: Loc, id: Token, rhs: Box<Term> },
-
-    /// AssignRhs : Reserved TypeDecl ArithOpd ;
-    /// FIRST = { Reserved }
-    /// FOLLOW = { `;` }
-    AssignRhs { loc: Loc, name: Token, ty: Box<Term>, opd: Box<Term> },
-
-    /// ArithOpd :  OpdList | FnCall | PhiList ;
-    /// FIRST = { Opd: { { `,`, `;` } -> OpdList, `(` -> FnCall }, `[` -> PhiList }
-    /// FOLLOW = { `;` }
-
-    /// OpdList : ( Opd | ( `,` Opd )* )?
-    /// FIRST = { Opd, `` }
-    /// FOLLOW = { `;` -> { ArithOpd, CtrlTgt}, `)` -> FnCall }
-    OpdList { loc: Loc, list: Vec<Token> },
-
-    /// FnCall : GlobalId `(` OpdList `)` ;
-    /// FIRST = { GlobalId }
-    /// FOLLOW = { `;` }
-    FnCall { loc: Loc, func: Token, arg: Box<Term> },
-
-    /// PhiList : PhiOpd+ ;
-    /// FIRST = { `[` }
-    /// FOLLOW = { `[`, `;` }
-    PhiList { loc: Loc, list: Vec<Term> },
-
-    /// PhiOpd : `[` ( Label `:` )? LocalOpd `]`
-    /// FIRST = { `[` }
-    /// FOLLOW = { `[`, `;` }
-    PhiOpd { loc: Loc, bb: Option<Token>, opd: Token },
-
-    /// CtrlInstr : RetInstr | JmpInstr | `call` FnCall | BrInstr ;
-    /// FIRST = { `ret` -> RetInstr, `jmp` -> JmpInstr, `br` -> BrInstr }
-    /// FOLLOW = { `;` }
-    CtrlInstr { loc: Loc, instr: Box<Term> },
-
-    /// RetInstr : `ret` Opd
-    /// FIRST = { `ret` }
-    /// FOLLOW = { `;` }
-    RetInstr { loc: Loc, opd: Option<Token> },
-
-    /// JmpInstr : `jmp` Label
-    /// FIRST = { `jmp` }
-    /// FOLLOW = { `;` }
-    JmpInstr { loc: Loc, tgt: Token },
-
-    /// Branch : `br` Opd `?` Label `:` Label ;
-    /// FIRST = { Opd }
-    /// FOLLOW = { `;` }
-    BrInstr { loc: Loc, cond: Token, tr: Token, fls: Token },
-
-    /// Id : GlobalId | LocalId
-
-    /// LocalOpd : LocalId | Integer
-
-    /// TypeDecl : Reserved ;
-    TypeDecl { loc: Loc, ty: Token },
 }

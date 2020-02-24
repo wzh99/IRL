@@ -1,6 +1,20 @@
 // Demonstrate basic syntax of this language
 
+type @Foo = { i64, i1, *@Bar }
+type @Bar = { *i64, *@Foo }
+
 @g <- 0: i64;
+
+fn @main() {
+%Begin:
+    @g <- call i64 @max(1, 2);
+    $b <- alloc [4]i64;
+    $p <- ptr *i64 $b [@g];
+    $v <- ld i64 $p;
+    $q <- ptr *i64 $p, 1;
+    st i64 $v -> $q;
+    ret;
+}
 
 fn @max($a: i64, $b: i64) -> i64 {
 %Begin:
@@ -15,10 +29,4 @@ fn @max($a: i64, $b: i64) -> i64 {
 %End:
     $x.2 <- phi i64 [%True: $x.0] [%False: $x.1];
     ret $x.2;
-}
-
-fn @main() {
-%Begin:
-    @g <- call i64 @max(1, 2);
-    ret;
 }

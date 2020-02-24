@@ -49,14 +49,15 @@ pub enum VertTag {
     /// This is a constant.
     Const(Const),
     /// Variables that can be considered as SSA values, identified by its operation name.
-    Var(String),
+    /// Additional information can be provided, to further identify variables.
+    Var { op: String, id: Option<String> },
     /// Variable produced by phi instruction.
     /// This should be list separately from other instructions, because the incoming blocks of a
     /// phi instruction also contribute to its identity.
     Phi(Vec<Option<BlockRef>>),
-    /// Memory locations that cannot be considered as SSA values, including global variables,
-    /// heap-allocated memory, etc. The associated datum is the id of the symbol that point to
-    /// this location. Note that a pointer points to a cell, but itself is not a cell.
+    /// Variables that cannot be considered as SSA values, including global variables, values
+    /// loaded from pointer, etc. The associated datum is the id of the symbol that refer to this
+    ///value.
     Cell(String),
     /// Refer to instructions that use values but never produce new one, like `br`, `ret`, etc.
     /// Also identified by its name
@@ -144,26 +145,14 @@ impl InstrListener for GraphBuilder {
                 let src = self.build_value(src.borrow().deref(), None);
                 match &src.tag {
                     // can be regarded as equivalent
-                    VertTag::Var(_) | VertTag::Param(_) | VertTag::Const(_) | VertTag::Phi(_) =>
+                    VertTag::Var { op: _, id: _ } | VertTag::Param(_) | VertTag::Const(_)
+                    | VertTag::Phi(_) | VertTag::Cell(_) =>
                         self.graph.map(dst.borrow().clone(), src),
-                    // load value from a cell
-                    VertTag::Cell(_) => {
-                        let dst = dst.borrow().clone();
-                        let vert = self.build_value(&Value::Var(dst.clone()),
-                                                    Some("mov".to_string()));
-                        vert.add_opd(src.clone());
-                        self.graph.add(vert, Some(dst))
-                    }
                     // consume vertex has no symbol map
                     VertTag::Consume(_) => unreachable!(),
                 }
             }
-            Instr::Un { op: _, opd: _, dst: _ } => {}
-            Instr::Bin { op: _, fst: _, snd: _, dst: _ } => {}
-            Instr::Jmp { tgt: _ } => {}
-            Instr::Br { cond: _, tr: _, fls: _ } => {}
-            Instr::Call { func: _, arg: _, dst: _ } => {}
-            Instr::Ret { val: _ } => {}
+            _ => unimplemented!()
         }
     }
 
@@ -180,7 +169,7 @@ impl GraphBuilder {
             Value::Var(sym) => match sym.deref() {
                 Symbol::Local { name: _, ty: _, ver: _ } => self.graph.search(sym)
                     .unwrap_or(ExtRc::new(SsaVert::new(
-                        VertTag::Var(op.unwrap())
+                        VertTag::Var { op: op.unwrap(), id: None }
                     ))),
                 Symbol::Global(_) => self.graph.search(sym).unwrap_or(
                     ExtRc::new(SsaVert::new(

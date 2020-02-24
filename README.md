@@ -9,7 +9,21 @@ This project is for experimenting some techniques of IR (intermediate representa
 The language involved is an CFG-based, register-to-register model IR. Phi instruction is provided to build SSA form, but is not mandatory. The following is an example to show the structure of a simple program. The program is not very practical, but should suffice to show some characteristics of this language. This example can also be seen in [example.ir](test/example.ir)
 
 ```assembly
+type @Foo = { i64, { [2][4]i64 }, *@Bar }
+type @Bar = { *i64, *@Foo }
+
 @g <- 0: i64;
+
+fn @main() {
+%Begin:
+    @g <- call i64 @max(1, 2);
+    $b <- alloc [4]i64;
+    $p <- ptr *i64 $b [@g];
+    $v <- ld i64 $p;
+    $q <- ptr *i64 $p, 1;
+    st i64 $v -> $q;
+    ret;
+}
 
 fn @max($a: i64, $b: i64) -> i64 {
 %Begin:
@@ -25,15 +39,9 @@ fn @max($a: i64, $b: i64) -> i64 {
     $x.2 <- phi i64 [%True: $x.0] [%False: $x.1];
     ret $x.2;
 }
-
-fn @main() {
-%Begin:
-    @g <- call i64 @max(1, 2);
-    ret;
-}
 ```
 
-It could be seen from the example that the syntax is similar to [LLVM IR](https://www.llvm.org/docs/LangRef.html), but adopts some syntax features commonly seen in higher level programming languages. It tries to reduce type annotation required in the language, as long as it can be inferred from context or expressions.
+It could be seen from the example that the syntax is a bit similar to [LLVM IR](https://www.llvm.org/docs/LangRef.html), but adopts some syntax features commonly seen in higher level programming languages. It tries to reduce type annotation required in the language, as long as it can be inferred from context or expressions.
 
 The type system and instruction set are all quite simple, but they are fairly enough support most of the following work. For type definition, see [`lang::val::Type`](src/lang/val.rs). For instruction set, see [`lang::instr`](src/lang/instr.rs).
 
@@ -43,7 +51,7 @@ This project support reading a text source of the language and convert it to mem
 
 ### Parsing
 
-The lexer and parser are all written by hand. The lexical and syntactical rules can be seen in [`compile::syntax`](src/compile/syntax.rs). The grammar is an LL(2) one. The lexer creates a token one at a time. The recursive-descent parser keeps a buffer for the incoming token stream, either peeks to see which rule to use, or consumes token in the buffer to progress. The parsing is rather efficient.
+The lexer and parser are all written by hand. The lexical and syntactical rules can be seen in [`compile::syntax`](src/compile/syntax.rs). The grammar is an LL(1) one. The lexer creates a token one at a time. The recursive-descent parser keeps a buffer for the incoming token stream, either peeks to see which rule to use, or consumes token in the buffer to progress. The parsing is rather efficient.
 
 ### Construction and Verification
 
@@ -65,4 +73,10 @@ In this project, most of accesses to the program, including verification, analys
 
 ## Optimization
 
-Optimization on the program are implemented as passes, which is usually the case in modern compilers. Most of the global (function-level) optimizations depend on 
+Optimization on the program are implemented as passes, which is usually the case in modern compilers. Most of the global (function-level) optimizations depend on SSA form of the program, so a transformation to SSA form is a must. At present, the following optimizations are supported:
+
+* Global Value Numbering
+
+* Sparse Conditional Constant Propagation
+
+* Dead Code Elimination
