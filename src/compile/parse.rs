@@ -464,11 +464,11 @@ impl Parser {
 
     fn alias_type(&mut self) -> ParseResult {
         let loc = self.loc.clone();
-        let ty = self.consume()?; // GlobalId
-        if let Token::GlobalId(_, _) = ty {} else {
-            return self.err(vec!["{GlobalId}"], ty);
+        let id = self.consume()?; // GlobalId
+        if let Token::GlobalId(_, _) = id {} else {
+            return self.err(vec!["{GlobalId}"], id);
         }
-        Ok(Term::PrimType { loc, ty })
+        Ok(Term::AliasName { loc, id })
     }
 
     fn ptr_type(&mut self) -> ParseResult {

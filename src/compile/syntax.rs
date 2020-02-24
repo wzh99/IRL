@@ -2,7 +2,7 @@ use crate::compile::Loc;
 
 /// Syntactical rules for the language.
 /// Technically speaking, this is an LL(2) grammar.
-#[derive(Debug)]
+#[derive(Clone, Debug)]
 pub enum Term {
     /// Program : ( VarDef | AliasDef | FnDef)* ;
     /// FIRST = { GlobalId -> VarDef, `fn` -> FnDef, `` }

@@ -6,7 +6,7 @@ use std::rc::Rc;
 use crate::lang::func::{BlockRef, Func};
 use crate::lang::instr::{Instr, InstrRef};
 use crate::lang::Program;
-use crate::lang::val::{GlobalVar, Type, Typed, Value};
+use crate::lang::val::{GlobalVar, Symbol, Type, Typed, Value};
 
 pub struct Printer<'a> {
     writer: &'a mut dyn Write,
@@ -21,6 +21,8 @@ impl Printer<'_> {
     }
 
     pub fn print(&mut self, pro: &Program) -> Result<(), Error> {
+        // Print type aliases
+        self.print_type_alias(pro)?;
         // Print global variables
         for g in &pro.vars {
             self.print_global_var(g)?;
@@ -31,6 +33,19 @@ impl Printer<'_> {
             self.print_fn(f)?;
             writeln!(self.writer, "")?;
         }
+        Ok(())
+    }
+
+    fn print_type_alias(&mut self, pro: &Program) -> Result<(), Error> {
+        for sym in pro.global.collect() {
+            match sym.deref() {
+                Symbol::Type { name, ty } => {
+                    writeln!(self.writer, "type @{} = {}", name, ty.borrow().to_string())?;
+                }
+                _ => continue,
+            }
+        }
+        writeln!(self.writer, "")?;
         Ok(())
     }
 
@@ -104,7 +119,13 @@ impl Printer<'_> {
             Instr::Jmp { tgt } => format!("jmp %{}", tgt.borrow().name),
             Instr::Br { cond, tr, fls } =>
                 format!("br {} ? %{} : %{}", fmt_val!(cond), tr.borrow().name, fls.borrow().name),
-            Instr::Alloc { dst } => format!("{} <- alloc {}", fmt_val!(dst), fmt_ty!(dst)),
+            Instr::Alloc { dst } => {
+                let dst_ty = dst.borrow().get_type();
+                let elem_ty = if let Type::Ptr(elem) = dst_ty {
+                    elem.deref().clone()
+                } else { unreachable!() };
+                format!("{} <- alloc {}", fmt_val!(dst), elem_ty.to_string())
+            }
             Instr::Ptr { base, off, ind, dst } => {
                 let mut s = format!("{} <- ptr {} {}", fmt_val!(dst), fmt_ty!(dst),
                                     fmt_val!(base));

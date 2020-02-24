@@ -62,7 +62,7 @@ impl ToString for Type {
             Type::Ptr(tgt) => "*".to_owned() + &tgt.to_string(),
             Type::Array { elem, len } => format!("[{}]{}", len, elem.to_string()),
             Type::Struct { field } =>
-                format!("{{{}}}", Self::vec_to_string(field)),
+                format!("{{ {} }}", Self::vec_to_string(field)),
             Type::Alias(def) => "@".to_owned() + def.name()
         }
     }
