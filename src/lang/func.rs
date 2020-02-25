@@ -85,7 +85,8 @@ pub trait BlockListener {
     /// Called when the visiting is finished.
     fn on_end(&mut self, func: &Func);
 
-    /// Called when the subtree whose root is current block is entered.
+    /// Called when the subtree whose root is current block is entered, before visiting its
+    /// children.
     fn on_enter(&mut self, block: BlockRef);
 
     /// Called when the offspring of this block have already been visited, and ready to leave

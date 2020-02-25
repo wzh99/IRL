@@ -1,8 +1,8 @@
-# IRLab
+# IRL
 
 ## Introduction
 
-This project is for experimenting some techniques of IR (intermediate representation) language, including compilation, analysis, optimization, execution, etc. The functionality is quite similar to [LLVM](https://www.llvm.org), but substantially simplified. Some of the implementation is ported from my previous project [GoCompiler](https://github.com/wzh99/GoCompiler). This project is also inspired by [LLIRInterpreter](https://github.com/abcdabcd987/LLIRInterpreter) and [ssa-anf](https://github.com/jacobstanley/ssa-anf)
+This project implement some technical aspects of IR (intermediate representation) language, including compilation, analysis, optimization, execution, etc. The functionality is quite similar to [LLVM](https://www.llvm.org), but substantially simplified. Some of the implementation is ported and improved from my previous project [GoCompiler](https://github.com/wzh99/GoCompiler). This project is also inspired by [LLIRInterpreter](https://github.com/abcdabcd987/LLIRInterpreter) and [ssa-anf](https://github.com/jacobstanley/ssa-anf)
 
 ## Language
 
@@ -47,7 +47,7 @@ The type system and instruction set are all quite simple, but they are fairly en
 
 ## Compilation
 
-This project support reading a text source of the language and convert it to memory representation. It covers all the front-end procedures of a common compiler, including lexical, syntactical and semantic analysis.
+This project supports reading a text source of the language and convert it to memory representation. It covers all the front-end procedures of a common compiler, including lexical, syntactical and semantical analysis.
 
 ### Parsing
 

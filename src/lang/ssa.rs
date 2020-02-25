@@ -32,9 +32,6 @@ pub trait InstrListener: BlockListener {
     }
 
     fn on_enter(&mut self, block: BlockRef) {
-        // Perform first-access action before visiting instructions
-        self.on_access(block.clone());
-
         // Visit instructions
         for instr in block.instr.borrow().iter().cloned() {
             self.on_instr(instr);
@@ -51,9 +48,6 @@ pub trait InstrListener: BlockListener {
             }
         }
     }
-
-    /// Called when `block` is accessed for the first time, before visiting instructions inside.
-    fn on_access(&mut self, block: BlockRef);
 
     /// Called when visiting each instruction.
     fn on_instr(&mut self, instr: InstrRef);
@@ -127,20 +121,6 @@ impl BlockListener for Verifier {
     }
 
     fn on_enter(&mut self, block: BlockRef) {
-        InstrListener::on_enter(self, block)
-    }
-
-    fn on_exit(&mut self, _: BlockRef) {
-        self.avail.pop();
-    }
-
-    fn on_enter_child(&mut self, _: BlockRef, _: BlockRef) {}
-
-    fn on_exit_child(&mut self, _: BlockRef, _: BlockRef) {}
-}
-
-impl InstrListener for Verifier {
-    fn on_access(&mut self, block: BlockRef) {
         // Push current frame to stack
         self.avail.push(vec![]);
 
@@ -168,8 +148,20 @@ impl InstrListener for Verifier {
                 _ => break
             }
         }
+
+        InstrListener::on_enter(self, block)
     }
 
+    fn on_exit(&mut self, _: BlockRef) {
+        self.avail.pop();
+    }
+
+    fn on_enter_child(&mut self, _: BlockRef, _: BlockRef) {}
+
+    fn on_exit_child(&mut self, _: BlockRef, _: BlockRef) {}
+}
+
+impl InstrListener for Verifier {
     fn on_instr(&mut self, instr: InstrRef) {
         ValueListener::on_instr(self, instr)
     }
@@ -390,8 +382,6 @@ impl BlockListener for Renamer {
 }
 
 impl InstrListener for Renamer {
-    fn on_access(&mut self, _: BlockRef) {}
-
     fn on_instr(&mut self, instr: InstrRef) {
         ValueListener::on_instr(self, instr)
     }
@@ -479,8 +469,6 @@ impl BlockListener for DefUseBuilder {
 }
 
 impl InstrListener for DefUseBuilder {
-    fn on_access(&mut self, _: BlockRef) {}
-
     fn on_instr(&mut self, instr: InstrRef) {
         ValueListener::on_instr(self, instr)
     }

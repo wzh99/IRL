@@ -286,8 +286,8 @@ impl Scope {
         self.map.borrow_mut().get(id).cloned()
     }
 
-    /// Remove symbol with `name` from scope.
-    pub fn remove(&self, name: &str) { self.map.borrow_mut().remove(name); }
+    /// Remove symbol with `id` from scope.
+    pub fn remove(&self, id: &str) { self.map.borrow_mut().remove(id); }
 
     /// Clear all the symbols in the scope
     pub fn clear(&self) { self.map.borrow_mut().clear() }
