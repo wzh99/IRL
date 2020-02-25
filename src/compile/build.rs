@@ -344,14 +344,14 @@ impl Builder {
                     for tok in list {
                         let val = self.create_value(&Type::I64, tok, ctx)?;
                         elem_ty = self.elem_idx(&elem_ty, &val, tok)?;
-                        idx.push(val)
+                        idx.push(val);
                     }
-                    if !idx.is_empty() { Some(idx) } else { None }
+                    idx
                 }
                 _ => unreachable!()
             }
             Some(_) => unreachable!(),
-            None => None
+            None => vec![]
         };
 
         // Check destination type
@@ -367,7 +367,7 @@ impl Builder {
         Ok(Instr::Ptr {
             base: RefCell::new(Value::Var(base)),
             off: off.map(|off| RefCell::new(off)),
-            ind: idx.map(|idx| idx.into_iter().map(|i| RefCell::new(i)).collect()),
+            ind: idx.into_iter().map(|i| RefCell::new(i)).collect(),
             dst: RefCell::new(dst),
         })
     }

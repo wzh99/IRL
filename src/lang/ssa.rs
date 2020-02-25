@@ -210,7 +210,7 @@ impl Verifier {
         Verifier {
             def: HashSet::new(),
             avail: vec![],
-            err: vec![]
+            err: vec![],
         }
     }
 
@@ -285,7 +285,14 @@ impl Func {
     fn defined_sym(&self, block: &BlockRef) -> HashSet<SymbolRef> {
         let mut def: HashSet<SymbolRef> = HashSet::new();
         for instr in block.instr.borrow().iter() {
-            instr.dst().map(|sym| { def.insert(sym.borrow().clone()); });
+            for sym in instr.dst() {
+                match sym.borrow().as_ref() {
+                    Symbol::Local { name: _, ty: _, ver: _ } => {
+                        def.insert(sym.borrow().clone());
+                    }
+                    _ => continue
+                }
+            }
         }
         def
     }
@@ -397,19 +404,30 @@ impl InstrListener for Renamer {
 impl ValueListener for Renamer {
     fn on_use(&mut self, _: InstrRef, opd: &RefCell<Value>) {
         opd.replace_with(|opd| {
-            if let Value::Var(sym) = opd.deref() {
-                let latest = self.sym.get(sym.name()).unwrap().latest();
-                Value::Var(latest)
-            } else { opd.clone() }
+            match opd.deref() {
+                Value::Var(sym) => match sym.deref() {
+                    Symbol::Local { name: _, ty: _, ver: _ } => {
+                        let latest = self.sym.get(sym.name()).unwrap().latest();
+                        Value::Var(latest)
+                    }
+                    _ => opd.clone()
+                }
+                _ => opd.clone()
+            }
         });
     }
 
     fn on_def(&mut self, _: InstrRef, def: &RefCell<SymbolRef>) {
         def.replace_with(|sym| {
-            let new_sym = self.sym.get_mut(sym.name()).unwrap().rename();
-            self.def.last_mut().unwrap().push(new_sym.name().to_string());
-            self.scope.as_deref().unwrap().add(new_sym.clone());
-            new_sym
+            match sym.as_ref() {
+                Symbol::Local { name: _, ty: _, ver: _ } => {
+                    let new_sym = self.sym.get_mut(sym.name()).unwrap().rename();
+                    self.def.last_mut().unwrap().push(new_sym.name().to_string());
+                    self.scope.as_deref().unwrap().add(new_sym.clone());
+                    new_sym
+                }
+                _ => sym.clone()
+            }
         });
     }
 }
@@ -567,7 +585,7 @@ fn test_ssa() {
     use std::io::Read;
     use std::borrow::BorrowMut;
 
-    let mut file = File::open("test/ssa.ir").unwrap();
+    let mut file = File::open("test/example.ir").unwrap();
     let lexer = Lexer::try_from(&mut file as &mut dyn Read).unwrap();
     let parser = Parser::new(lexer);
     let tree = parser.parse().unwrap();

@@ -1,6 +1,6 @@
 // Demonstrate basic syntax of this language
 
-type @Foo = { i64, [2][4]i64, *@Bar }
+type @Foo = { i64, { [2][4]i64 }, *@Bar }
 type @Bar = { *i64, *@Foo }
 
 @g <- 0: i64;

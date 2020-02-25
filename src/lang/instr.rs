@@ -15,15 +15,15 @@ pub enum Instr {
     Un { op: UnOp, opd: RefCell<Value>, dst: RefCell<SymbolRef> },
     /// Binary operations
     Bin { op: BinOp, fst: RefCell<Value>, snd: RefCell<Value>, dst: RefCell<SymbolRef> },
+    /// Procedure call
+    Call { func: Rc<Func>, arg: Vec<RefCell<Value>>, dst: Option<RefCell<SymbolRef>> },
+    /// Return computation results, or `None` if return type is `Void`.
+    Ret { val: Option<RefCell<Value>> },
     /// Jump to another basic block
     Jmp { tgt: RefCell<BlockRef> },
     /// Conditional branch to labels
     /// If `cond` evaluates to true, branch to `tr` block, otherwise to `fls` block
     Br { cond: RefCell<Value>, tr: RefCell<BlockRef>, fls: RefCell<BlockRef> },
-    /// Procedure call
-    Call { func: Rc<Func>, arg: Vec<RefCell<Value>>, dst: Option<RefCell<SymbolRef>> },
-    /// Return computation results, or `None` if return type is `Void`.
-    Ret { val: Option<RefCell<Value>> },
     /// Phi instructions in SSA
     /// A phi instruction hold a list of block-value pairs. The blocks are all predecessors of
     /// current block (where this instruction is defined). The values are different versions of
@@ -32,16 +32,16 @@ pub enum Instr {
     /// Allocate memory on stack, and return pointer to the beginning of that location.
     Alloc { dst: RefCell<SymbolRef> },
     /// Get pointer to a element of a pointer to value.
-    /// `base` is a pointer value. If `off` is not none, the instruction offset pointer by `off`
-    /// multiplied by the size of target type of `base`. If `ind` is none, the pointer is
-    /// returned. Otherwise, the instruction dereference the pointer and progresses by indexing
-    /// into the aggregate. If `i`th level of the aggregate is a structure type, then `i`th `ind`
-    /// must be an `i64` constant. Otherwise, it can be any `i64` value. Finally, the indexed
-    /// element is referenced again, returning a pointer to that element.
+    /// `base` is a pointer value. If `off` is not `None`, the instruction offset pointer by `off`
+    /// multiplied by the size of target type of `base`. If `ind` is none, the pointer is returned.
+    /// Otherwise, the instruction dereference the pointer and progresses by indexing into the
+    /// aggregate. If `i`th level of the aggregate is a structure type, then `i`th `ind` must be
+    /// an `i64` constant. Otherwise, it can be any `i64` value. Finally, the indexed element is
+    /// referenced again, returning a pointer to that element.
     Ptr {
         base: RefCell<Value>,
         off: Option<RefCell<Value>>,
-        ind: Option<Vec<RefCell<Value>>>,
+        ind: Vec<RefCell<Value>>,
         dst: RefCell<SymbolRef>,
     },
     /// Load data from a pointer
@@ -127,7 +127,7 @@ impl Instr {
             Instr::Ptr { base, off, ind, dst: _ } => {
                 let mut v = vec![base];
                 off.as_ref().map(|off| v.push(off));
-                ind.as_ref().map(|ind| { for i in ind { v.push(i) } });
+                for i in ind { v.push(i) }
                 v
             }
             Instr::Ld { ptr, dst: _ } => vec![ptr],

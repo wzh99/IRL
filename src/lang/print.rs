@@ -130,7 +130,9 @@ impl Printer<'_> {
                 let mut s = format!("{} <- ptr {} {}", fmt_val!(dst), fmt_ty!(dst),
                                     fmt_val!(base));
                 off.as_ref().map(|off| s += format!(", {}", fmt_val!(off)).as_str());
-                ind.as_ref().map(|ind| s += format!(" [{}]", self.fmt_opd_list(ind)).as_str());
+                if !ind.is_empty() {
+                    s += format!(" [{}]", self.fmt_opd_list(ind)).as_str()
+                }
                 s
             }
             Instr::Ld { ptr, dst } =>
