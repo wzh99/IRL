@@ -5,6 +5,7 @@ use crate::lang::Program;
 
 pub mod simple;
 pub mod graph;
+pub mod gvn;
 
 /// Program optimization pass trait
 pub trait Pass {
@@ -12,7 +13,7 @@ pub trait Pass {
 }
 
 /// Global (function-level) optimizer trait
-pub trait FuncPass: Pass {
+pub trait FnPass: Pass {
     fn opt(&mut self, pro: &mut Program) {
         for func in &pro.funcs {
             self.opt_fn(func.deref())

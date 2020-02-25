@@ -10,7 +10,7 @@ use crate::lang::util::ExtRc;
 use crate::lang::val::{Const, Symbol, SymbolRef, Value};
 
 #[derive(Debug)]
-pub struct SsaVert {
+pub struct ValueVert {
     /// Identify category of this vertex
     pub tag: VertTag,
     /// Operands that are used to define this value (use -> def)
@@ -19,9 +19,9 @@ pub struct SsaVert {
     pub uses: RefCell<Vec<VertRef>>,
 }
 
-impl SsaVert {
-    pub fn new(tag: VertTag) -> SsaVert {
-        SsaVert {
+impl ValueVert {
+    pub fn new(tag: VertTag) -> ValueVert {
+        ValueVert {
             tag,
             opd: RefCell::new(vec![]),
             uses: RefCell::new(vec![]),
@@ -29,7 +29,7 @@ impl SsaVert {
     }
 }
 
-pub type VertRef = ExtRc<SsaVert>;
+pub type VertRef = ExtRc<ValueVert>;
 
 impl Debug for VertRef {
     fn fmt(&self, f: &mut Formatter<'_>) -> Result<(), Error> { self.tag.fmt(f) }
@@ -45,7 +45,7 @@ impl VertRef {
     }
 }
 
-#[derive(Debug, Eq, PartialEq)]
+#[derive(Debug, Eq)]
 pub enum VertTag {
     /// This value is defined by parameter.
     Param(String),
@@ -65,20 +65,39 @@ pub enum VertTag {
     /// Refer to instructions that use values but never produce new one, like `br`, `ret`, etc.
     /// Also identified by its name.
     Consume(String),
-    /// Mainly used for padding to make corresponding operands align
+    /// Placeholder for vertices.
+    /// It has two uses: for padding to make corresponding operands align; for indicating
+    /// temporarily unresolved vertices..
     PlaceHolder,
 }
 
-pub struct SsaGraph {
+impl PartialEq for VertTag {
+    fn eq(&self, other: &Self) -> bool {
+        match (self, other) {
+            // Two parameter vertices are equivalent if they are created from the same parameter.
+            (VertTag::Param(s1), VertTag::Param(s2)) => s1 == s2,
+            // Two constant vertices are equivalent if their values are equal.
+            (VertTag::Const(c1), VertTag::Const(c2)) => c1 == c2,
+            // Two variable vertices are equivalent if their operation tags are identical.
+            (VertTag::Var(op1), VertTag::Var(op2)) => op1 == op2,
+            // Two phi vertices are equivalent if their incoming blocks are pairwise identical.
+            (VertTag::Phi(v1), VertTag::Phi(v2)) => v1 == v2,
+            // For other cases, they cannot be equivalent.
+            _ => false
+        }
+    }
+}
+
+pub struct ValueGraph {
     /// Keep all the vertices.
     pub vert: Vec<VertRef>,
     /// Map local variables to their vertices
     pub map: HashMap<SymbolRef, VertRef>,
 }
 
-impl SsaGraph {
-    pub fn new() -> SsaGraph {
-        SsaGraph {
+impl ValueGraph {
+    pub fn new() -> ValueGraph {
+        ValueGraph {
             vert: vec![],
             map: Default::default(),
         }
@@ -98,13 +117,13 @@ impl SsaGraph {
 
 pub struct GraphBuilder {
     /// Hold SSA graph
-    graph: SsaGraph,
+    pub graph: ValueGraph,
 }
 
 impl GraphBuilder {
     pub fn new() -> GraphBuilder {
         GraphBuilder {
-            graph: SsaGraph::new(),
+            graph: ValueGraph::new(),
         }
     }
 }
@@ -115,7 +134,7 @@ impl BlockListener for GraphBuilder {
         func.param.iter().for_each(|param| {
             let param = param.borrow().clone();
             if let Symbol::Local { name: _, ty: _, ver: _ } = param.as_ref() {
-                let vert = ExtRc::new(SsaVert::new(
+                let vert = ExtRc::new(ValueVert::new(
                     VertTag::Param(param.id())
                 ));
                 self.graph.add(vert.clone(), Some(param));
@@ -137,8 +156,6 @@ impl BlockListener for GraphBuilder {
 }
 
 impl InstrListener for GraphBuilder {
-    fn on_access(&mut self, _: BlockRef) {}
-
     fn on_instr(&mut self, instr: InstrRef) {
         match instr.deref() {
             // Create vertex for phi destination if it has not been created, since it may be used
@@ -163,7 +180,7 @@ impl InstrListener for GraphBuilder {
             Instr::Call { func, arg, dst } => {
                 // Function returns are not SSA value. Because a function may modify global
                 // variables, and it may return different values even with the same parameters.
-                let dst_vert = ExtRc::new(SsaVert::new(VertTag::Cell(func.name.clone())));
+                let dst_vert = ExtRc::new(ValueVert::new(VertTag::Cell(func.name.clone())));
                 self.graph.add(dst_vert.clone(), dst.as_ref().map(|dst| dst.borrow().clone()));
                 for a in arg {
                     let a = self.get_src_vert(a);
@@ -171,7 +188,7 @@ impl InstrListener for GraphBuilder {
                 }
             }
             Instr::Ret { val } => {
-                let vert = ExtRc::new(SsaVert::new(VertTag::Consume("ret".to_string())));
+                let vert = ExtRc::new(ValueVert::new(VertTag::Consume("ret".to_string())));
                 val.as_ref().map(|val| {
                     let src = self.get_src_vert(val);
                     vert.add_opd(src.clone());
@@ -180,7 +197,7 @@ impl InstrListener for GraphBuilder {
             }
             Instr::Jmp { tgt: _ } => {} // nothing to do
             Instr::Br { cond, tr: _, fls: _ } => {
-                let vert = ExtRc::new(SsaVert::new(VertTag::Consume("br".to_string())));
+                let vert = ExtRc::new(ValueVert::new(VertTag::Consume("br".to_string())));
                 let cond = self.get_src_vert(cond);
                 vert.add_opd(cond);
                 self.graph.add(vert, None);
@@ -191,12 +208,12 @@ impl InstrListener for GraphBuilder {
             Instr::Ptr { base, off, ind, dst } => self.build_ptr(base, off, ind, dst),
             Instr::Ld { ptr, dst } => {
                 let ptr = self.get_src_vert(ptr);
-                let dst_vert = ExtRc::new(SsaVert::new(VertTag::Cell(dst.borrow().id())));
+                let dst_vert = ExtRc::new(ValueVert::new(VertTag::Cell(dst.borrow().id())));
                 dst_vert.add_opd(ptr.clone());
                 self.graph.add(dst_vert, Some(dst.borrow().clone()))
             }
             Instr::St { src, ptr } => {
-                let vert = ExtRc::new(SsaVert::new(VertTag::Consume("st".to_string())));
+                let vert = ExtRc::new(ValueVert::new(VertTag::Consume("st".to_string())));
                 let src = self.get_src_vert(src);
                 vert.add_opd(src);
                 let ptr = self.get_src_vert(ptr);
@@ -233,9 +250,9 @@ impl GraphBuilder {
         let dst = dst.borrow().clone();
         let pred: Vec<Option<BlockRef>> = src.iter()
             .map(|(pred, _)| pred.clone()).collect();
-        let vert = ExtRc::new(SsaVert::new(VertTag::Phi(pred.clone())));
+        let vert = ExtRc::new(ValueVert::new(VertTag::Phi(pred.clone())));
         for _ in 0..pred.len() { // occupy operand list with placeholders
-            vert.add_opd(ExtRc::new(SsaVert::new(VertTag::PlaceHolder)))
+            vert.add_opd(ExtRc::new(ValueVert::new(VertTag::PlaceHolder)))
         }
         self.graph.add(vert.clone(), Some(dst.clone()));
         vert
@@ -255,7 +272,7 @@ impl GraphBuilder {
             }
             // If pointer offset does not exist, pad operand list with a placeholder, so that
             // indices operands can align.
-            None => dst.add_opd(ExtRc::new(SsaVert::new(VertTag::PlaceHolder)))
+            None => dst.add_opd(ExtRc::new(ValueVert::new(VertTag::PlaceHolder)))
         }
         for idx in ind {
             let idx = self.get_src_vert(idx);
@@ -292,15 +309,17 @@ impl GraphBuilder {
                 Symbol::Local { name: _, ty: _, ver: _ } => self.graph.find(sym).unwrap(),
                 // For global operands, their vertices cannot be connected. Just create new one.
                 Symbol::Global(_) => {
-                    let vert = ExtRc::new(SsaVert::new(VertTag::Cell(sym.id())));
+                    let vert = ExtRc::new(ValueVert::new(VertTag::Cell(sym.id())));
                     self.graph.add(vert.clone(), None);
                     vert
                 }
                 _ => unreachable!()
             },
-            Value::Const(c) => ExtRc::new(SsaVert::new(
-                VertTag::Const(c.clone())
-            ))
+            Value::Const(c) => {
+                let vert = ExtRc::new(ValueVert::new(VertTag::Const(c.clone())));
+                self.graph.add(vert.clone(), None);
+                vert
+            }
         }
     }
 
@@ -310,46 +329,18 @@ impl GraphBuilder {
             // For local variable, create variable vertex with given operation name. Map symbol
             // to the created vertex.
             Symbol::Local { name: _, ty: _, ver: _ } => {
-                let vert = ExtRc::new(SsaVert::new(VertTag::Var(op.to_string())));
+                let vert = ExtRc::new(ValueVert::new(VertTag::Var(op.to_string())));
                 self.graph.add(vert.clone(), Some(sym.borrow().clone()));
                 vert
             }
             // For global variable, create cell vertex with the name of the symbol. Do not map
             // symbols.
             Symbol::Global(_) => {
-                let vert = ExtRc::new(SsaVert::new(VertTag::Cell(sym.borrow().id())));
+                let vert = ExtRc::new(ValueVert::new(VertTag::Cell(sym.borrow().id())));
                 self.graph.add(vert.clone(), None);
                 vert
             }
             _ => unreachable!()
         }
     }
-}
-
-#[test]
-fn test_graph() {
-    use crate::compile::lex::Lexer;
-    use crate::compile::parse::Parser;
-    use crate::compile::build::Builder;
-    use crate::lang::print::Printer;
-    use std::io::stdout;
-    use std::fs::File;
-    use std::convert::TryFrom;
-    use std::io::Read;
-    use std::borrow::BorrowMut;
-
-    let mut file = File::open("test/example.ir").unwrap();
-    let lexer = Lexer::try_from(&mut file as &mut dyn Read).unwrap();
-    let parser = Parser::new(lexer);
-    let tree = parser.parse().unwrap();
-    let builder = Builder::new(tree);
-    let pro = builder.build().unwrap();
-    for func in &pro.funcs {
-        let mut builder = GraphBuilder::new();
-        func.walk_dom(&mut builder);
-        builder.graph.vert.iter().for_each(|v| println!("{:?}", v.deref()))
-    }
-    let mut out = stdout();
-    let mut printer = Printer::new(out.borrow_mut());
-    printer.print(&pro).unwrap();
 }

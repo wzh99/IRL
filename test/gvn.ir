@@ -1,0 +1,38 @@
+// Test Global Value Numbering
+// See Figure 12.19 of Whale Book
+
+@g: i64;
+
+fn @main($n: i64) {
+%B1:
+    @g <- mov i64 1;
+    $i.1 <- mov i64 1;
+    $j.1 <- mov i64 1;
+    $k.1 <- mov i64 @g;
+    jmp %B2;
+%B2:
+    $i.2 <- phi i64 [%B1: $i.1] [%B5: $i.5];
+    $j.2 <- phi i64 [%B1: $j.1] [%B5: $j.5];
+    $k.2 <- phi i64 [%B1: $k.1] [%B5: $k.5];
+    $t <- mod i64 $i.2, 2;
+    $c <- eq i64 $t, 0;
+    br $c ? %B3 : %B4;
+%B3:
+    $i.3 <- add i64 $i.2, 1;
+    $j.3 <- add i64 $j.2, 1;
+    $k.3 <- add i64 $k.2, 1;
+    jmp %B5;
+%B4:
+    $i.4 <- add i64 $i.2, 3;
+    $j.4 <- add i64 $j.2, 3;
+    $k.4 <- add i64 $k.2, 3;
+    jmp %B5;
+%B5:
+    $i.5 <- phi i64 [%B3: $i.3] [%B4: $i.4];
+    $j.5 <- phi i64 [%B3: $j.3] [%B4: $j.4];
+    $k.5 <- phi i64 [%B3: $k.3] [%B4: $k.4];
+    $d <- gt i64 $j.5, $n;
+    br $d ? %B2 : %B6;
+%B6:
+    ret;
+}

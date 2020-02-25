@@ -1,5 +1,5 @@
 [package]
-name = "irlab"
+name = "irl"
 version = "0.1.0"
 authors = ["wzh99"]
 edition = "2018"
