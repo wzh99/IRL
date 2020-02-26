@@ -1,11 +1,13 @@
+use std::cell::RefCell;
 use std::collections::{HashMap, HashSet};
 use std::ops::Deref;
 
-use crate::lang::func::Func;
-use crate::lang::instr::{BinOp, InstrRef, UnOp};
+use crate::lang::func::{BlockRef, Func};
+use crate::lang::instr::{BinOp, PhiSrc, UnOp};
+use crate::lang::instr::Instr;
 use crate::lang::Program;
-use crate::lang::util::WorkList;
-use crate::lang::value::Const;
+use crate::lang::util::{ExtRc, WorkList};
+use crate::lang::value::{Const, Symbol, SymbolRef, Value};
 use crate::opt::{FnPass, Pass};
 use crate::opt::graph::{GraphBuilder, ValueGraph, VertRef, VertTag};
 
@@ -17,22 +19,23 @@ pub struct SccpOpt {
     cfg_work: WorkList<CfgEdge>,
     /// Value graph edge work list
     ssa_work: WorkList<SsaEdge>,
-    /// Map value graph vertices to lattice values
-    lat: HashMap<VertRef, LatVal>,
+    /// Map symbols to lattice values
+    /// For values that are constants, lattice values are created when used, no lookup is needed.
+    lat: HashMap<SymbolRef, LatVal>,
     /// Visited CFG edges
-    cfg_vis: HashSet<CfgEdge>,
+    edge_vis: HashSet<CfgEdge>,
     /// Visited instructions
-    instr_vis: HashSet<InstrRef>,
+    blk_vis: HashSet<BlockRef>,
 }
 
 /// Represent an edge in the control flow graph.
 /// In the original SCCP algorithm, it is assumed that a basic block contains several phi
 /// instructions, following by only one assignment. However, trivial edges (which only contain
 /// assignment instruction) can be ignored in the implementation.
-#[derive(Eq, PartialEq, Hash, Debug)]
+#[derive(Eq, PartialEq, Clone, Hash, Debug)]
 struct CfgEdge {
-    from: Option<InstrRef>,
-    to: InstrRef,
+    from: Option<BlockRef>,
+    to: BlockRef,
 }
 
 /// Represent an edge in SSA value graph.
@@ -54,31 +57,53 @@ enum LatVal {
     Bottom,
 }
 
+impl LatVal {
+    fn is_const(&self) -> bool {
+        match self {
+            LatVal::Const(_) => true,
+            _ => false
+        }
+    }
+
+    fn meet(self, rhs: Self) -> Self {
+        match (self, rhs) {
+            (LatVal::Top, LatVal::Top) => LatVal::Top,
+            (LatVal::Top, LatVal::Const(c)) | (LatVal::Const(c), LatVal::Top) => LatVal::Const(c),
+            (LatVal::Bottom, _) | (_, LatVal::Bottom) => LatVal::Bottom,
+            (LatVal::Const(l), LatVal::Const(r)) =>
+                if l == r { LatVal::Const(l) } else { LatVal::Bottom }
+        }
+    }
+}
+
 impl Pass for SccpOpt {
     fn opt(&mut self, pro: &mut Program) { FnPass::opt(self, pro) }
 }
 
 impl FnPass for SccpOpt {
     fn opt_fn(&mut self, func: &Func) {
-        // Create value graph
+        // Create value graph.
         let mut builder = GraphBuilder::new();
         func.walk_dom(&mut builder);
         self.graph = builder.graph;
 
-        // Mark constants in lattice value table
-        let const_vert: Vec<VertRef> = self.graph.vert.iter().filter(|v| {
-            if let VertTag::Const(_) = &v.tag { true } else { false }
-        }).cloned().collect();
-        const_vert.iter().for_each(|v| {
-            if let VertTag::Const(c) = &v.tag {
-                self.lat.insert(v.clone(), LatVal::Const(c.clone()));
-            } else { unreachable!() }
-        });
+        // Initialize table for all interested values.
+        self.lat = self.graph.map.iter().map(|(sym, vert)| {
+            match &vert.tag {
+                // Symbols defined by constants are sure to be constants.
+                VertTag::Const(c) => (sym.clone(), LatVal::Const(c.clone())),
+                // Variable and phi vertices are yet to be determined.
+                VertTag::Var(_) | VertTag::Phi(_) => (sym.clone(), LatVal::Top),
+                // Other kind of vertices are not in consideration, do not make any decision about
+                // their constantness.
+                _ => (sym.clone(), LatVal::Bottom)
+            }
+        }).collect();
 
-        // Perform symbolic execution with help of CFG and SSA work lists
+        // Perform symbolic execution of CFG and SSA.
         self.cfg_work.add(CfgEdge {
             from: None,
-            to: func.ent.borrow().tail(),
+            to: func.ent.borrow().clone(),
         });
         while !self.cfg_work.is_empty() || !self.ssa_work.is_empty() {
             if !self.cfg_work.is_empty() {
@@ -89,10 +114,48 @@ impl FnPass for SccpOpt {
             }
         }
 
-        // Clear all data structure for this function
+        // Apply code motion
+        func.dfs().for_each(|block| {
+            block.instr.borrow_mut().retain(|instr| {
+                // Remove constant definition
+                match instr.dst() {
+                    Some(dst) if self.lat_from_sym(dst).is_const() => return false,
+                    _ => {}
+                }
+                // Possibly replace symbols with constants
+                instr.src().iter().for_each(|opd| {
+                    if let LatVal::Const(c) = self.lat_from_val(opd) {
+                        opd.replace(Value::Const(c));
+                    }
+                });
+                true
+            });
+
+            // Remove unreachable blocks
+            match block.tail().as_ref() {
+                Instr::Br { cond, tr, fls } => match self.lat_from_val(cond) {
+                    LatVal::Const(Const::I1(c)) => {
+                        let (tgt, rm) = if c {
+                            (tr.borrow().clone(), fls.borrow().clone())
+                        } else {
+                            (fls.borrow().clone(), tr.borrow().clone())
+                        };
+                        *block.instr.borrow_mut().back_mut().unwrap() = ExtRc::new(
+                            Instr::Jmp { tgt: RefCell::new(tgt) }
+                        );
+                        block.disconnect(rm);
+                    }
+                    _ => {}
+                }
+                _ => {}
+            }
+        });
+        func.remove_unreachable();
+
+        // Clear all data structure for this function.
         self.lat.clear();
-        self.cfg_vis.clear();
-        self.instr_vis.clear();
+        self.edge_vis.clear();
+        self.blk_vis.clear();
     }
 }
 
@@ -103,14 +166,126 @@ impl SccpOpt {
             cfg_work: WorkList::new(),
             ssa_work: WorkList::new(),
             lat: Default::default(),
-            cfg_vis: Default::default(),
-            instr_vis: Default::default(),
+            edge_vis: Default::default(),
+            blk_vis: Default::default(),
         }
     }
 
-    fn visit_cfg(&mut self) {}
+    fn visit_cfg(&mut self) {
+        // Possibly visit this edge if it has not been not visited
+        let edge = self.cfg_work.pick().unwrap();
+        if self.edge_vis.contains(&edge) { return; }
+        self.edge_vis.insert(edge.clone());
 
-    fn visit_ssa(&mut self) {}
+        // Visit all instructions in this block
+        let block = edge.to;
+        self.blk_vis.insert(block.clone());
+        for instr in block.instr.borrow().iter() {
+            match instr.deref() {
+                Instr::Phi { src, dst } => self.eval_phi(src, dst),
+                Instr::Jmp { tgt } => self.cfg_work.add(CfgEdge {
+                    from: Some(block.clone()),
+                    to: tgt.borrow().clone(),
+                }),
+                Instr::Br { cond, tr, fls } => self.eval_br(cond, tr, fls, &block),
+                Instr::Ret { val: _ } => return,
+                instr if instr.is_assign() => self.eval_assign(instr),
+                _ => continue
+            }
+        }
+    }
+
+    fn visit_ssa(&mut self) {
+        // Pick one SSA edge from work list.
+        let edge = self.ssa_work.pick().unwrap();
+        let (instr, block) = match &edge.us.instr { // extract the instruction that uses this value
+            Some(pair) => pair,
+            None => return
+        };
+        // reject this instruction, if it is not visited in CFG
+        if !self.blk_vis.contains(block) { return; }
+
+        match instr.deref() {
+            Instr::Phi { src, dst } => self.eval_phi(src, dst),
+            Instr::Br { cond, tr, fls } => self.eval_br(cond, tr, fls, block),
+            instr if instr.is_assign() => self.eval_assign(instr),
+            _ => {}
+        }
+    }
+
+    fn eval_phi(&mut self, src: &Vec<PhiSrc>, dst: &RefCell<SymbolRef>) {
+        // Evaluate meet operation on operand lattice values
+        let prev_lat = self.lat_from_sym(dst);
+        let new_lat = src.iter().map(|(_, val)| self.lat_from_val(val))
+            .fold(LatVal::Top, LatVal::meet);
+
+        // Update lattice value if it has changed
+        if prev_lat != new_lat {
+            self.update_sym(dst, new_lat)
+        }
+    }
+
+    fn eval_br(&mut self, cond: &RefCell<Value>, tr: &RefCell<BlockRef>, fls: &RefCell<BlockRef>,
+               blk: &BlockRef)
+    {
+        let tr_edge = CfgEdge { from: Some(blk.clone()), to: tr.borrow().clone() };
+        let fls_edge = CfgEdge { from: Some(blk.clone()), to: fls.borrow().clone() };
+        match self.lat_from_val(cond) {
+            LatVal::Const(Const::I1(cond)) =>
+                self.cfg_work.add(if cond { tr_edge } else { fls_edge }),
+            _ => {
+                self.cfg_work.add(tr_edge);
+                self.cfg_work.add(fls_edge);
+            }
+        }
+    }
+
+    fn eval_assign(&mut self, instr: &Instr) {
+        // Decide whether this instruction should be evaluated.
+        let dst = instr.dst().unwrap();
+        let prev_lat = self.lat_from_sym(dst);
+        if prev_lat == LatVal::Bottom { return; } // no point in computing lattice value
+
+        // Propagate constant according to instruction type.
+        let new_lat = match instr {
+            Instr::Un { op, opd, dst: _ } => self.eval_un(*op, self.lat_from_val(opd)),
+            Instr::Bin { op, fst, snd, dst: _ } =>
+                self.eval_bin(*op, self.lat_from_val(fst), self.lat_from_val(snd)),
+            // Skip move instruction, since their constantness depend on the symbol moved to it.
+            Instr::Mov { src: _, dst: _ } => return,
+            // Cannot compute lattice values for other instructions.
+            _ => LatVal::Bottom
+        };
+
+        // Update lattice value if it has changed
+        if new_lat != prev_lat {
+            self.update_sym(dst, new_lat)
+        }
+    }
+
+    fn update_sym(&mut self, sym: &RefCell<SymbolRef>, lat: LatVal) {
+        *self.lat.get_mut(sym.borrow().deref()).unwrap() = lat;
+        let vert = self.graph.find(sym.borrow().deref()).unwrap();
+        vert.uses.borrow().iter().for_each(
+            |u| self.ssa_work.add(SsaEdge { def: vert.clone(), us: u.clone() })
+        );
+    }
+
+    fn lat_from_sym(&self, sym: &RefCell<SymbolRef>) -> LatVal {
+        // println!("{:?}", sym.borrow().deref());
+        match sym.borrow().as_ref() {
+            _ if sym.borrow().is_local_var() => *self.lat.get(sym.borrow().deref()).unwrap(),
+            Symbol::Global(_) => LatVal::Bottom,
+            _ => unreachable!()
+        }
+    }
+
+    fn lat_from_val(&self, val: &RefCell<Value>) -> LatVal {
+        match val.borrow().deref() {
+            Value::Var(sym) => self.lat.get(sym).unwrap().clone(),
+            Value::Const(c) => LatVal::Const(c.clone())
+        }
+    }
 
     fn eval_un(&self, op: UnOp, opd: LatVal) -> LatVal {
         match opd {
@@ -179,4 +354,30 @@ impl SccpOpt {
             }
         }
     }
+}
+
+#[test]
+fn test_sccp() {
+    use crate::compile::lex::Lexer;
+    use crate::compile::parse::Parser;
+    use crate::compile::build::Builder;
+    use crate::lang::print::Printer;
+    use std::io::stdout;
+    use std::fs::File;
+    use std::convert::TryFrom;
+    use std::io::Read;
+    use std::borrow::BorrowMut;
+
+    let mut file = File::open("test/sccp.ir").unwrap();
+    let lexer = Lexer::try_from(&mut file as &mut dyn Read).unwrap();
+    let parser = Parser::new(lexer);
+    let tree = parser.parse().unwrap();
+    let builder = Builder::new(tree);
+    let mut pro = builder.build().unwrap();
+    let mut opt = SccpOpt::new();
+    Pass::opt(&mut opt, &mut pro);
+
+    let mut out = stdout();
+    let mut printer = Printer::new(out.borrow_mut());
+    printer.print(&pro).unwrap();
 }

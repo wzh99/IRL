@@ -109,6 +109,9 @@ impl Instr {
         }
     }
 
+    /// Decide if this instruction assign to some variable
+    pub fn is_assign(&self) -> bool { self.dst().is_some() }
+
     /// Return list of all the source operands used by this instruction.
     pub fn src(&self) -> Vec<&RefCell<Value>> {
         match self {
