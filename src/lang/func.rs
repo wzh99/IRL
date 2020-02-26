@@ -11,7 +11,7 @@ use crate::lang::graph::dom;
 use crate::lang::instr::{Instr, InstrRef};
 use crate::lang::ssa::SsaFlag;
 use crate::lang::util::ExtRc;
-use crate::lang::val::{Scope, SymbolRef, Type, Typed};
+use crate::lang::value::{Scope, SymbolRef, Type, Typed};
 
 #[derive(Debug)]
 pub struct Func {
@@ -201,6 +201,28 @@ impl BasicBlock {
     /// Push instruction to the back of the instruction list.
     pub fn push_back(&self, ins: Instr) {
         self.instr.borrow_mut().push_back(ExtRc::new(ins))
+    }
+
+    /// Get first instruction of this block
+    pub fn head(&self) -> InstrRef {
+        self.instr.borrow().front().unwrap().clone()
+    }
+
+    /// Get last instruction of this block
+    pub fn tail(&self) -> InstrRef {
+        self.instr.borrow().back().unwrap().clone()
+    }
+
+    /// Possibly get the instruction before given one
+    pub fn before(&self, instr: &InstrRef) -> Option<InstrRef> {
+        self.instr.borrow().iter().position(|i| i == instr)
+            .and_then(|idx| self.instr.borrow().get(idx - 1).cloned())
+    }
+
+    /// Possibly get the instruction after given one
+    pub fn after(&self, instr: &InstrRef) -> Option<InstrRef> {
+        self.instr.borrow().iter().position(|i| i == instr)
+            .and_then(|idx| self.instr.borrow().get(idx + 1).cloned())
     }
 
     /// If the tail of the instruction list is a control flow instruction, push `ins` before

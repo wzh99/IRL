@@ -7,7 +7,7 @@ use crate::lang::func::{BlockListener, BlockRef, Func};
 use crate::lang::instr::{Instr, InstrRef, PhiSrc};
 use crate::lang::ssa::InstrListener;
 use crate::lang::util::ExtRc;
-use crate::lang::val::{Const, Symbol, SymbolRef, Value};
+use crate::lang::value::{Const, Symbol, SymbolRef, Value};
 
 #[derive(Debug)]
 pub struct ValueVert {

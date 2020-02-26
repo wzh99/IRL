@@ -7,7 +7,7 @@ use std::rc::Rc;
 use crate::lang::func::{BlockListener, BlockRef, Func};
 use crate::lang::instr::{Instr, InstrRef, PhiSrc};
 use crate::lang::util::{ExtRc, WorkList};
-use crate::lang::val::{Scope, Symbol, SymbolRef, Typed, Value};
+use crate::lang::value::{Scope, Symbol, SymbolRef, Typed, Value};
 
 /// Wrapper of SSA flag to make it only modifiable in this module.
 #[derive(Debug)]

@@ -5,7 +5,7 @@ use std::str::FromStr;
 
 use crate::lang::func::{BlockRef, Func};
 use crate::lang::util::ExtRc;
-use crate::lang::val::{Symbol, SymbolRef, Value};
+use crate::lang::value::{Symbol, SymbolRef, Type, Value};
 
 #[derive(Clone, Debug)]
 pub enum Instr {
@@ -181,6 +181,16 @@ impl ToString for UnOp {
     }
 }
 
+impl UnOp {
+    pub fn is_avail_for(&self, ty: &Type) -> bool {
+        match (self, ty) {
+            (UnOp::Not, Type::I1) => true,
+            (UnOp::Neg, Type::I64) => true,
+            _ => false
+        }
+    }
+}
+
 #[derive(Clone, Copy, Debug)]
 pub enum BinOp {
     /// Addition
@@ -191,7 +201,7 @@ pub enum BinOp {
     Mul,
     /// Division
     Div,
-    /// Modulo
+    /// Modulo, also known as remainder
     Mod,
     /// Bitwise-AND
     And,
@@ -248,11 +258,47 @@ impl ToString for BinOp {
 }
 
 impl BinOp {
-    pub fn is_arith(&self) -> bool { !self.is_cmp() }
-
-    pub fn is_cmp(&self) -> bool {
+    pub fn is_arith(&self) -> bool {
         match self {
-            BinOp::Eq | BinOp::Ne | BinOp::Lt | BinOp::Le | BinOp::Gt | BinOp::Ge => true,
+            BinOp::And | BinOp::Sub | BinOp::Mul | BinOp::Div | BinOp::Mod => true,
+            _ => false
+        }
+    }
+
+    pub fn is_shift(&self) -> bool {
+        match self {
+            BinOp::Shl | BinOp::Shr => true,
+            _ => false,
+        }
+    }
+
+    pub fn is_bitwise(&self) -> bool {
+        match self {
+            BinOp::And | BinOp::Or | BinOp::Xor => true,
+            _ => false
+        }
+    }
+
+    pub fn is_ord(&self) -> bool {
+        match self {
+            BinOp::Lt | BinOp::Le | BinOp::Gt | BinOp::Ge => true,
+            _ => false
+        }
+    }
+
+    pub fn is_eq(&self) -> bool {
+        match self {
+            BinOp::Eq | BinOp::Ne => true,
+            _ => false
+        }
+    }
+
+    pub fn is_cmp(&self) -> bool { self.is_ord() | self.is_eq() }
+
+    pub fn is_avail_for(&self, ty: &Type) -> bool {
+        match ty {
+            Type::I1 => self.is_bitwise() || self.is_eq(),
+            Type::I64 => true,
             _ => false
         }
     }

@@ -2,10 +2,10 @@ use std::fmt::Debug;
 use std::rc::Rc;
 
 use crate::lang::func::Func;
-use crate::lang::val::{GlobalVar, Scope};
+use crate::lang::value::{GlobalVar, Scope};
 
 pub mod util;
-pub mod val;
+pub mod value;
 pub mod instr;
 pub mod func;
 pub mod ssa;

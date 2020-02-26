@@ -1,7 +1,7 @@
 use std::cell::RefCell;
 use std::collections::HashMap;
 use std::fmt::{Debug, Error, Formatter};
-use std::ops::Deref;
+use std::ops::*;
 use std::rc::Rc;
 use std::str::FromStr;
 
@@ -75,7 +75,7 @@ impl Type {
         loop {
             if let Type::Alias(sym) = orig {
                 orig = sym.get_type();
-            } else { break }
+            } else { break; }
         }
         orig
     }
@@ -90,7 +90,7 @@ pub trait Typed {
     fn get_type(&self) -> Type;
 }
 
-#[derive(Eq, PartialEq, Clone, Debug)]
+#[derive(Clone, Debug)]
 pub enum Value {
     /// A variable holding reference to corresponding symbol
     Var(SymbolRef),
@@ -138,30 +138,6 @@ impl Value {
         match self {
             Value::Var(sym) if sym.is_local_var() => true,
             _ => false
-        }
-    }
-}
-
-#[derive(Eq, PartialEq, Clone, Debug)]
-pub enum Const {
-    I1(bool),
-    I64(i64),
-}
-
-impl Typed for Const {
-    fn get_type(&self) -> Type {
-        match self {
-            Const::I1(_) => Type::I1,
-            Const::I64(_) => Type::I64,
-        }
-    }
-}
-
-impl ToString for Const {
-    fn to_string(&self) -> String {
-        match self {
-            Const::I1(v) => if *v { "1".to_string() } else { "0".to_string() }
-            Const::I64(v) => format!("{}", v),
         }
     }
 }
@@ -240,7 +216,7 @@ impl Symbol {
     }
 }
 
-#[derive(Eq, PartialEq, Clone, Debug)]
+#[derive(Clone, Debug)]
 pub struct GlobalVar {
     pub name: String,
     pub ty: Type,
@@ -302,3 +278,128 @@ impl Scope {
         self.map.borrow().values().cloned().for_each(f)
     }
 }
+
+#[derive(Eq, PartialEq, Copy, Clone, Debug)]
+pub enum Const {
+    I1(bool),
+    I64(i64),
+}
+
+impl Typed for Const {
+    fn get_type(&self) -> Type {
+        match self {
+            Const::I1(_) => Type::I1,
+            Const::I64(_) => Type::I64,
+        }
+    }
+}
+
+impl ToString for Const {
+    fn to_string(&self) -> String {
+        match self {
+            Const::I1(v) => if *v { "1".to_string() } else { "0".to_string() }
+            Const::I64(v) => format!("{}", v),
+        }
+    }
+}
+
+impl Not for Const {
+    type Output = Self;
+
+    fn not(self) -> Self::Output {
+        match self {
+            Const::I1(v) => Const::I1(!v),
+            _ => unreachable!()
+        }
+    }
+}
+
+impl Neg for Const {
+    type Output = Self;
+
+    fn neg(self) -> Self::Output {
+        match self {
+            Const::I64(v) => Const::I64(-v),
+            _ => unreachable!()
+        }
+    }
+}
+
+macro_rules! bin_arith_impl {
+    ($trait:ty, $func:ident, $op:tt) => {
+        impl $trait for Const {
+            type Output = Self;
+            fn $func(self, rhs: Self) -> Self::Output {
+                match (self, rhs) {
+                    (Const::I64(l), Const::I64(r)) => Const::I64(l $op r),
+                    _ => unreachable!()
+                }
+            }
+        }
+    };
+}
+
+bin_arith_impl!(Add, add, +);
+bin_arith_impl!(Sub, sub, -);
+bin_arith_impl!(Mul, mul, *);
+bin_arith_impl!(Div, div, /);
+bin_arith_impl!(Shl, shl, <<);
+bin_arith_impl!(Shr, shr, >>);
+bin_arith_impl!(Rem, rem, %);
+
+macro_rules! bin_bitwise_impl {
+    ($trait:ty, $func:ident, $op:tt) => {
+        impl $trait for Const {
+            type Output = Self;
+
+            fn $func(self, rhs: Self) -> Self::Output {
+                match (self, rhs) {
+                    (Const::I1(l), Const::I1(r)) => Const::I1(l $op r),
+                    (Const::I64(l), Const::I64(r)) => Const::I64(l $op r),
+                    _ => unreachable!()
+                }
+            }
+        }
+    };
+}
+
+bin_bitwise_impl!(BitAnd, bitand, &);
+bin_bitwise_impl!(BitOr, bitor, |);
+bin_bitwise_impl!(BitXor, bitxor, ^);
+
+macro_rules! cmp_ord_impl {
+    ($func:ident, $op:tt) => {
+        impl Const {
+            pub fn $func(self, rhs: Self) -> Self {
+                match (self, rhs) {
+                    (Const::I64(l), Const::I64(r)) => Const::I1(l $op r),
+                    _ => unreachable!()
+                }
+            }
+        }
+    };
+}
+
+cmp_ord_impl!(lt, <);
+cmp_ord_impl!(le, <=);
+cmp_ord_impl!(gt, >);
+cmp_ord_impl!(ge, >=);
+
+// Note that the result is `Const::I1`, not bool
+macro_rules! cmp_eq_impl {
+    ($func:ident, $op:tt) => {
+        impl Const {
+            pub fn $func(self, rhs: Self) -> Self {
+                match (self, rhs) {
+                    (Const::I1(l), Const::I1(r)) => Const::I1(l $op r),
+                    (Const::I64(l), Const::I64(r)) => Const::I1(l $op r),
+                    _ => unreachable!()
+                }
+            }
+        }
+    };
+}
+
+// TO avoid colliding with library trait `Eq` and `Ne`, its method name is `e` and `n`.
+cmp_eq_impl!(e, ==);
+cmp_eq_impl!(n, !=);

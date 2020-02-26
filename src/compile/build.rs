@@ -11,7 +11,7 @@ use crate::lang::instr::{BinOp, Instr, UnOp};
 use crate::lang::Program;
 use crate::lang::ssa::Verifier;
 use crate::lang::util::ExtRc;
-use crate::lang::val::{Const, GlobalVar, Scope, Symbol, SymbolRef, Type, Typed, Value};
+use crate::lang::value::{Const, GlobalVar, Scope, Symbol, SymbolRef, Type, Typed, Value};
 
 pub struct Builder {
     root: Term,
@@ -433,6 +433,13 @@ impl Builder {
             op if UnOp::from_str(op).is_ok() => {
                 let dst = self.create_symbol(dst, ty, ctx)?;
                 let op = UnOp::from_str(op).unwrap();
+                if !op.is_avail_for(ty) {
+                    return Err(CompileErr {
+                        loc: loc.clone(),
+                        msg: format!("unary operation {} not supported for type {}",
+                                     op.to_string(), ty.to_string()),
+                    });
+                }
                 let opd = self.build_opd_list(vec![ty.clone()], opd, ctx)?;
                 Ok(Instr::Un {
                     op,
@@ -442,6 +449,13 @@ impl Builder {
             }
             op if BinOp::from_str(op).is_ok() => {
                 let op = BinOp::from_str(op).unwrap();
+                if !op.is_avail_for(ty) {
+                    return Err(CompileErr {
+                        loc: loc.clone(),
+                        msg: format!("binary operation {} not supported for type {}",
+                                     op.to_string(), ty.to_string()),
+                    });
+                }
                 let dst = if op.is_cmp() { // compare result is always `i1`
                     self.create_symbol(dst, &Type::I1, ctx)?
                 } else {

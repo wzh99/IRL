@@ -6,7 +6,7 @@ use std::rc::Rc;
 use crate::lang::func::{BlockRef, Func};
 use crate::lang::instr::{Instr, InstrRef};
 use crate::lang::Program;
-use crate::lang::val::{GlobalVar, Symbol, Type, Typed, Value};
+use crate::lang::value::{GlobalVar, Symbol, Type, Typed, Value};
 
 pub struct Printer<'a> {
     writer: &'a mut dyn Write,

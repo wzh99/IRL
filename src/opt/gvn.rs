@@ -7,7 +7,7 @@ use crate::lang::instr::InstrRef;
 use crate::lang::Program;
 use crate::lang::ssa::{InstrListener, ValueListener};
 use crate::lang::util::WorkList;
-use crate::lang::val::{Scope, Symbol, SymbolRef, Value};
+use crate::lang::value::{Scope, Symbol, SymbolRef, Value};
 use crate::opt::{FnPass, Pass};
 use crate::opt::graph::{GraphBuilder, VertRef};
 

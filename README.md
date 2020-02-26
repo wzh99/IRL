@@ -43,7 +43,7 @@ fn @max($a: i64, $b: i64) -> i64 {
 
 It could be seen from the example that the syntax is a bit similar to [LLVM IR](https://www.llvm.org/docs/LangRef.html), but adopts some syntax features commonly seen in higher level programming languages. It tries to reduce type annotation required in the language, as long as it can be inferred from context or expressions.
 
-The type system and instruction set are all quite simple, but they are fairly enough support most of the following work. For type definition, see [`lang::val::Type`](src/lang/val.rs). For instruction set, see [`lang::instr`](src/lang/instr.rs).
+The type system and instruction set are all quite simple, but they are fairly enough support most of the following work. For type definition, see [`lang::val::Type`](src/lang/value.rs). For instruction set, see [`lang::instr`](src/lang/instr.rs).
 
 ## Compilation
 
@@ -73,10 +73,20 @@ In this project, most of accesses to the program, including verification, analys
 
 ## Optimization
 
-Optimization on the program are implemented as passes, which is usually the case in modern compilers. Most of the global (function-level) optimizations depend on SSA form of the program, so a transformation to SSA form is a must. At present, the following optimizations are supported:
+Optimizations are implemented as passes of transforms on the program, which is usually the case in modern compilers. At present, the following optimizations are supported:
 
-* Global Value Numbering
+### Global Optimization
 
-* Sparse Conditional Constant Propagation
+Most of the global (function-level) optimizations depend on SSA form of the program, so a transformation to SSA form is a must. 
 
-* Dead Code Elimination
+#### Global Value Numbering
+
+Detect redundant computations by finding congruent variables. Implementation at [`opt::gvn::GvnOpt`](src/opt/gvn.rs), example at [gvn.ir](test/gvn.ir).
+
+#### Sparse Conditional Constant Propagation
+
+Replace later uses of compile-time constants with its corresponding values. It applies this transformation by symbolic execution of the function using both CFG and SSA edges. Implementation at [`opt::sccp:SccpOpt`](src/opt/sccp.rs), example at [sccp.ir](test/sccp.ir).
+
+#### Dead Code Elimination
+
+Mark-sweep algorithm to find instructions that define unused variables. Can be used as subroutine for other optimizations. The construction of SSA form also uses this optimization. It is implemented as a method of [`lang::func::Func`](src/lang/ssa.rs)
