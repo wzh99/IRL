@@ -18,7 +18,7 @@ fn @main($n: i64) {
     $c <- eq i64 $t, 0;
     br $c ? %B3 : %B4;
 %B3:
-    $i.3 <- add i64 $i.2, 1;
+    $i.3 <- add i64 1, $i.2; // test commutative operand
     $j.3 <- add i64 $j.2, 1;
     $k.3 <- add i64 $k.2, 1;
     jmp %B5;

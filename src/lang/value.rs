@@ -279,7 +279,11 @@ impl Scope {
     }
 }
 
-#[derive(Eq, PartialEq, Copy, Clone, Debug)]
+/// A compile-time constant.
+/// Note that `Ord` and `PartialOrd` trait is just for comparing two `Const` objects, not for
+/// evaluating the constants at compile time. To achieve this, use the `eval` associative method
+/// in operator's implementation.
+#[derive(Ord, PartialOrd, Eq, PartialEq, Copy, Clone, Debug)]
 pub enum Const {
     I1(bool),
     I64(i64),
@@ -380,10 +384,10 @@ macro_rules! cmp_ord_impl {
     };
 }
 
-cmp_ord_impl!(lt, <);
-cmp_ord_impl!(le, <=);
-cmp_ord_impl!(gt, >);
-cmp_ord_impl!(ge, >=);
+cmp_ord_impl!(less_than, <);
+cmp_ord_impl!(less_eq, <=);
+cmp_ord_impl!(greater_than, >);
+cmp_ord_impl!(greater_eq, >=);
 
 // Note that the result is `Const::I1`, not bool
 macro_rules! cmp_eq_impl {
@@ -401,5 +405,5 @@ macro_rules! cmp_eq_impl {
 }
 
 // TO avoid colliding with library trait `Eq` and `Ne`, its method name is `e` and `n`.
-cmp_eq_impl!(e, ==);
-cmp_eq_impl!(n, !=);
+cmp_eq_impl!(equal, ==);
+cmp_eq_impl!(not_eq, !=);

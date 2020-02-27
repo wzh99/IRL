@@ -5,7 +5,7 @@ use std::str::FromStr;
 
 use crate::lang::func::{BlockRef, Func};
 use crate::lang::util::ExtRc;
-use crate::lang::value::{Symbol, SymbolRef, Type, Value};
+use crate::lang::value::{Const, Symbol, SymbolRef, Type, Value};
 
 #[derive(Clone, Debug)]
 pub enum Instr {
@@ -192,6 +192,14 @@ impl UnOp {
             _ => false
         }
     }
+
+    /// Evaluate constant according to unary operator `op`
+    pub fn eval(self, c: Const) -> Const {
+        match self {
+            UnOp::Not => !c,
+            UnOp::Neg => -c,
+        }
+    }
 }
 
 #[derive(Clone, Copy, Debug)]
@@ -261,9 +269,47 @@ impl ToString for BinOp {
 }
 
 impl BinOp {
+    pub fn eval(self, l: Const, r: Const) -> Const {
+        match self {
+            BinOp::Add => l + r,
+            BinOp::Sub => l - r,
+            BinOp::Mul => l * r,
+            BinOp::Div => l / r,
+            BinOp::Mod => l % r,
+            BinOp::Shl => l << r,
+            BinOp::Shr => l >> r,
+            BinOp::And => l & r,
+            BinOp::Or => l | r,
+            BinOp::Xor => l ^ r,
+            BinOp::Eq => l.equal(r),
+            BinOp::Ne => l.not_eq(r),
+            BinOp::Lt => l.less_than(r),
+            BinOp::Le => l.less_eq(r),
+            BinOp::Gt => l.greater_than(r),
+            BinOp::Ge => l.greater_eq(r),
+        }
+    }
+
     pub fn is_arith(&self) -> bool {
         match self {
             BinOp::And | BinOp::Sub | BinOp::Mul | BinOp::Div | BinOp::Mod => true,
+            _ => false
+        }
+    }
+
+    /// Whether this binary operator is commutative. `a op b = b op a`
+    pub fn is_comm(&self) -> bool {
+        match self {
+            BinOp::Add | BinOp::Mul | BinOp::And | BinOp::Or | BinOp::Xor | BinOp::Eq
+            | BinOp::Ne => true,
+            _ => false
+        }
+    }
+
+    /// Whether this binary operator is associative. `(a op b) op c = a op (b op c)`
+    pub fn is_assoc(&self) -> bool {
+        match self {
+            BinOp::Add | BinOp::Mul | BinOp::And | BinOp::Or | BinOp::Xor => true,
             _ => false
         }
     }
@@ -298,6 +344,7 @@ impl BinOp {
 
     pub fn is_cmp(&self) -> bool { self.is_ord() | self.is_eq() }
 
+    /// Whether this operator is for type `ty`
     pub fn is_avail_for(&self, ty: &Type) -> bool {
         match ty {
             Type::I1 => self.is_bitwise() || self.is_eq(),

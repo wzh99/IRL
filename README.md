@@ -65,9 +65,9 @@ If a function contains one or more phi instruction, *or* if any versioned symbol
 
 * Each phi instruction has source operands for all predecessors.
 
-## Design pattern
+## Listener pattern
 
-In this project, most of accesses to the program, including verification, analysis, optimization are all based on the listener design pattern. This derives from the insight that most of the algorithms related to these work follow the basic routine of dominator tree traversal. If we could factor out this routine, we could improve code reuse and make program less prone to bugs.
+In this project, most of the data flow analyses are based on the listener design pattern. This derives from the insight that most of theses algorithms follow the basic routine of dominator tree traversal. If we could factor out this routine, we could improve code reuse and make program less prone to bugs.
 
  Three listener traits with different granularity are provided in the program: `BlockListener` at block level, `InstrListener` at instruction level, and `ValueListener` at value level. Listener trait with finer granularity are extended trait of the listener with coarser one. They can be chosen on demand. Furthermore, different listeners can be combined to support more sophisticated work. 
 
@@ -75,18 +75,14 @@ In this project, most of accesses to the program, including verification, analys
 
 Optimizations are implemented as passes of transforms on the program, which is usually the case in modern compilers. At present, the following optimizations are supported:
 
-### Global Optimization
-
-Most of the global (function-level) optimizations depend on SSA form of the program, so a transformation to SSA form is a must. 
-
-#### Global Value Numbering
+### Global Value Numbering
 
 Detect redundant computations by finding congruent variables. Implementation at [`opt::gvn::GvnOpt`](src/opt/gvn.rs), example at [gvn.ir](test/gvn.ir).
 
-#### Sparse Conditional Constant Propagation
+### Sparse Conditional Constant Propagation
 
-Replace later uses of compile-time constants with its corresponding values. It applies this transformation by symbolic execution of the function using both CFG and SSA edges. Implementation at [`opt::sccp:SccpOpt`](src/opt/sccp.rs), example at [sccp.ir](test/sccp.ir).
+Replace later uses of compile-time constants with their corresponding values. It applies this transformation by symbolic execution of the function using both control flow graph and SSA value graph. Implementation at [`opt::sccp:SccpOpt`](src/opt/sccp.rs), example at [sccp.ir](test/sccp.ir).
 
-#### Dead Code Elimination
+### Dead Code Elimination
 
 Mark-sweep algorithm to find instructions that define unused variables. Can be used as subroutine for other optimizations. The construction of SSA form also uses this optimization. It is implemented as a method of [`lang::func::Func`](src/lang/ssa.rs)

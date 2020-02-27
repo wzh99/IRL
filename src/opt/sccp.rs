@@ -290,10 +290,7 @@ impl SccpOpt {
     fn eval_un(&self, op: UnOp, opd: LatVal) -> LatVal {
         match opd {
             LatVal::Top | LatVal::Bottom => opd,
-            LatVal::Const(c) => match op {
-                UnOp::Not => LatVal::Const(!c),
-                UnOp::Neg => LatVal::Const(-c),
-            }
+            LatVal::Const(c) => LatVal::Const(op.eval(c))
         }
     }
 
@@ -334,24 +331,7 @@ impl SccpOpt {
                     _ => LatVal::Bottom
                 }
             }
-            (LatVal::Const(l), LatVal::Const(r)) => match op {
-                BinOp::Add => LatVal::Const(l + r),
-                BinOp::Sub => LatVal::Const(l - r),
-                BinOp::Mul => LatVal::Const(l * r),
-                BinOp::Div => LatVal::Const(l / r),
-                BinOp::Mod => LatVal::Const(l % r),
-                BinOp::Shl => LatVal::Const(l << r),
-                BinOp::Shr => LatVal::Const(l >> r),
-                BinOp::And => LatVal::Const(l & r),
-                BinOp::Or => LatVal::Const(l | r),
-                BinOp::Xor => LatVal::Const(l ^ r),
-                BinOp::Eq => LatVal::Const(l.e(r)),
-                BinOp::Ne => LatVal::Const(l.n(r)),
-                BinOp::Lt => LatVal::Const(l.lt(r)),
-                BinOp::Le => LatVal::Const(l.le(r)),
-                BinOp::Gt => LatVal::Const(l.gt(r)),
-                BinOp::Ge => LatVal::Const(l.ge(r)),
-            }
+            (LatVal::Const(l), LatVal::Const(r)) => LatVal::Const(op.eval(l, r))
         }
     }
 }

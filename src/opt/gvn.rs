@@ -28,6 +28,9 @@ impl FnPass for GvnOpt {
         let mut part: Vec<Vec<VertRef>> = vec![];
         let mut vert_num: HashMap<VertRef, usize> = HashMap::new();
         let mut work: WorkList<usize> = WorkList::new();
+        // Here we consider all the vertices. Though at last only two local variables will possibly
+        // be given the same value, their congruence depend on their operands vertices, which could
+        // possibly not be  local variables.
         for v in &graph.vert {
             // Create the first partition.
             if part.is_empty() {
@@ -95,11 +98,10 @@ impl FnPass for GvnOpt {
                 *rep.get_mut(num).unwrap() = Some(sym.clone());
             }
         });
-        let mut map: HashMap<SymbolRef, SymbolRef> = HashMap::new();
-        graph.map.iter().for_each(|(sym, vert)| {
+        let map: HashMap<SymbolRef, SymbolRef> = graph.map.iter().map(|(sym, vert)| {
             let num = *vert_num.get(vert).unwrap();
-            map.insert(sym.clone(), rep[num].as_ref().unwrap().clone());
-        });
+            (sym.clone(), rep[num].as_ref().unwrap().clone())
+        }).collect();
 
         // Perform code motion
         let mut motion = GvnMotion::new(map);

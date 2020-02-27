@@ -1,6 +1,7 @@
 use std::cell::RefCell;
 use std::collections::HashMap;
 use std::fmt::{Debug, Error, Formatter};
+use std::mem::swap;
 use std::ops::Deref;
 
 use crate::lang::func::{BlockListener, BlockRef, Func};
@@ -49,7 +50,7 @@ impl VertRef {
     }
 }
 
-#[derive(Debug, Eq)]
+#[derive(Ord, PartialOrd, Debug, Eq)]
 pub enum VertTag {
     /// This value is defined by parameter.
     Param(String),
@@ -182,8 +183,12 @@ impl InstrListener for GraphBuilder {
                 dst.add_opd(opd);
             }
             Instr::Bin { op, fst, snd, dst } => {
-                let fst = self.get_src_vert(fst);
-                let snd = self.get_src_vert(snd);
+                let mut fst = self.get_src_vert(fst);
+                let mut snd = self.get_src_vert(snd);
+                // impose order of operands if the operator is commutative
+                if op.is_comm() && fst.tag > snd.tag {
+                    swap(&mut fst, &mut snd)
+                }
                 let dst = self.get_dst_vert(dst, op.to_string(), Some(&instr));
                 dst.add_opd(fst);
                 dst.add_opd(snd);
