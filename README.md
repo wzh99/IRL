@@ -9,39 +9,41 @@ This project implement some technical aspects of IR (intermediate representation
 The language involved is an CFG-based, register-to-register model IR. Phi instruction is provided to build SSA form, but is not mandatory. The following is an example to show the structure of a simple program. The program is not very practical, but should suffice to show some characteristics of this language. This example can also be seen in [example.ir](test/example.ir)
 
 ```assembly
-type @Foo = { i64, { [2][4]i64 }, *@Bar }
-type @Bar = { *i64, *@Foo }
+type @Foo = { i64, { [2][4]i64 }, *@Bar } // type alias is available
+type @Bar = { *i64, *@Foo } // order of definition can be arbitrary
 
-@g <- 0: i64;
+@g: i64 <- 0; // global variable definition, can be initialized
 
+// Demonstrate the use of memory-related instructions
 fn @main() {
 %Begin:
-    @g <- call i64 @max(1, 2);
-    $b <- alloc [4]i64;
-    $p <- ptr *i64 $b [@g];
+    @g <- call i64 @max(1, 2); // use arrow as assignment
+    $b <- alloc [4]i64; // aggregate should be allocated on stack first
+    $p <- ptr *i64 $b [@g]; // operands in [..] are indices INSIDE aggregates
     $v <- ld i64 $p;
-    $q <- ptr *i64 $p, 1;
-    st i64 $v -> $q;
+    $q <- ptr *i64 $p, 1; // second operand is OFFSET of pointer
+    st i64 $v -> $q; // use arrow to indicate data flow
     ret;
 }
 
-fn @max($a: i64, $b: i64) -> i64 {
+// Demonstrate the acceptable program in SSA form
+fn @max($a: i64, $b: i64) -> i64 { // post type annotation
 %Begin:
-    $c <- ge i64 $a, $b;
-    br $c ? %True : %False;
+    $c <- ge i64 $a, $b; // result type of comparing operator is always i1
+    br $c ? %True : %False; // ternary expression for branch target, condition must be of type `i1`
 %True:
-    $x.0 <- mov i64 $a;
+    $x.0 <- mov i64 $a; // versioned variable can be used
     jmp %End;
 %False:
     $x.1 <- mov i64 $b;
     jmp %End;
 %End:
-    $x.2 <- phi i64 [%True: $x.0] [%False: $x.1];
+    $x.2 <- phi i64 [%True: $x.0] [%False: $x.1]; // have operands for all predecessors
     ret $x.2;
 }
 ```
 
-It could be seen from the example that the syntax is a bit similar to [LLVM IR](https://www.llvm.org/docs/LangRef.html), but adopts some syntax features commonly seen in higher level programming languages. It tries to reduce type annotation required in the language, as long as it can be inferred from context or expressions.
+It could be seen from the example that the syntax is a bit similar to [LLVM IR](https://www.llvm.org/docs/LangRef.html), but adopts some syntax features commonly seen in higher level programming languages. It tries to reduce type annotation required in the language, as long as it can be inferred from context or expressions. Also, it tries to make some of the instructions more informative, such as `st`, `br`, `phi` and `ptr`.
 
 The type system and instruction set are all quite simple, but they are fairly enough support most of the following work. For type definition, see [`lang::val::Type`](src/lang/value.rs). For instruction set, see [`lang::instr`](src/lang/instr.rs).
 
@@ -55,9 +57,9 @@ The lexer and parser are all written by hand. The lexical and syntactical rules 
 
 ### Construction and Verification
 
-After parsing, the memory representation will be constructed, and the semantic correctness will be checked along the way. This process is divided into several passes: the first one deals with global variable declarations and function signatures, and the second deal with basic blocks inside each function. 
+After parsing, the memory representation will be constructed, and the semantic correctness will be checked along the way. This process is divided into several passes: the first one deals with type aliases, global variable declarations and function signatures, and the second deal with basic blocks inside each function. 
 
-If a function contains one or more phi instruction, *or* if any versioned symbol appears in this function, it is assumed to be in SSA form, and another pass is required to verify this assumption. To be in SSA form, the following requirement should be satisfied: 
+If a function contains one or more phi instructions, *or* if any versioned symbol appears in this function, it is assumed to be in SSA form, and another pass is required to verify this assumption. To be in SSA form, the following requirement should be satisfied: 
 
 * Each local variable should be defined only once in the static program.
 
@@ -65,9 +67,9 @@ If a function contains one or more phi instruction, *or* if any versioned symbol
 
 * Each phi instruction has source operands for all predecessors.
 
-## Listener pattern
+## Listener Pattern
 
-In this project, most of the data flow analyses are based on the listener design pattern. This derives from the insight that most of theses algorithms follow the basic routine of dominator tree traversal. If we could factor out this routine, we could improve code reuse and make program less prone to bugs.
+In this project, most of the data flow analyses on SSA form, including construction, verification and several optimizations, are based on the listener design pattern. This derives from the insight that most of theses algorithms follow the basic routine of dominator tree traversal. If we could factor out this routine, we could improve code reuse and make program less prone to bugs.
 
  Three listener traits with different granularity are provided in the program: `BlockListener` at block level, `InstrListener` at instruction level, and `ValueListener` at value level. Listener trait with finer granularity are extended trait of the listener with coarser one. They can be chosen on demand. Furthermore, different listeners can be combined to support more sophisticated work. 
 

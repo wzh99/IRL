@@ -53,6 +53,9 @@ impl Parser {
         if let Token::GlobalId(_, _) = id {} else {
             return self.err(vec!["{GlobalId}"], id);
         }
+        let col = self.consume()?;
+        check_op!(self, col, ":");
+        let ty = self.type_decl()?; // TypeDecl
         let init = match self.peek(0)? {
             Token::LeftArrow(_) => { // VarInit
                 self.consume()?; // `<-`
@@ -62,12 +65,9 @@ impl Parser {
                 }
                 Some(val)
             }
-            Token::Colon(_) => None,
-            tok => return self.err(vec!["<-", ":"], tok)
+            Token::Semicolon(_) => None,
+            tok => return self.err(vec!["<-", ";"], tok)
         };
-        let col = self.consume()?;
-        check_op!(self, col, ":");
-        let ty = self.type_decl()?; // TypeDecl
         let semi = self.consume()?;
         check_op!(self, semi, ";");
         Ok(Term::VarDef { loc, id, init, ty: Box::new(ty) })

@@ -50,9 +50,8 @@ impl Printer<'_> {
     }
 
     fn print_global_var(&mut self, g: &GlobalVar) -> Result<(), Error> {
-        let mut s = format!("@{}", g.name);
+        let mut s = format!("@{}: {}", g.name, g.ty.to_string());
         g.init.as_ref().map(|v| s += format!(" <- {}", v.to_string()).as_str());
-        s += format!(": {}", g.ty.to_string()).as_str();
         writeln!(self.writer, "{};", s)
     }
 

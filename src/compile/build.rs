@@ -562,6 +562,7 @@ impl Builder {
                 pairs.push((block, RefCell::new(val)));
             } else { unreachable!() }
         }
+        pairs.sort_by_key(|(blk, _)| blk.clone());
         Ok(Instr::Phi { src: pairs, dst: RefCell::new(dst) })
     }
 
