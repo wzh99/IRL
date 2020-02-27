@@ -1,5 +1,6 @@
 use std::cell::RefCell;
 use std::collections::{HashMap, HashSet};
+use std::ops::Deref;
 use std::rc::Rc;
 
 use crate::lang::func::{BlockListener, BlockRef, Func};
@@ -197,8 +198,10 @@ impl GvnOpt {
     /// Decide whether operands of two vertices are pairwise congruent.
     fn opd_cong(&self, vert_num: &HashMap<VertRef, usize>, v1: &VertRef, v2: &VertRef) -> bool {
         if v1.opd.borrow().len() != v2.opd.borrow().len() { return false; }
+        println!("{:?}\n{:?}", v1.deref(), v2.deref());
+        // Here we allow a vertex to be not found in the mapping, and it must be a placeholder.
         v1.opd.borrow().iter().zip(v2.opd.borrow().iter())
-            .all(|(o1, o2)| vert_num.get(o1).unwrap() == vert_num.get(o2).unwrap())
+            .all(|(o1, o2)| vert_num.get(o1) == vert_num.get(o2))
     }
 }
 

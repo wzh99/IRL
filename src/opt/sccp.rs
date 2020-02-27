@@ -114,12 +114,12 @@ impl FnPass for SccpOpt {
             }
         }
 
-        // Apply code motion
+        // Apply code replacement
         func.dfs().for_each(|block| {
             block.instr.borrow_mut().retain(|instr| {
                 // Remove constant definition
                 match instr.dst() {
-                    Some(dst) if self.lat_from_sym(dst).is_const() => return false,
+                    Some(dst) if self.lat_from_sym(dst).is_const() => { return false }
                     _ => {}
                 }
                 // Possibly replace symbols with constants
@@ -151,6 +151,9 @@ impl FnPass for SccpOpt {
             }
         });
         func.remove_unreachable();
+
+        // Rebuild scope
+        func.rebuild_ssa_scope();
 
         // Clear all data structure for this function.
         self.lat.clear();
@@ -272,7 +275,6 @@ impl SccpOpt {
     }
 
     fn lat_from_sym(&self, sym: &RefCell<SymbolRef>) -> LatVal {
-        // println!("{:?}", sym.borrow().deref());
         match sym.borrow().as_ref() {
             _ if sym.borrow().is_local_var() => *self.lat.get(sym.borrow().deref()).unwrap(),
             Symbol::Global(_) => LatVal::Bottom,
@@ -282,7 +284,8 @@ impl SccpOpt {
 
     fn lat_from_val(&self, val: &RefCell<Value>) -> LatVal {
         match val.borrow().deref() {
-            Value::Var(sym) => self.lat.get(sym).unwrap().clone(),
+            Value::Var(sym) if sym.is_local_var() => self.lat.get(sym).unwrap().clone(),
+            Value::Var(_) => LatVal::Bottom,
             Value::Const(c) => LatVal::Const(c.clone())
         }
     }

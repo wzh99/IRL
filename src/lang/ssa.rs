@@ -502,6 +502,27 @@ impl ValueListener for DefUseBuilder {
 }
 
 impl Func {
+    /// Rebuild scope for SSA form function.
+    pub fn rebuild_ssa_scope(&self) {
+        self.scope.clear();
+        let mut sym: Vec<SymbolRef> = vec![];
+        self.param.iter().for_each(|p| sym.push(p.borrow().clone()));
+        self.dfs().for_each(|block| {
+            block.instr.borrow().iter().for_each(|instr| {
+                match instr.dst() {
+                    Some(dst) if dst.borrow().is_local_var() => match dst.borrow().as_ref() {
+                        Symbol::Local { name: _, ty: _, ver: _ } => sym.push(dst.borrow().clone()),
+                        _ => unreachable!()
+                    }
+                    _ => {}
+                }
+            })
+        });
+        self.scope.append(sym.into_iter());
+    }
+}
+
+impl Func {
     /// Compute define-use information for symbols
     pub fn def_use(&self) -> HashMap<SymbolRef, DefUse> {
         let mut listener = DefUseBuilder { info: HashMap::new() };

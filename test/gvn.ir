@@ -11,14 +11,14 @@ fn @main($n: i64) {
     $k.1 <- mov i64 @g;
     jmp %B2;
 %B2:
-    $i.2 <- phi i64 [%B1: $i.1] [%B5: $i.5];
+    $i.2 <- phi i64 [%B5: $i.5] [%B1: $i.1]; // test order of phi operands
     $j.2 <- phi i64 [%B1: $j.1] [%B5: $j.5];
     $k.2 <- phi i64 [%B1: $k.1] [%B5: $k.5];
     $t <- mod i64 $i.2, 2;
     $c <- eq i64 $t, 0;
     br $c ? %B3 : %B4;
 %B3:
-    $i.3 <- add i64 1, $i.2; // test commutative operand
+    $i.3 <- add i64 1, $i.2; // test operator commutativity
     $j.3 <- add i64 $j.2, 1;
     $k.3 <- add i64 $k.2, 1;
     jmp %B5;

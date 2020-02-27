@@ -50,7 +50,7 @@ impl VertRef {
     }
 }
 
-#[derive(Ord, PartialOrd, Debug, Eq)]
+#[derive(PartialOrd, Debug)]
 pub enum VertTag {
     /// This value is defined by parameter.
     Param(String),
@@ -131,7 +131,7 @@ impl GraphBuilder {
     pub fn new() -> GraphBuilder {
         GraphBuilder {
             graph: ValueGraph::new(),
-            block: None
+            block: None,
         }
     }
 }
