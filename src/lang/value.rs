@@ -283,7 +283,7 @@ impl Scope {
 /// Note that `Ord` and `PartialOrd` trait is just for comparing two `Const` objects, not for
 /// evaluating the constants at compile time. To achieve this, use the `eval` associative method
 /// in operator's implementation.
-#[derive(Ord, PartialOrd, Eq, PartialEq, Copy, Hash, Clone, Debug)]
+#[derive(Ord, PartialOrd, Eq, PartialEq, Copy, Clone, Hash, Debug)]
 pub enum Const {
     I1(bool),
     I64(i64),

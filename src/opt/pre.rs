@@ -1,11 +1,12 @@
-use std::collections::HashMap;
+use std::collections::{BTreeSet, HashMap, HashSet};
 use std::hash::{Hash, Hasher};
 
-use crate::lang::func::Func;
+use crate::lang::func::{BlockRef, Func};
 use crate::lang::instr::{BinOp, UnOp};
 use crate::lang::Program;
 use crate::lang::value::{Const, SymbolRef, Type};
 use crate::opt::{FnPass, Pass};
+use crate::opt::gvn::Gvn;
 
 #[derive(Eq, PartialEq, Hash, Clone, Debug)]
 enum Expr {
@@ -73,41 +74,29 @@ struct ValueTable {
     /// Note that instances of `Expr::Result` should not be keys of this map, because it could
     /// correspond to several values.
     num: HashMap<Expr, usize>,
-    /// Record next possible available value number.
-    /// Since value numbers produced by GVN implementation are not continuous, it may lead to
-    /// inefficient use of value table. This field help to make sure all the numbers are fully used
-    /// before allocating larger numbers. It is not equal to `tab.len()` until all the current
-    /// value numbers are fully used.
-    next: usize,
 }
 
 impl ValueTable {
-    fn new() -> ValueTable {
+    fn new(reserved: usize) -> ValueTable {
         ValueTable {
-            tab: vec![],
+            tab: vec![vec![]; reserved],
             num: Default::default(),
-            next: 0,
         }
-    }
-
-    /// Add expressions that are already known to have a number.
-    fn add_num(&mut self, expr: Expr, num: usize) {
-        self.extend(num);
-        self.tab[num].push(expr.clone());
-        self.map(expr, num);
     }
 
     /// Add expressions that do not have a number. Return allocated number for this expression.
-    fn add_not_num(&mut self, expr: Expr) -> usize {
-        // empty list, or not allocated number
-        while self.tab.get(self.next).is_some() && !self.tab[self.next].is_empty() {
-            self.next += 1; // this list has something, try next number
-        }
-        let num = self.next;
-        self.extend(num);
-        self.tab[self.next].push(expr.clone());
+    fn add(&mut self, expr: Expr) -> usize {
+        let num = self.tab.len();
+        self.tab.push(vec![expr.clone()]);
         self.map(expr, num);
         num
+    }
+
+    /// Add expression that already has a value, this number must be less than the `reserved`
+    /// argument passed to the constructor.
+    fn add_num(&mut self, expr: Expr, num: usize) {
+        self.tab[num].push(expr.clone());
+        self.map(expr, num)
     }
 
     /// Map `expr` to given number, as long as it is not `Expr::Result`
@@ -118,7 +107,8 @@ impl ValueTable {
         }
     }
 
-    /// Find value number for given expression
+    /// Find value number for given expression. This method also encompass operator commutation and
+    /// re-association to find expressions that are not obviously available.
     fn find(&mut self, expr: &Expr) -> Option<usize> {
         self.get_num(expr).or_else(|| match expr.clone() {
             // Use operator commutativity to have another try
@@ -126,12 +116,13 @@ impl ValueTable {
                 &Expr::Binary(BinExpr { op, ty, fst: snd, snd: fst })
             ),
             _ => None
-        }).or_else(|| match expr.clone() {
+        }).or_else(|| match expr {
             // Try to re-associate binary operations
-            Expr::Binary(BinExpr { op, ty, fst, snd }) if op.is_assoc() =>
+            Expr::Binary(BinExpr { op, ty: _, fst: _, snd: _ }) if op.is_assoc() =>
                 match expr.clone() {
                     // Try processing first value
-                    Expr::Binary(BinExpr { op, ty, fst, snd }) if self.find_bin(fst).is_some() =>
+                    Expr::Binary(BinExpr { op, ty: _, fst, snd })
+                    if self.find_bin(fst).is_some() =>
                         self.find_bin(fst).and_then(|fst| {
                             match fst {
                                 BinExpr { op: opl, ty, fst: l_fst, snd: l_snd } if op == opl =>
@@ -150,7 +141,8 @@ impl ValueTable {
                             }
                         }),
                     // Try processing second value
-                    Expr::Binary(BinExpr { op, ty, fst, snd }) if self.find_bin(snd).is_some() =>
+                    Expr::Binary(BinExpr { op, ty: _, fst, snd })
+                    if self.find_bin(snd).is_some() =>
                         self.find_bin(snd).and_then(|snd| {
                             match snd {
                                 BinExpr { op: opr, ty, fst: r_fst, snd: r_snd } if op == opr => {
@@ -175,6 +167,9 @@ impl ValueTable {
         })
     }
 
+    /// Look up value number of an expression. This method uses algebraic identities to find
+    /// expressions that are not obviously available. This is different from `find` that it is more
+    /// fundamental and does not dive into the structure of operand values.
     fn get_num(&mut self, expr: &Expr) -> Option<usize> {
         self.num.get(expr).copied().or_else(|| match expr.clone() {
             Expr::Binary(BinExpr { op, ref ty, fst, snd }) => {
@@ -214,9 +209,10 @@ impl ValueTable {
         })
     }
 
+    /// Find binary expression in the value list of given value number
     fn find_const(&self, num: usize) -> Option<Const> {
         self.tab.get(num).and_then(|list| list.iter().find(|expr| match expr {
-            Expr::Const(c) => true,
+            Expr::Const(_) => true,
             _ => false
         }).and_then(|expr| match expr {
             Expr::Const(c) => Some(c.clone()),
@@ -227,7 +223,7 @@ impl ValueTable {
     /// Find binary expression in the value list of given value number
     fn find_bin(&self, num: usize) -> Option<BinExpr> {
         self.tab.get(num).and_then(|list| list.iter().find(|expr| match expr {
-            Expr::Binary(bin) => true,
+            Expr::Binary(_) => true,
             _ => false
         }).and_then(|expr| match expr {
             Expr::Binary(bin) => Some(bin.clone()),
@@ -237,15 +233,7 @@ impl ValueTable {
 
     /// Possibly find indices for expression or create new number for it
     fn find_or_add(&mut self, expr: &Expr) -> usize {
-        self.find(expr).unwrap_or_else(|| self.add_not_num(expr.clone()))
-    }
-
-    /// Extend value table so that it is long enough to have an element indexed by `to`.
-    fn extend(&mut self, to: usize) {
-        if self.tab.len() <= to {
-            let more = to - self.tab.len() + 1;
-            self.tab.append(&mut vec![vec![]; more]);
-        }
+        self.find(expr).unwrap_or_else(|| self.add(expr.clone()))
     }
 }
 
@@ -258,7 +246,60 @@ impl Pass for PreOpt {
 }
 
 impl FnPass for PreOpt {
-    fn opt_fn(&mut self, _func: &Func) {
-        unimplemented!()
+    fn opt_fn(&mut self, func: &Func) {
+        // Renumber the non-continuous symbols given by GVN
+        let mut sym_num = Gvn::new().number(func);
+        let num_set: BTreeSet<usize> = sym_num.values().copied().collect();
+        let size = num_set.len();
+        let num_remap: HashMap<usize, usize> = num_set.into_iter()
+            .enumerate().map(|(new, old)| (old, new)).collect();
+        sym_num.iter_mut().for_each(|(sym, num)| *num = num_remap[num]);
+
+        // Build sets as well as value table
     }
+}
+
+/// Keep record of sets used in PRE for each basic block
+struct PreSet {
+    /// Block that this structure refer to
+    block: BlockRef,
+    /// Expressions generated by this block
+    expr: Vec<Expr>,
+    /// Phi destinations of this block
+    phi: Vec<SymbolRef>,
+    /// Temporaries created in this block
+    tmp: Vec<SymbolRef>,
+    /// Available expressions at entrance and exit of this block
+    avail_in: Vec<Expr>,
+    avail_out: Vec<Expr>,
+    /// Anticipated expressions at entrance and exit of this block
+    antic_in: Vec<Expr>,
+    antic_out: Vec<Expr>,
+}
+
+
+#[test]
+fn test_pre() {
+    use crate::compile::lex::Lexer;
+    use crate::compile::parse::Parser;
+    use crate::compile::build::Builder;
+    use crate::lang::print::Printer;
+    use std::io::stdout;
+    use std::fs::File;
+    use std::convert::TryFrom;
+    use std::io::Read;
+    use std::borrow::BorrowMut;
+
+    let mut file = File::open("test/gvn.ir").unwrap();
+    let lexer = Lexer::try_from(&mut file as &mut dyn Read).unwrap();
+    let parser = Parser::new(lexer);
+    let tree = parser.parse().unwrap();
+    let builder = Builder::new(tree);
+    let mut pro = builder.build().unwrap();
+    let mut opt = PreOpt {};
+    Pass::opt(&mut opt, &mut pro);
+
+    let mut out = stdout();
+    let mut printer = Printer::new(out.borrow_mut());
+    printer.print(&pro).unwrap();
 }

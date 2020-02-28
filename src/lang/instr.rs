@@ -185,12 +185,18 @@ impl ToString for UnOp {
 }
 
 impl UnOp {
-    pub fn is_avail_for(&self, ty: &Type) -> bool {
+    /// Get result type of operators
+    pub fn res_type(&self, ty: &Type) -> Option<Type> {
         match (self, ty) {
-            (UnOp::Not, Type::I1) => true,
-            (UnOp::Neg, Type::I64) => true,
-            _ => false
+            (UnOp::Not, Type::I1) | (UnOp::Not, Type::I64) => Some(ty.clone()),
+            (UnOp::Neg, Type::I64) => Some(Type::I64),
+            _ => None
         }
+    }
+
+    /// Whether this operator can operate on certain type
+    pub fn is_avail_for(&self, ty: &Type) -> bool {
+        self.res_type(ty).is_some()
     }
 
     /// Evaluate constant according to unary operator `op`
@@ -292,7 +298,7 @@ impl BinOp {
 
     pub fn is_arith(&self) -> bool {
         match self {
-            BinOp::And | BinOp::Sub | BinOp::Mul | BinOp::Div | BinOp::Mod => true,
+            BinOp::Add | BinOp::Sub | BinOp::Mul | BinOp::Div | BinOp::Mod => true,
             _ => false
         }
     }
@@ -344,12 +350,19 @@ impl BinOp {
 
     pub fn is_cmp(&self) -> bool { self.is_ord() | self.is_eq() }
 
-    /// Whether this operator is for type `ty`
-    pub fn is_avail_for(&self, ty: &Type) -> bool {
-        match ty {
-            Type::I1 => self.is_bitwise() || self.is_eq(),
-            Type::I64 => true,
-            _ => false
+    /// Get result type of operators
+    pub fn res_type(&self, ty: &Type) -> Option<Type> {
+        match (self, ty) {
+            (op, Type::I1) | (op, Type::I64) if op.is_bitwise() => Some(ty.clone()),
+            (op, Type::I1) | (op, Type::I64) if op.is_eq() => Some(Type::I1),
+            (op, Type::I64) if op.is_arith() | op.is_shift() => Some(Type::I64),
+            (op, Type::I64) if op.is_ord() => Some(Type::I1),
+            _ => None
         }
+    }
+
+    /// Whether this operator can operate on certain type
+    pub fn is_avail_for(&self, ty: &Type) -> bool {
+        self.res_type(ty).is_some()
     }
 }
