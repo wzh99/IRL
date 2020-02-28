@@ -1,25 +1,25 @@
 use std::cell::RefCell;
 use std::collections::{HashMap, HashSet};
-use std::ops::Deref;
-use std::rc::Rc;
 
 use crate::lang::func::{BlockListener, BlockRef, Func};
 use crate::lang::instr::InstrRef;
 use crate::lang::Program;
 use crate::lang::ssa::{InstrListener, ValueListener};
 use crate::lang::util::WorkList;
-use crate::lang::value::{Scope, Symbol, SymbolRef, Value};
+use crate::lang::value::{SymbolRef, Value};
 use crate::opt::{FnPass, Pass};
 use crate::opt::graph::{GraphBuilder, VertRef};
 
-pub struct GvnOpt {}
-
-impl Pass for GvnOpt {
-    fn opt(&mut self, pro: &mut Program) { FnPass::opt(self, pro) }
+struct Gvn {
+    vert_num: HashMap<VertRef, usize>
 }
 
-impl FnPass for GvnOpt {
-    fn opt_fn(&mut self, func: &Func) {
+impl Gvn {
+    fn new() -> Gvn {
+        Gvn { vert_num: Default::default() }
+    }
+
+    fn number(mut self, func: &Func) -> HashMap<SymbolRef, usize> {
         // Build value graph for this function.
         let mut builder = GraphBuilder::new();
         func.walk_dom(&mut builder);
@@ -27,16 +27,15 @@ impl FnPass for GvnOpt {
 
         // Create initial vertex partition.
         let mut part: Vec<Vec<VertRef>> = vec![];
-        let mut vert_num: HashMap<VertRef, usize> = HashMap::new();
         let mut work: WorkList<usize> = WorkList::new();
         // Here we consider all the vertices. Though at last only two local variables will possibly
         // be given the same value, their congruence depend on their operands vertices, which could
-        // possibly not be  local variables.
+        // possibly not be local variables.
         for v in &graph.vert {
             // Create the first partition.
             if part.is_empty() {
                 part.push(vec![v.clone()]);
-                vert_num.insert(v.clone(), 0);
+                self.vert_num.insert(v.clone(), 0);
                 continue;
             }
             // Check if this vertex is equivalent to vertices in any partition.
@@ -55,7 +54,7 @@ impl FnPass for GvnOpt {
                     num
                 }
             };
-            vert_num.insert(v.clone(), num);
+            self.vert_num.insert(v.clone(), num);
         }
 
         // Further partition the vertices until a fixed point is reached.
@@ -64,19 +63,20 @@ impl FnPass for GvnOpt {
             let idx = work.pick().unwrap();
             let std = part[idx][0].clone();
             let new_set: Vec<VertRef> = part[idx].iter()
-                .filter(|v| !self.opd_cong(&vert_num, &std, v)).cloned().collect();
+                .filter(|v| !self.opd_cong(&std, v)).cloned().collect();
 
             // Make another cut in this set
             if new_set.is_empty() { continue; }
+            // println!("{:?}", new_set);
             part.get_mut(idx).unwrap().retain(|v| !new_set.contains(v));
             let new_num = part.len(); // acquire new number for this partition
             new_set.iter().for_each(|v| {
                 // Map vertices in the new set to new number
-                *vert_num.get_mut(v).unwrap() = new_num;
+                *self.vert_num.get_mut(v).unwrap() = new_num;
                 // Add uses of vertices in the new set to the work list
                 // The numbers of their uses depend on the ones of them. Since the numbers of
                 // themselves have already changed, their uses may also change.
-                v.uses.borrow().iter().for_each(|u| work.add(*vert_num.get(u).unwrap()))
+                v.uses.borrow().iter().for_each(|u| work.add(*self.vert_num.get(u).unwrap()))
             });
             if part[idx].len() > 1 {
                 work.add(idx)
@@ -87,41 +87,74 @@ impl FnPass for GvnOpt {
             part.push(new_set);
         }
 
-        // Build symbol mapping
-        // Here we first gather symbols of different partitions, choose the symbol with 'smallest'
-        // identifier. And then build the actual mapping.
-        // A more efficient algorithm may directly build this mapping, but in that way the
-        // transformed code is less readable.
-        let mut rep: Vec<Option<SymbolRef>> = part.iter().map(|_| None).collect();
-        graph.map.iter().for_each(|(sym, vert)| {
-            let num = *vert_num.get(vert).unwrap();
-            if rep[num].is_none() || sym.id() < rep[num].as_ref().unwrap().id() {
-                *rep.get_mut(num).unwrap() = Some(sym.clone());
-            }
-        });
-        let map: HashMap<SymbolRef, SymbolRef> = graph.map.iter().map(|(sym, vert)| {
-            let num = *vert_num.get(vert).unwrap();
-            (sym.clone(), rep[num].as_ref().unwrap().clone())
-        }).collect();
+        graph.map.iter().map(|(sym, vert)| {
+            (sym.clone(), *self.vert_num.get(vert).unwrap())
+        }).collect()
+    }
 
-        // Perform code motion
-        let mut motion = GvnMotion::new(map);
-        func.walk_dom(&mut motion);
+    fn opd_cong(&self, v1: &VertRef, v2: &VertRef) -> bool {
+        if v1.opd.borrow().len() != v2.opd.borrow().len() { return false; }
+        // Here we allow a vertex to be not found in the mapping, and it must be a placeholder.
+        v1.opd.borrow().iter().zip(v2.opd.borrow().iter())
+            .all(|(o1, o2)| self.vert_num.get(o1) == self.vert_num.get(o2))
     }
 }
 
-struct GvnMotion {
-    /// Contain symbol mapping
-    map: HashMap<SymbolRef, SymbolRef>,
-    /// Instructions to be eliminated in current block
-    dup: HashSet<InstrRef>,
-    /// Scope of current function
-    scope: Option<Rc<Scope>>,
+pub struct GvnOpt {}
+
+impl Pass for GvnOpt {
+    fn opt(&mut self, pro: &mut Program) { FnPass::opt(self, pro) }
 }
 
-impl BlockListener for GvnMotion {
+impl FnPass for GvnOpt {
+    fn opt_fn(&mut self, func: &Func) {
+        // Number values
+        let sym_num = Gvn::new().number(func);
+
+        // Build symbol mapping
+        // Here we first gather symbols of different partitions, choose the symbol with 'smallest'
+        // identifier, and then build the actual mapping. A more efficient algorithm may directly
+        // build this mapping, but in that way the transformed code is less readable.
+        // Hash map is used here because the numbers are not continuous, due to existence of non-
+        // variable vertices. Linear vector is not beneficial in this scenario.
+        let mut rep: HashMap<usize, SymbolRef> = HashMap::new();
+        sym_num.iter().for_each(|(sym, num)| {
+            if !rep.contains_key(num) || sym.id() < rep.get(num).unwrap().id() {
+                rep.insert(*num, sym.clone());
+            }
+        });
+        let map: HashMap<SymbolRef, SymbolRef> = sym_num.iter().map(|(sym, num)| {
+            (sym.clone(), rep[num].clone())
+        }).collect();
+
+        // Perform code replacement
+        let mut listener = GvnListener::new(map);
+        func.walk_dom(&mut listener);
+    }
+}
+
+struct GvnListener {
+    /// Contain symbol mapping
+    map: HashMap<SymbolRef, SymbolRef>,
+    /// Defined symbols stack
+    def: Vec<Vec<SymbolRef>>,
+    /// Instructions to be eliminated in current block
+    dup: HashSet<InstrRef>,
+}
+
+impl GvnListener {
+    fn new(map: HashMap<SymbolRef, SymbolRef>) -> GvnListener {
+        GvnListener {
+            map,
+            def: vec![],
+            dup: Default::default(),
+        }
+    }
+}
+
+impl BlockListener for GvnListener {
     fn on_begin(&mut self, func: &Func) {
-        self.scope = Some(func.scope.clone());
+        self.def.push(func.param.iter().map(|p| p.borrow().clone()).collect());
         InstrListener::on_begin(self, func)
     }
 
@@ -129,13 +162,14 @@ impl BlockListener for GvnMotion {
 
     fn on_enter(&mut self, block: BlockRef) {
         // Replace congruent symbols
+        self.def.push(vec![]);
         InstrListener::on_enter(self, block.clone());
 
         // Clear instructions defining congruent symbols
         block.instr.borrow_mut().retain(|instr| {
             !self.dup.contains(instr)
         });
-        self.dup.clear();
+        self.def.pop();
     }
 
     fn on_exit(&mut self, _block: BlockRef) {}
@@ -145,7 +179,7 @@ impl BlockListener for GvnMotion {
     fn on_exit_child(&mut self, _this: BlockRef, _child: BlockRef) {}
 }
 
-impl InstrListener for GvnMotion {
+impl InstrListener for GvnListener {
     fn on_instr(&mut self, instr: InstrRef) {
         ValueListener::on_instr(self, instr)
     }
@@ -155,11 +189,11 @@ impl InstrListener for GvnMotion {
     }
 }
 
-impl ValueListener for GvnMotion {
+impl ValueListener for GvnListener {
     fn on_use(&mut self, _instr: InstrRef, opd: &RefCell<Value>) {
         opd.replace_with(|val| {
             match val {
-                Value::Var(sym) if sym.is_local_var() && self.map.contains_key(sym) => {
+                Value::Var(sym) if sym.is_local_var() => {
                     Value::Var(self.map.get(sym).unwrap().clone())
                 }
                 _ => val.clone()
@@ -169,39 +203,19 @@ impl ValueListener for GvnMotion {
 
     fn on_def(&mut self, instr: InstrRef, def: &RefCell<SymbolRef>) {
         def.replace_with(|sym| {
-            match sym.as_ref() {
-                Symbol::Local { name: _, ty: _, ver: _ } if self.map.contains_key(sym) => {
+            match sym {
+                sym if sym.is_local_var() => {
                     let rep = self.map.get(sym).unwrap();
-                    if sym != rep { // a congruent symbol already defined
-                        self.scope.as_ref().unwrap().remove(sym.id().as_str());
-                        self.dup.insert(instr); // mark this instruction as duplicated
+                    if self.def.iter().any(|frame| frame.contains(rep)) { // fully redundant
+                        self.dup.insert(instr);
+                    } else {
+                        self.def.last_mut().unwrap().push(rep.clone())
                     }
                     rep.clone()
                 }
                 _ => sym.clone()
             }
         });
-    }
-}
-
-impl GvnMotion {
-    fn new(map: HashMap<SymbolRef, SymbolRef>) -> GvnMotion {
-        GvnMotion {
-            map,
-            dup: Default::default(),
-            scope: None,
-        }
-    }
-}
-
-impl GvnOpt {
-    /// Decide whether operands of two vertices are pairwise congruent.
-    fn opd_cong(&self, vert_num: &HashMap<VertRef, usize>, v1: &VertRef, v2: &VertRef) -> bool {
-        if v1.opd.borrow().len() != v2.opd.borrow().len() { return false; }
-        println!("{:?}\n{:?}", v1.deref(), v2.deref());
-        // Here we allow a vertex to be not found in the mapping, and it must be a placeholder.
-        v1.opd.borrow().iter().zip(v2.opd.borrow().iter())
-            .all(|(o1, o2)| vert_num.get(o1) == vert_num.get(o2))
     }
 }
 

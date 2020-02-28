@@ -5,30 +5,30 @@ type @Bar = { *i64, *@Foo } // order of definition can be arbitrary
 
 @g: i64 <- 0; // global variable definition, can be initialized
 
-// Mainly shows the use of memory-related instructions
+// Demonstrate the use of memory-related instructions
 fn @main() {
 %Begin:
-    @g <- call i64 @max(1, 2);
-    $b <- alloc [4]i64; // aggregate should be allocated on stack first
-    $p <- ptr *i64 $b [@g]; // operands in [..] are indices INSIDE aggregates
+    @g <- call i64 @max(1, 2); // no need to annotate type for arguments
+    $b <- alloc [4]i64; // aggregate should be allocated before accessed
+    $p <- ptr *i64 $b [@g]; // operands in the square bracket are indices INSIDE aggregates
     $v <- ld i64 $p;
     $q <- ptr *i64 $p, 1; // second operand is OFFSET of pointer
     st i64 $v -> $q; // use arrow to indicate data flow
     ret;
 }
 
-// A simple function to demonstrate the acceptable SSA form
-fn @max($a: i64, $b: i64) -> i64 {
+// Demonstrate SSA form of function
+fn @max($a: i64, $b: i64) -> i64 { // post type annotation
 %Begin:
-    $c <- ge i64 $a, $b;
-    br $c ? %True : %False;
+    $c <- ge i64 $a, $b; // result type of comparing operator is always `i1`
+    br $c ? %True : %False; // ternary expression for branch target, condition must be of type `i1`
 %True:
-    $x.0 <- mov i64 $a;
+    $x.0 <- mov i64 $a; // versioned variable can be used
     jmp %End;
 %False:
     $x.1 <- mov i64 $b;
     jmp %End;
 %End:
-    $x.2 <- phi i64 [%True: $x.0] [%False: $x.1];
+    $x.2 <- phi i64 [%True: $x.0] [%False: $x.1]; // one square bracket indicate one predecessor
     ret $x.2;
 }

@@ -9,12 +9,12 @@ use crate::lang::Program;
 use crate::lang::util::{ExtRc, WorkList};
 use crate::lang::value::{Const, Symbol, SymbolRef, Value};
 use crate::opt::{FnPass, Pass};
-use crate::opt::graph::{GraphBuilder, ValueGraph, VertRef, VertTag};
+use crate::opt::graph::{GraphBuilder, SsaGraph, VertRef, VertTag};
 
 /// Sparse Conditional Constant Propagation
 pub struct SccpOpt {
     /// SSA value graph for the function being optimized
-    graph: ValueGraph,
+    graph: SsaGraph,
     /// CFG edge work list
     cfg_work: WorkList<CfgEdge>,
     /// Value graph edge work list
@@ -165,7 +165,7 @@ impl FnPass for SccpOpt {
 impl SccpOpt {
     pub fn new() -> SccpOpt {
         SccpOpt {
-            graph: ValueGraph::new(),
+            graph: SsaGraph::new(),
             cfg_work: WorkList::new(),
             ssa_work: WorkList::new(),
             lat: Default::default(),

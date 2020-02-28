@@ -8,7 +8,7 @@ This project implement some technical aspects of IR (intermediate representation
 
 The language involved is an CFG-based, register-to-register model IR. Phi instruction is provided to build SSA form, but is not mandatory. The following is an example to show the structure of a simple program. The program is not very practical, but should suffice to show some characteristics of this language. This example can also be seen in [example.ir](test/example.ir)
 
-```assembly
+```
 type @Foo = { i64, { [2][4]i64 }, *@Bar } // type alias is available
 type @Bar = { *i64, *@Foo } // order of definition can be arbitrary
 
@@ -17,19 +17,19 @@ type @Bar = { *i64, *@Foo } // order of definition can be arbitrary
 // Demonstrate the use of memory-related instructions
 fn @main() {
 %Begin:
-    @g <- call i64 @max(1, 2); // use arrow as assignment
-    $b <- alloc [4]i64; // aggregate should be allocated on stack first
-    $p <- ptr *i64 $b [@g]; // operands in [..] are indices INSIDE aggregates
+    @g <- call i64 @max(1, 2); // no need to annotate type for arguments
+    $b <- alloc [4]i64; // aggregate should be allocated before accessed
+    $p <- ptr *i64 $b [@g]; // operands in the square bracket are indices INSIDE aggregates
     $v <- ld i64 $p;
     $q <- ptr *i64 $p, 1; // second operand is OFFSET of pointer
     st i64 $v -> $q; // use arrow to indicate data flow
     ret;
 }
 
-// Demonstrate the acceptable program in SSA form
+// Demonstrate SSA form of function
 fn @max($a: i64, $b: i64) -> i64 { // post type annotation
 %Begin:
-    $c <- ge i64 $a, $b; // result type of comparing operator is always i1
+    $c <- ge i64 $a, $b; // result type of comparing operator is always `i1`
     br $c ? %True : %False; // ternary expression for branch target, condition must be of type `i1`
 %True:
     $x.0 <- mov i64 $a; // versioned variable can be used
@@ -38,7 +38,7 @@ fn @max($a: i64, $b: i64) -> i64 { // post type annotation
     $x.1 <- mov i64 $b;
     jmp %End;
 %End:
-    $x.2 <- phi i64 [%True: $x.0] [%False: $x.1]; // have operands for all predecessors
+    $x.2 <- phi i64 [%True: $x.0] [%False: $x.1]; // one square bracket indicate one predecessor
     ret $x.2;
 }
 ```
