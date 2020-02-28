@@ -31,7 +31,7 @@ pub enum Instr {
     Phi { src: Vec<PhiSrc>, dst: RefCell<SymbolRef> },
     /// Allocate memory on stack, and return pointer to the beginning of that location.
     Alloc { dst: RefCell<SymbolRef> },
-    /// Get pointer to a element of a pointer to value.
+    /// Pointer arithmetic
     /// `base` is a pointer value. If `off` is not `None`, the instruction offset pointer by `off`
     /// multiplied by the size of target type of `base`. If `ind` is none, the pointer is returned.
     /// Otherwise, the instruction dereference the pointer and progresses by indexing into the
@@ -158,7 +158,7 @@ impl Instr {
     }
 }
 
-#[derive(Clone, Copy, Debug)]
+#[derive(Eq, PartialEq, Hash, Clone, Copy, Debug)]
 pub enum UnOp {
     /// 2's complement of signed number
     Neg,
@@ -202,7 +202,7 @@ impl UnOp {
     }
 }
 
-#[derive(Clone, Copy, Debug)]
+#[derive(Eq, PartialEq, Hash, Clone, Copy, Debug)]
 pub enum BinOp {
     /// Addition
     Add,

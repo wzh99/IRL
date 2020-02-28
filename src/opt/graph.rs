@@ -56,16 +56,18 @@ pub enum VertTag {
     Param(String),
     /// This is a constant.
     Const(Const),
-    /// Variables that can be considered as SSA values, identified by its operation name.
-    /// Additional information can be provided, to further identify variables.
-    Var(String),
+    /// Variables that can be considered as SSA values, identified by its operation name. In this
+    /// language, only values produces by pure functional operations (including unary and binary
+    /// operations, as well as pointer arithmetic) are SSA values. They are identified by its
+    /// operation name. Note that values defined by phi's are not in this category, as they need
+    /// different identifiers to distinguish.
+    Value(String),
     /// Variable produced by phi instruction.
     /// This should be list separately from other instructions, because the incoming blocks of a
     /// phi instruction also contribute to its identity.
     Phi(Vec<Option<BlockRef>>),
-    /// Variables that cannot be considered as SSA values, including global variables, values
-    /// loaded from pointer, etc. The associated datum is the identifier of the symbol that refer
-    /// to this value.
+    /// Variables that cannot be considered as SSA values. The associated datum is the identifier
+    /// of the symbol that refer to this value.
     Cell(String),
     /// Refer to instructions that use values but never produce new one, like `br`, `ret`, etc.
     /// Also identified by its name.
@@ -84,7 +86,7 @@ impl PartialEq for VertTag {
             // Two constant vertices are equivalent if their values are equal.
             (VertTag::Const(c1), VertTag::Const(c2)) => c1 == c2,
             // Two variable vertices are equivalent if their operation tags are identical.
-            (VertTag::Var(op1), VertTag::Var(op2)) => op1 == op2,
+            (VertTag::Value(op1), VertTag::Value(op2)) => op1 == op2,
             // Two phi vertices are equivalent if their incoming blocks are pairwise identical.
             (VertTag::Phi(v1), VertTag::Phi(v2)) => v1 == v2,
             // For other cases, they cannot be equivalent.
@@ -384,7 +386,7 @@ impl GraphBuilder {
             // For local variable, create variable vertex with given operation name.
             Symbol::Local { name: _, ty: _, ver: _ } => {
                 let vert = ExtRc::new(SsaVert::new(
-                    VertTag::Var(op.to_string()),
+                    VertTag::Value(op.to_string()),
                     instr.map(|instr| (instr.clone(), self.block.clone().unwrap())),
                 ));
                 self.graph.add(vert.clone(), Some(sym.borrow().clone()));

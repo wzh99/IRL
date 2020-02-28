@@ -10,16 +10,16 @@ use crate::lang::value::{SymbolRef, Value};
 use crate::opt::{FnPass, Pass};
 use crate::opt::graph::{GraphBuilder, VertRef};
 
-struct Gvn {
+pub struct Gvn {
     vert_num: HashMap<VertRef, usize>
 }
 
 impl Gvn {
-    fn new() -> Gvn {
+    pub fn new() -> Gvn {
         Gvn { vert_num: Default::default() }
     }
 
-    fn number(mut self, func: &Func) -> HashMap<SymbolRef, usize> {
+    pub fn number(mut self, func: &Func) -> HashMap<SymbolRef, usize> {
         // Build value graph for this function.
         let mut builder = GraphBuilder::new();
         func.walk_dom(&mut builder);
@@ -67,8 +67,7 @@ impl Gvn {
 
             // Make another cut in this set
             if new_set.is_empty() { continue; }
-            // println!("{:?}", new_set);
-            part.get_mut(idx).unwrap().retain(|v| !new_set.contains(v));
+            part[idx].retain(|v| !new_set.contains(v));
             let new_num = part.len(); // acquire new number for this partition
             new_set.iter().for_each(|v| {
                 // Map vertices in the new set to new number
@@ -119,7 +118,7 @@ impl FnPass for GvnOpt {
         // variable vertices. Linear vector is not beneficial in this scenario.
         let mut rep: HashMap<usize, SymbolRef> = HashMap::new();
         sym_num.iter().for_each(|(sym, num)| {
-            if !rep.contains_key(num) || sym.id() < rep.get(num).unwrap().id() {
+            if !rep.contains_key(num) || sym.id() < rep[num].id() {
                 rep.insert(*num, sym.clone());
             }
         });
@@ -205,7 +204,7 @@ impl ValueListener for GvnListener {
         def.replace_with(|sym| {
             match sym {
                 sym if sym.is_local_var() => {
-                    let rep = self.map.get(sym).unwrap();
+                    let rep = &self.map[&sym];
                     if self.def.iter().any(|frame| frame.contains(rep)) { // fully redundant
                         self.dup.insert(instr);
                     } else {

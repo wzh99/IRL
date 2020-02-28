@@ -6,6 +6,7 @@ use crate::lang::Program;
 pub mod simple;
 pub mod graph;
 pub mod gvn;
+pub mod pre;
 pub mod sccp;
 
 /// Program optimization pass trait

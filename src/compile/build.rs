@@ -279,6 +279,7 @@ impl Builder {
     }
 
     fn build_assign(&self, dst: &Token, rhs: &Term, ctx: &Context) -> Result<Instr, CompileErr> {
+        let dst_loc = dst.loc();
         match rhs {
             Term::CommonRhs { loc, name: Token::Reserved(_, op), ty, opd } => {
                 let ty = self.create_type(ty, &ctx.global)?;
@@ -293,6 +294,12 @@ impl Builder {
                 let ty = self.create_type(ty, &ctx.global)?;
                 let dst = self.create_symbol(dst, &ty, ctx)?;
                 if let Term::PhiList { loc: _, list } = list.deref() {
+                    if !dst.is_local_var() {
+                        return Err(CompileErr {
+                            loc: dst_loc.clone(),
+                            msg: format!("destination {} is not local variable", dst.id()),
+                        })
+                    }
                     self.build_phi_instr(&ty, dst, list, ctx)
                 } else { unreachable!() }
             }

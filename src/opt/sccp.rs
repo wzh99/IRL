@@ -93,7 +93,7 @@ impl FnPass for SccpOpt {
                 // Symbols defined by constants are sure to be constants.
                 VertTag::Const(c) => (sym.clone(), LatVal::Const(c.clone())),
                 // Variable and phi vertices are yet to be determined.
-                VertTag::Var(_) | VertTag::Phi(_) => (sym.clone(), LatVal::Top),
+                VertTag::Value(_) | VertTag::Phi(_) => (sym.clone(), LatVal::Top),
                 // Other kind of vertices are not in consideration, do not make any decision about
                 // their constantness.
                 _ => (sym.clone(), LatVal::Bottom)

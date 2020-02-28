@@ -75,11 +75,11 @@ In this project, most of the data flow analyses on SSA form, including construct
 
 ## Optimization
 
-Optimizations are implemented as passes of transforms on the program, which is usually the case in modern compilers. At present, the following optimizations are supported:
+Optimizations are implemented as passes of transforms on the program, which is usually the case in modern compilers. Most of the optimizations are based on the SSA form, so transformation to that form is mandatory. At present, the following optimizations are supported:
 
 ### Global Value Numbering
 
-Detect redundant computations by finding congruent variables. Implementation at [`opt::gvn::GvnOpt`](src/opt/gvn.rs), example at [gvn.ir](test/gvn.ir).
+Detect fully redundant computations by finding congruent variables. Implementation at [`opt::gvn::GvnOpt`](src/opt/gvn.rs), example at [gvn.ir](test/gvn.ir).
 
 ### Sparse Conditional Constant Propagation
 
@@ -87,4 +87,6 @@ Replace later uses of compile-time constants with their corresponding values. It
 
 ### Dead Code Elimination
 
-Mark-sweep algorithm to find instructions that define unused variables. Can be used as subroutine for other optimizations. The construction of SSA form also uses this optimization. It is implemented as a method of [`lang::func::Func`](src/lang/ssa.rs)
+Mark-sweep algorithm to find instructions that define unused variables. Can be used as a subroutine for other optimizations. It is implemented as a method of [`lang::func::Func`](src/lang/ssa.rs)
+
+Other optimizations will be added to this project successively.
