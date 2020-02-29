@@ -1,0 +1,34 @@
+// Test PRE
+// See Figure 3 of Value-Based Partial Redundancy Elimination
+
+@g: i64;
+
+fn @test($t1: i64) {
+%B1:
+    jmp %B2;
+%B2:
+    $t2 <- phi i64 [%B1: $t1] [%B6: $t3];
+    $t3 <- add i64 $t2, 1;
+    br 0 ? %B7 : %B3;
+%B3:
+    br 1 ? %B4 : %B5;
+%B4:
+    $t4 <- add i64 $t2, $t3;
+    $t5 <- mov i64 $t4;
+    $t6 <- add i64 $t1, $t5;
+    jmp %B6;
+%B5:
+    $t7 <- add i64 $t3, 1;
+    $t14 <- add i64 $t7, -1; // test re-association
+    jmp %B6;
+%B6:
+    $t8 <- phi i64 [%B4: $t1] [%B5: $t7];
+    $t9 <- add i64 $t2, $t3;
+    $t10 <- add i64 $t9, $t8;
+    $t11 <- mov i64 @g;
+    $t12 <- add i64 $t9, $t11;
+    $t13 <- add i64 $t12, $t3;
+    jmp %B2;
+%B7:
+    ret;
+}
