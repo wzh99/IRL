@@ -603,6 +603,7 @@ impl Builder {
     fn build_non_assign(&self, term: &Term, ctx: &Context) -> Result<Instr, CompileErr> {
         match term {
             Term::RetInstr { loc, opd } => {
+                ctx.func.exit.borrow_mut().insert(ctx.block.borrow().clone());
                 match &ctx.func.ret {
                     Type::Void => if opd.is_none() {
                         Ok(Instr::Ret { val: None })
@@ -614,7 +615,6 @@ impl Builder {
                     }
                     ty => if opd.is_some() {
                         let ret = self.create_value(ty, opd.as_ref().unwrap(), ctx)?;
-                        ctx.func.exit.borrow_mut().insert(ctx.block.borrow().clone());
                         Ok(Instr::Ret { val: Some(RefCell::new(ret)) })
                     } else {
                         Err(CompileErr {

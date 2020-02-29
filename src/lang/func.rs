@@ -2,6 +2,7 @@ use std::cell::RefCell;
 use std::cmp::Ordering;
 use std::collections::{HashMap, HashSet, VecDeque};
 use std::fmt::{Debug, Error, Formatter};
+use std::hash::{Hash, Hasher};
 use std::iter::FromIterator;
 use std::ops::Deref;
 use std::rc::Rc;
@@ -331,6 +332,94 @@ impl Func {
     }
 }
 
+/// Represent an vertex in the reverse CFG
+#[derive(Eq, Clone, Debug)]
+enum RevVert<'a> {
+    Block(BlockRef, &'a Func),
+    Exit(&'a Func),
+}
+
+impl PartialEq for RevVert<'_> {
+    fn eq(&self, other: &Self) -> bool {
+        match (self, other) {
+            // Only the block pointers need to be compared.
+            (RevVert::Block(b1, _), RevVert::Block(b2, _)) => b1.eq(b2),
+            // There is no chance that two blocks from different function are compared.
+            (RevVert::Exit(_), RevVert::Exit(_)) => true,
+            _ => false
+        }
+    }
+}
+
+impl Hash for RevVert<'_> {
+    fn hash<H: Hasher>(&self, state: &mut H) {
+        match self {
+            RevVert::Block(block, _) => block.hash(state),
+            RevVert::Exit(func) => (*func as *const Func).hash(state)
+        }
+    }
+}
+
+impl<'a> Vertex<RevVert<'a>> for RevVert<'a> {
+    fn this(&self) -> RevVert<'a> { self.clone() }
+
+    fn pred(&self) -> Vec<RevVert<'a>> {
+        match self {
+            // Predecessors of a block in the reverse CFG are successors of that block in the
+            // forward CFG. For exit blocks of the function, its predecessor should be the
+            // `Exit` vertex, since it is not included in the original forward CFG
+            RevVert::Block(block, func) => if func.exit.borrow().contains(&block) {
+                vec![RevVert::Exit(func)]
+            } else {
+                block.succ.borrow().iter().cloned()
+                    .map(|succ| RevVert::Block(succ, func)).collect()
+            }
+            // Function exit has no predecessors in the reverse CFG, since it has no successors in
+            // the forward CFG.
+            RevVert::Exit(_) => vec![]
+        }
+    }
+
+    fn succ(&self) -> Vec<RevVert<'a>> {
+        match self {
+            // Successors of a block in the reverse CFG are predecessors of that block in the
+            // forward CFG.
+            RevVert::Block(block, func) => block.pred.borrow().iter().cloned()
+                .map(|pred| RevVert::Block(pred, func)).collect(),
+            // Successors of function exit in the reverse CFG are exit blocks, since its
+            // predecessors are these blocks in the forward CFG
+            RevVert::Exit(func) => func.exit.borrow().iter().cloned()
+                .map(|exit| RevVert::Block(exit, func)).collect()
+        }
+    }
+}
+
+impl Func {
+    // Visit CFG in order of post-dominator tree
+    pub fn post_dom<F>(&self, mut f: F) where F: FnMut(BlockRef) {
+        // Build dominator tree for reverse CFG
+        let root = RevVert::Exit(self);
+        let nodes: Vec<_> = root.dfs().collect();
+        let parent = dom::build(root.clone());
+        let mut child: HashMap<RevVert, Vec<RevVert>> = nodes.iter().cloned()
+            .map(|v| (v, vec![])).collect();
+        parent.into_iter().for_each(|(c, p)| child.get_mut(&p).unwrap().push(c));
+
+        // Traverse post-dominator tree
+        let mut stack: Vec<RevVert> = child[&root].iter().cloned().collect();
+        loop {
+            match stack.pop() {
+                Some(node) => {
+                    child[&node].iter().cloned().for_each(|v| stack.push(v));
+                    if let RevVert::Block(block, _) = node { f(block) } else { unreachable!() }
+                }
+                None => break
+            }
+        }
+    }
+}
+
+/// Builder of dominance frontier
 struct DfBuilder {
     stack: Vec<HashSet<BlockRef>>,
     df: HashMap<BlockRef, Vec<BlockRef>>,
