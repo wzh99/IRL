@@ -140,6 +140,14 @@ impl Value {
             _ => false
         }
     }
+
+    /// Whether this value is global variable
+    pub fn is_global_var(&self) -> bool {
+        match self {
+            Value::Var(sym) if !sym.is_local_var() => true,
+            _ => false
+        }
+    }
 }
 
 #[derive(Clone, Debug)]

@@ -312,10 +312,23 @@ impl BinOp {
         }
     }
 
-    /// Whether this binary operator is associative. `(a op b) op c = a op (b op c)`
+    /// Whether this binary operator is associable with some operators.
     pub fn is_assoc(&self) -> bool {
         match self {
-            BinOp::Add | BinOp::Mul | BinOp::And | BinOp::Or | BinOp::Xor => true,
+            BinOp::Add | BinOp::Sub | BinOp::Mul | BinOp::And | BinOp::Or | BinOp::Xor => true,
+            _ => false
+        }
+    }
+
+    /// Whether this binary operator is associable with another operator.
+    /// `(a op1 b) op2 c = a op1 (b op2 c)`
+    pub fn assoc_with(&self, other: &Self) -> bool {
+        match (self, other) {
+            (BinOp::Add, BinOp::Add) | (BinOp::Add, BinOp::Sub) => true,
+            (BinOp::Mul, BinOp::Mul) => true,
+            (BinOp::And, BinOp::And) => true,
+            (BinOp::Or, BinOp::Or) => true,
+            (BinOp::Xor, BinOp::Xor) => true,
             _ => false
         }
     }

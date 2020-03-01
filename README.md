@@ -2,7 +2,7 @@
 
 ## Introduction
 
-This project implement some technical aspects of IR (intermediate representation) language, including compilation, analysis, optimization, execution, etc. The functionality is quite similar to [LLVM](https://www.llvm.org), but substantially simplified. Some of the implementation is ported and improved from my previous project [GoCompiler](https://github.com/wzh99/GoCompiler). This project is also inspired by [LLIRInterpreter](https://github.com/abcdabcd987/LLIRInterpreter) and [ssa-anf](https://github.com/jacobstanley/ssa-anf)
+This project implement some technical aspects of IR (intermediate representation) language, including compilation, analysis, optimization, execution, etc. The functionality is quite similar to [LLVM](https://www.llvm.org), but substantially simplified. Some of the implementation is ported and improved from my previous project [GoCompiler](https://github.com/wzh99/GoCompiler). This project is also inspired by [LLIRInterpreter](https://github.com/abcdabcd987/LLIRInterpreter) and [ssa-anf](https://github.com/jacobstanley/ssa-anf).
 
 ## Language
 
@@ -85,8 +85,16 @@ Detect fully redundant computations by finding congruent variables. Implementati
 
 Replace later uses of compile-time constants with their corresponding values. It applies this transformation by symbolic execution of the function using both control flow graph and SSA value graph. Implementation at [`opt::sccp:SccpOpt`](src/opt/sccp.rs), example at [sccp.ir](test/sccp.ir).
 
+### Partial Redundancy Elimination
+
+Place each (binary) computation at its optimal position. GVN-PRE algorithm is adopted, which utilizes GVN as a subroutine to better handle expressions that may not be lexically equivalent. Implementation at [`opt::pre::PreOpt`](src/opt/pre.rs), example at [pre.ir](test/pre.ir).
+
 ### Dead Code Elimination
 
-Mark-sweep algorithm to find instructions that define unused variables. Can be used as a subroutine for other optimizations. It is implemented as a method of [`lang::func::Func`](src/lang/ssa.rs)
+Mark-sweep algorithm to find instructions that define unused variables. Can be used as a subroutine for other optimizations. It is implemented as a method of [`lang::func::Func`](src/lang/ssa.rs).
 
 Other optimizations will be added to this project successively.
+
+## Execution
+
+To be done.

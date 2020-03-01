@@ -19,7 +19,7 @@ fn @test($t1: i64) {
     jmp %B6;
 %B5:
     $t7 <- add i64 $t3, 1;
-    $t14 <- add i64 $t7, -1; // test re-association
+    // $t14 <- sub i64 $t7, 1; // test re-association
     jmp %B6;
 %B6:
     $t8 <- phi i64 [%B4: $t1] [%B5: $t7];

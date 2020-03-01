@@ -535,6 +535,13 @@ impl Builder {
         for t in list {
             if let Term::PhiOpd { loc, bb, opd } = t {
                 let val = self.create_value(ty, opd, ctx)?;
+                match val {
+                    Value::Var(sym) if !sym.is_local_var() => return Err(CompileErr {
+                        loc: loc.clone(),
+                        msg: format!("cannot use global variable as phi source operand"),
+                    }),
+                    _ => ()
+                }
                 let block = match bb {
                     Some(Token::Label(loc, s)) => {
                         let s = self.trim_tag(s);

@@ -1,11 +1,13 @@
 use std::cell::RefCell;
 use std::collections::{BTreeSet, HashMap};
 use std::hash::{Hash, Hasher};
+use std::iter::FromIterator;
 use std::ops::Deref;
 
 use crate::lang::func::{BlockListener, BlockRef, Func};
 use crate::lang::instr::{BinOp, Instr};
 use crate::lang::Program;
+use crate::lang::util::WorkList;
 use crate::lang::value::{Const, SymbolRef, Type, Typed, Value};
 use crate::opt::{FnPass, Pass};
 use crate::opt::gvn::Gvn;
@@ -102,44 +104,51 @@ impl ValueTable {
                     if self.find_bin(fst).is_some() =>
                         self.find_bin(fst).and_then(|fst| {
                             match fst {
-                                BinExpr { op: opl, ty, fst: l_fst, snd: l_snd } if op == opl =>
+                                BinExpr { op: opl, ty, fst: l_fst, snd: l_snd }
+                                if opl.assoc_with(&op) =>
                                     self.get_num(&Expr::Binary(BinExpr {
                                         op,
                                         ty: ty.clone(),
                                         fst: l_snd,
                                         snd,
-                                    })).and_then(|snd| self.get_num(&Expr::Binary(BinExpr {
-                                        op,
-                                        ty,
-                                        fst: l_fst,
-                                        snd,
-                                    }))),
+                                    })).and_then(
+                                        |snd| self.get_num(&Expr::Binary(BinExpr {
+                                            op: opl,
+                                            ty,
+                                            fst: l_fst,
+                                            snd,
+                                        }))
+                                    ),
                                 _ => None
                             }
                         }),
+                    _ => None
+                }.or_else(|| match expr.clone() {
                     // Try processing second value
                     Expr::Binary(BinExpr { op, ty: _, fst, snd })
                     if self.find_bin(snd).is_some() =>
                         self.find_bin(snd).and_then(|snd| {
                             match snd {
-                                BinExpr { op: opr, ty, fst: r_fst, snd: r_snd } if op == opr => {
+                                BinExpr { op: opr, ty, fst: r_fst, snd: r_snd }
+                                if op.assoc_with(&opr) =>
                                     self.get_num(&Expr::Binary(BinExpr {
                                         op,
                                         ty: ty.clone(),
                                         fst,
                                         snd: r_fst,
-                                    })).and_then(|fst| self.get_num(&Expr::Binary(BinExpr {
-                                        op,
-                                        ty,
-                                        fst,
-                                        snd: r_snd,
-                                    })))
-                                }
+                                    })).and_then(
+                                        |fst| self.get_num(&Expr::Binary(BinExpr {
+                                            op: opr,
+                                            ty,
+                                            fst,
+                                            snd: r_snd,
+                                        }))
+                                    ),
                                 _ => None
                             }
                         }),
                     _ => None
-                },
+                }),
             _ => None,
         })
     }
@@ -153,7 +162,7 @@ impl ValueTable {
                 let fst_cn = self.find_const(fst);
                 let snd_cn = self.find_const(snd);
                 if let (Some(l), Some(r)) = (fst_cn, snd_cn) {
-                    return Some(self.find_or_add(Expr::Const(op.eval(l, r))))
+                    return self.find(&Expr::Const(op.eval(l, r)));
                 }
                 let zero = Const::zero(ty);
                 let one = Const::one(ty);
@@ -164,9 +173,12 @@ impl ValueTable {
                         (_, Some(r)) if r == zero => Some(fst),
                         _ => None
                     }
-                    // x - x = 0
-                    BinOp::Sub if fst == snd =>
-                        Some(self.find_or_add(Expr::Const(zero.clone()))),
+                    // x - x = 0, x - 0 = x
+                    BinOp::Sub => match (fst_cn, snd_cn) {
+                        (_, Some(r)) if r == zero => Some(fst),
+                        _ if fst == snd => Some(self.find_or_add(Expr::Const(zero.clone()))),
+                        _ => None
+                    }
                     // 0 * x = x * 0 = 0, 1 * x = x * 1 = x
                     BinOp::Mul => match (fst_cn, snd_cn) {
                         (Some(l), _) if l == zero =>
@@ -219,7 +231,9 @@ impl ValueTable {
 
 /// Implement GVN-PRE proposed by Thomas.
 /// See [https://www.cs.purdue.edu/homes/hosking/papers/cc04.pdf].
-pub struct PreOpt {}
+pub struct PreOpt {
+    table: ValueTable,
+}
 
 impl Pass for PreOpt {
     fn opt(&mut self, pro: &mut Program) { FnPass::opt(self, pro) }
@@ -235,16 +249,171 @@ impl FnPass for PreOpt {
             .enumerate().map(|(new, old)| (old, new)).collect();
         sym_num.iter_mut().for_each(|(_, num)| *num = num_remap[num]);
 
-        // Build sets as well as value table
+        // Build flow sets as well as value table
+        self.table = ValueTable::new(size);
         let mut builder = SetBuilder {
             sym_num,
-            table: ValueTable::new(size),
+            table: &mut self.table,
             sets: Default::default(),
         };
         func.walk_dom(&mut builder);
 
-        // Build anticipated set in reverse CFG order
-        func.post_dom(|block| println!("{:?}", block));
+        // Build anticipated set in post-dominator order
+        let SetBuilder { sym_num: _, table: _, mut sets } = builder;
+        let mut changed = true;
+        while changed {
+            changed = false;
+            func.post_dom(|ref block| {
+                // Build anticipated set at exit of the block
+                let old = sets[block].antic_in.clone();
+                let mut antic_out: HashMap<usize, Expr> = HashMap::new();
+                match block.succ.borrow().len() {
+                    // Do nothing for exit block.
+                    0 => {}
+                    // This block has one successor, deal with phis in this block
+                    1 => {
+                        let succ = &block.succ.borrow()[0];
+                        antic_out = self.trans_phi(sets[succ].antic_in.clone(), block.clone(),
+                                                   succ.clone());
+                    }
+                    // This block has several successors, find intersection of anticipated sets
+                    // of all the successors
+                    _ => {
+                        let all_succ = block.succ.borrow().clone();
+                        let mut work = WorkList::from_iter(all_succ.into_iter());
+                        let first = work.pick().unwrap();
+                        antic_out = sets[&first].antic_in.clone();
+                        while !work.is_empty() {
+                            let succ = work.pick().unwrap();
+                            antic_out.retain(|num, _| {
+                                Self::find_leader(&sets[&succ].antic_in, *num).is_some()
+                            })
+                        }
+                    }
+                }
+
+                // Build anticipated set at entrance of the block
+                let other = Self::remove_tmp(&antic_out, &sets[block].tmp);
+                sets.get_mut(block).unwrap().antic_in = Self::remove_tmp(&sets[block].expr,
+                                                                         &sets[block].tmp);
+                other.iter().for_each(|(num, expr)| {
+                    if Self::find_leader(&sets[block].antic_in, *num).is_none() {
+                        sets.get_mut(block).unwrap().antic_in.insert(*num, expr.clone());
+                    }
+                });
+                Self::clean(&mut sets.get_mut(block).unwrap().antic_in);
+                if old != sets[block].antic_in {
+                    changed = true
+                }
+            })
+        }
+        self.table.tab.iter().enumerate().for_each(|(i, list)| println!("{}: {:?}", i, list));
+        sets.iter().for_each(|(block, set)| println!("{:?}: {:?}", block, set));
+    }
+}
+
+impl PreOpt {
+    pub fn new() -> PreOpt {
+        PreOpt { table: ValueTable::new(0) }
+    }
+
+    fn trans_phi(&mut self, set: HashMap<usize, Expr>, pred: BlockRef, succ: BlockRef)
+                 -> HashMap<usize, Expr>
+    {
+        // Build number map for all phi destinations in successor block
+        let mut num_map: HashMap<usize, (usize, Expr)> = HashMap::new();
+        for instr in succ.instr.borrow().iter() {
+            match instr.deref() {
+                Instr::Phi { src, dst } => {
+                    let dst_num = self.table.find(&Expr::Temp(dst.borrow().clone())).unwrap();
+                    if num_map.contains_key(&dst_num) { continue; }
+                    let src_opd = &src.iter().find(|(block, _)| block.as_ref() == Some(&pred))
+                        .unwrap().1;
+                    num_map.insert(dst_num, self.find_value(src_opd));
+                }
+                _ => break
+            }
+        }
+
+        // Replace expressions in the given set
+        set.into_iter().map(move |(num, expr)| {
+            num_map.get(&num).cloned().unwrap_or_else(|| {
+                match expr {
+                    // Replace operand values in binary expressions
+                    Expr::Binary(BinExpr { op, ty, fst, snd }) => {
+                        let fst = num_map.get(&fst).map(|pair| pair.0).unwrap_or(fst);
+                        let snd = num_map.get(&snd).map(|pair| pair.0).unwrap_or(snd);
+                        let new_expr = Expr::Binary(BinExpr { op, ty, fst, snd });
+                        (self.table.find_or_add(new_expr.clone()), new_expr)
+                    }
+                    // For other expressions that cannot be translated, just return them
+                    _ => (num, expr)
+                }
+            })
+        }).collect()
+    }
+
+    fn find_value(&mut self, val: &RefCell<Value>) -> (usize, Expr) {
+        match val.borrow().deref() {
+            Value::Var(sym) => {
+                let expr = Expr::Temp(sym.clone());
+                (self.table.find(&expr).unwrap(), expr)
+            }
+            Value::Const(c) => {
+                let expr = Expr::Const(*c);
+                (self.table.find_or_add(expr.clone()), expr)
+            }
+        }
+    }
+
+    fn find_leader(set: &HashMap<usize, Expr>, num: usize) -> Option<SymbolRef> {
+        set.get(&num).and_then(|expr| match expr {
+            Expr::Temp(sym) => Some(sym.clone()),
+            _ => None
+        })
+    }
+
+    fn remove_tmp(set: &HashMap<usize, Expr>, tmp: &HashMap<usize, SymbolRef>)
+                  -> HashMap<usize, Expr>
+    {
+        let mut set = set.clone();
+        set.retain(|num, expr| {
+            match tmp.get(num) {
+                Some(sym) => expr != &Expr::Temp(sym.clone()),
+                None => true
+            }
+        });
+        set
+    }
+
+    fn clean(set: &mut HashMap<usize, Expr>) {
+        // Build dependency graph
+        let mut dep: HashMap<usize, Vec<usize>> = HashMap::new();
+        set.iter().for_each(|(num, expr)| {
+            if let Expr::Binary(BinExpr { op: _, ty: _, fst, snd }) = expr {
+                for opd in vec![*fst, *snd] {
+                    match dep.get_mut(&opd) {
+                        Some(list) => list.push(*num),
+                        None => { dep.insert(opd, vec![*num]); }
+                    }
+                }
+            }
+        });
+
+        // Eliminate killed values using work list algorithm
+        let mut work: WorkList<usize> = WorkList::from_iter(set.keys().cloned());
+        while !work.is_empty() {
+            let ref num = work.pick().unwrap();
+            let ref expr = set[num].clone();
+            match expr {
+                Expr::Binary(BinExpr { op: _, ty: _, fst, snd })
+                if !(set.contains_key(fst) && set.contains_key(snd)) => {
+                    set.remove(num);
+                    dep.get(num).map(|list| list.iter().for_each(|val| work.add(*val)));
+                }
+                _ => continue
+            }
+        }
     }
 }
 
@@ -261,7 +430,6 @@ struct LeaderSet {
     avail_out: HashMap<usize, Expr>,
     /// Anticipated expressions at entrance and exit of this block
     antic_in: HashMap<usize, Expr>,
-    antic_out: HashMap<usize, Expr>,
 }
 
 impl LeaderSet {
@@ -272,18 +440,17 @@ impl LeaderSet {
             tmp: Default::default(),
             avail_out: Default::default(),
             antic_in: Default::default(),
-            antic_out: Default::default(),
         }
     }
 }
 
-struct SetBuilder {
+struct SetBuilder<'a> {
     sym_num: HashMap<SymbolRef, usize>,
-    table: ValueTable,
+    table: &'a mut ValueTable,
     sets: HashMap<BlockRef, LeaderSet>,
 }
 
-impl BlockListener for SetBuilder {
+impl BlockListener for SetBuilder<'_> {
     fn on_begin(&mut self, func: &Func) {
         // Add parameters to value table and available set of entrance
         let ent = func.ent.borrow().clone();
@@ -322,7 +489,7 @@ impl BlockListener for SetBuilder {
                 ($name:ident) => {self.sets.get_mut(&block).unwrap().$name};
             }
             let dst = instr.dst().unwrap().borrow().clone();
-            let dst_num = self.sym_num[&dst];
+            let mut dst_num = self.sym_num[&dst]; // may changed later due to re-association
             let dst_expr = Expr::Temp(dst.clone());
 
             // Visit interested instruction
@@ -333,29 +500,35 @@ impl BlockListener for SetBuilder {
                     Self::try_insert(&mut set!(avail_out), dst_num, dst_expr);
                 }
                 Instr::Mov { src, dst: _ } => {
-                    let (src_num, src_expr) = self.find_src(src);
-                    Self::try_insert(&mut set!(expr), src_num, src_expr);
+                    if !src.borrow().is_global_var() {
+                        let (src_num, src_expr) = self.find_src(src);
+                        Self::try_insert(&mut set!(expr), src_num, src_expr);
+                    }
                     self.table.add_num(dst_num, dst_expr.clone());
                     Self::try_insert(&mut set!(tmp), dst_num, dst);
+                    Self::try_insert(&mut set!(avail_out), dst_num, dst_expr);
                 }
                 Instr::Bin { op, fst, snd, dst: _ } => {
-                    // Build expression for binary operation
-                    let (fst_num, fst_expr) = self.find_src(fst);
-                    Self::try_insert(&mut set!(expr), fst_num, fst_expr);
-                    let (snd_num, snd_expr) = self.find_src(snd);
-                    Self::try_insert(&mut set!(expr), snd_num, snd_expr);
-                    let bin_expr = Expr::Binary(BinExpr {
-                        op: *op,
-                        ty: fst.borrow().get_type(),
-                        fst: fst_num,
-                        snd: snd_num,
-                    });
-                    // Find number for expression and destination
-                    let dst_num = self.table.find(&bin_expr).unwrap_or(dst_num);
-                    self.table.add_num(dst_num, bin_expr.clone());
-                    self.table.add_num(dst_num, dst_expr);
-                    Self::try_insert(&mut set!(expr), dst_num, bin_expr);
+                    // Once global variable appears in either operand, this expression will not be
+                    // considered.
+                    if !fst.borrow().is_global_var() || !snd.borrow().is_global_var() {
+                        let (fst_num, fst_expr) = self.find_src(fst);
+                        Self::try_insert(&mut set!(expr), fst_num, fst_expr);
+                        let (snd_num, snd_expr) = self.find_src(snd);
+                        Self::try_insert(&mut set!(expr), snd_num, snd_expr);
+                        let bin_expr = Expr::Binary(BinExpr {
+                            op: *op,
+                            ty: fst.borrow().get_type(),
+                            fst: fst_num,
+                            snd: snd_num,
+                        });
+                        dst_num = self.table.find(&bin_expr).unwrap_or(dst_num);
+                        self.table.add_num(dst_num, bin_expr.clone());
+                        Self::try_insert(&mut set!(expr), dst_num, bin_expr);
+                    }
+                    self.table.add_num(dst_num, dst_expr.clone());
                     Self::try_insert(&mut set!(tmp), dst_num, dst);
+                    Self::try_insert(&mut set!(avail_out), dst_num, dst_expr);
                 }
                 _ => {
                     self.table.add_num(dst_num, dst_expr.clone());
@@ -373,7 +546,7 @@ impl BlockListener for SetBuilder {
     fn on_exit_child(&mut self, _this: BlockRef, _child: BlockRef) {}
 }
 
-impl SetBuilder {
+impl SetBuilder<'_> {
     fn find_src(&mut self, opd: &RefCell<Value>) -> (usize, Expr) {
         match opd.borrow().deref() {
             // Local variable must have been numbered before
@@ -382,7 +555,7 @@ impl SetBuilder {
             Value::Var(sym) => {
                 let expr = Expr::Temp(sym.clone());
                 (self.table.add(expr.clone()), expr)
-            },
+            }
             // Find number of existing constant or allocate new number for new constant
             Value::Const(c) => {
                 let expr = Expr::Const(c.clone());
@@ -414,7 +587,7 @@ fn test_pre() {
     let tree = parser.parse().unwrap();
     let builder = Builder::new(tree);
     let mut pro = builder.build().unwrap();
-    let mut opt = PreOpt {};
+    let mut opt = PreOpt::new();
     Pass::opt(&mut opt, &mut pro);
 
     let mut out = stdout();
