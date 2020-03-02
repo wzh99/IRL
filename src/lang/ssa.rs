@@ -600,7 +600,7 @@ fn test_ssa() {
     let tree = parser.parse().unwrap();
     let builder = Builder::new(tree);
     let pro = builder.build().unwrap();
-    for func in &pro.funcs {
+    for func in &pro.func {
         func.to_ssa();
     }
     let mut out = stdout();

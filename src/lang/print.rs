@@ -28,7 +28,7 @@ impl Printer<'_> {
         }
         writeln!(self.writer, "")?;
         // Print functions
-        for f in &pro.funcs {
+        for f in &pro.func {
             self.print_fn(f.deref())?;
             writeln!(self.writer, "")?;
         }

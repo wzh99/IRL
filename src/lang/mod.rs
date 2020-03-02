@@ -1,4 +1,3 @@
-use std::fmt::Debug;
 use std::rc::Rc;
 
 use crate::lang::func::Func;
@@ -13,12 +12,11 @@ pub mod print;
 pub mod graph;
 
 /// Top level program structure
-#[derive(Debug)]
 pub struct Program {
     /// Global variable list
     pub vars: Vec<Rc<GlobalVar>>,
     /// Function list
-    pub funcs: Vec<Rc<Func>>,
+    pub func: Vec<Rc<Func>>,
     /// Scope for global symbols
     pub global: Rc<Scope>,
 }

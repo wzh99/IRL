@@ -85,7 +85,11 @@ Place each (binary) computation at its optimal position. GVN-PRE algorithm is ad
 
 ### Dead Code Elimination
 
-Mark-sweep algorithm to find instructions that define unused variables. Can be used as a subroutine for other optimizations. It is implemented as a method of [`lang::func::Func`](src/lang/ssa.rs).
+Mark-sweep algorithm to find instructions that define unused variables. Can serve as a subroutine for other optimizations. It is implemented as a method of [`lang::func::Func`](src/lang/ssa.rs).
+
+### Copy Propagation
+
+Replace later uses of copied values with their original ones. Serve as a subroutine for other optimizations.
 
 Other optimizations will be added to this project successively.
 

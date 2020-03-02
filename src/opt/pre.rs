@@ -11,6 +11,7 @@ use crate::lang::util::{ExtRc, WorkList};
 use crate::lang::value::{Const, SymbolGen, SymbolRef, Type, Typed, Value};
 use crate::opt::{FnPass, Pass};
 use crate::opt::gvn::Gvn;
+use crate::opt::simple::CopyProp;
 
 #[derive(Eq, PartialEq, Hash, Clone, Debug)]
 enum Expr {
@@ -176,7 +177,7 @@ impl ValueTable {
                 let fst_cn = self.find_const(fst);
                 let snd_cn = self.find_const(snd);
                 if let (Some(l), Some(r)) = (fst_cn, snd_cn) {
-                    return self.find(&Expr::Const(op.eval(l, r)));
+                    return Some(self.find_or_add(Expr::Const(op.eval(l, r))))
                 }
                 let zero = Const::zero(ty);
                 let one = Const::one(ty);
@@ -328,7 +329,7 @@ impl FnPass for PreOpt {
 
         // Hoist expressions to earlier points
         let mut new_tmp: HashMap<BlockRef, HashMap<usize, SymbolRef>> = HashMap::new();
-        let mut sym_gen = SymbolGen::new("_t", func.scope.clone());
+        let mut sym_gen = SymbolGen::new("t", func.scope.clone());
         let mut inserted = true;
         while inserted {
             inserted = false;
@@ -450,7 +451,10 @@ impl FnPass for PreOpt {
                     _ => {}
                 }
             })
-        })
+        });
+
+        // Propagate copy
+        CopyProp().opt_fn(func)
     }
 }
 
@@ -709,8 +713,13 @@ impl BlockListener for SetBuilder<'_> {
 impl SetBuilder<'_> {
     fn find_src(&mut self, opd: &RefCell<Value>) -> (usize, Expr) {
         match opd.borrow().deref() {
-            // Local variable must have been numbered before
-            Value::Var(sym) if sym.is_local_var() => (self.sym_num[sym], Expr::Temp(sym.clone())),
+            // Local variable must have been numbered before.
+            // Through algebraic simplification, the symbol may have have different number.
+            Value::Var(sym) if sym.is_local_var() => {
+                let sym_expr = Expr::Temp(sym.clone());
+                self.table.find(&sym_expr).map(|num| (num, sym_expr.clone()))
+                    .unwrap_or((self.sym_num[sym], sym_expr))
+            },
             // Must allocate new number for each use of global variable
             Value::Var(sym) => {
                 let expr = Expr::Temp(sym.clone());

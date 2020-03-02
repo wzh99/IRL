@@ -150,7 +150,7 @@ impl Value {
     }
 }
 
-#[derive(Clone, Debug)]
+#[derive(Clone)]
 pub enum Symbol {
     Local {
         name: String,
@@ -184,6 +184,12 @@ impl ToString for Symbol {
             Symbol::Local { name: _, ty: _, ver: _ } => format!("${}", self.id()),
             _ => format!("@{}", self.name())
         }
+    }
+}
+
+impl Debug for Symbol {
+    fn fmt(&self, f: &mut Formatter<'_>) -> Result<(), Error> {
+        write!(f, "{}", self.to_string())
     }
 }
 

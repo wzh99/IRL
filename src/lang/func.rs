@@ -66,7 +66,6 @@ impl Func {
     }
 }
 
-#[derive(Debug)]
 pub struct BasicBlock {
     /// Name of this basic block
     pub name: String,
@@ -557,21 +556,4 @@ impl Func {
         self.walk_dom(&mut builder);
         builder.df
     }
-}
-
-#[test]
-fn test_dom() {
-    use crate::compile::lex::Lexer;
-    use crate::compile::parse::Parser;
-    use crate::compile::build::Builder;
-    use std::fs::File;
-    use std::convert::TryFrom;
-    use std::io::Read;
-
-    let mut file = File::open("test/dom.ir").unwrap();
-    let lexer = Lexer::try_from(&mut file as &mut dyn Read).unwrap();
-    let parser = Parser::new(lexer);
-    let tree = parser.parse().unwrap();
-    let builder = Builder::new(tree);
-    println!("{:?}", builder.build());
 }

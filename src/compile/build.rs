@@ -32,13 +32,13 @@ impl Builder {
         // Build top level scope
         let mut pro = Program {
             vars: vec![],
-            funcs: vec![],
+            func: vec![],
             global: Rc::new(Scope::new()),
         };
         let bodies = self.build_top_level(&mut pro)?;
 
         // Build basic blocks in each function
-        for (i, func) in pro.funcs.iter().enumerate() {
+        for (i, func) in pro.func.iter().enumerate() {
             let blocks = match bodies[i] {
                 Term::FnBody { loc: _, bb } => bb,
                 _ => unreachable!()
@@ -101,7 +101,7 @@ impl Builder {
                 // pass.
                 Term::FnDef { loc, sig, body } => {
                     let func = Rc::new(self.build_fn_sig(sig, &pro.global)?);
-                    pro.funcs.push(func.clone());
+                    pro.func.push(func.clone());
                     let sym = ExtRc::new(Symbol::Func(func));
                     let added = pro.global.insert(sym.clone());
                     if !added {

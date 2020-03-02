@@ -17,7 +17,7 @@ pub trait Pass {
 /// Global (function-level) optimizer trait
 pub trait FnPass: Pass {
     fn opt(&mut self, pro: &mut Program) {
-        for func in &pro.funcs {
+        for func in &pro.func {
             self.opt_fn(func.deref())
         }
     }
