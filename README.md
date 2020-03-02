@@ -67,12 +67,6 @@ If a function contains one or more phi instructions, *or* if any versioned symbo
 
 * Each phi instruction has source operands for all predecessors.
 
-## Listener Pattern
-
-In this project, most of the data flow analyses on SSA form, including construction, verification and several optimizations, are based on the listener design pattern. This derives from the insight that most of theses algorithms follow the basic routine of dominator tree traversal. If we could factor out this routine, we could improve code reuse and make program less prone to bugs.
-
- Three listener traits with different granularity are provided in the program: `BlockListener` at block level, `InstrListener` at instruction level, and `ValueListener` at value level. Listener trait with finer granularity are extended trait of the listener with coarser one. They can be chosen on demand. Furthermore, different listeners can be combined to support more sophisticated work. 
-
 ## Optimization
 
 Optimizations are implemented as passes of transforms on the program, which is usually the case in modern compilers. Most of the optimizations are based on the SSA form, so transformation to that form is mandatory. At present, the following optimizations are supported:

@@ -435,16 +435,19 @@ impl FnPass for PreOpt {
         // Eliminate redundant computation
         func.iter_dom(|ref block| {
             block.instr.borrow_mut().iter_mut().for_each(|instr| {
-                if let Instr::Bin { op: _, fst: _, snd: _, dst } = instr.as_ref() {
-                    let dst = dst.borrow().clone();
-                    let num = self.table.find(&Expr::Temp(dst.clone())).unwrap();
-                    let leader = Self::find_leader(&sets[block].avail_out, num).unwrap();
-                    if leader != dst.clone() {
-                        *instr = ExtRc::new(Instr::Mov {
-                            src: RefCell::new(Value::Var(leader)),
-                            dst: RefCell::new(dst),
-                        })
+                match instr.dst() {
+                    Some(dst) if dst.borrow().is_local_var() => {
+                        let dst = dst.borrow().clone();
+                        let num = self.table.find(&Expr::Temp(dst.clone())).unwrap();
+                        let leader = Self::find_leader(&sets[block].avail_out, num).unwrap();
+                        if leader != dst.clone() {
+                            *instr = ExtRc::new(Instr::Mov {
+                                src: RefCell::new(Value::Var(leader)),
+                                dst: RefCell::new(dst),
+                            })
+                        }
                     }
+                    _ => {}
                 }
             })
         })

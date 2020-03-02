@@ -199,7 +199,7 @@ impl BasicBlock {
 impl BlockRef {
     /// Add a directed edge from this block to another.
     /// This method add `to` to the successor set of this block and add this block to the
-    /// predecessor set of `to` block.
+    /// predecessor set of `to` block. It also modifies target of jump and branch instruction.
     pub fn connect(&self, to: BlockRef) {
         // Modify predecessor and successor list
         if to.pred.borrow().iter().find(|b| *b == self).is_none() {
@@ -386,20 +386,37 @@ impl Func {
         }
     }
 
-    /// Split critical edge in the CFG. This requires reconstructing dominator tree.
+    /// Split critical edge in the CFG. A critical edge is an CFG edge that whose predecessor has
+    /// several successors, and whose successor has several predecessors.
     pub fn split_edge(&self) {
         let mut blk_gen = BlockGen::new(self, "B");
         self.iter_dom(|block| {
+            // Decide whether there are any critical edges
             if block.succ.borrow().len() <= 1 { return; }
             let to_split: Vec<_> = block.succ.borrow().iter().cloned().filter(|succ| {
                 succ.pred.borrow().len() > 1
             }).collect();
+
+            // Split edges
             to_split.iter().for_each(|succ| {
+                // Reconnect edges
                 let mid = blk_gen.gen();
                 mid.push_back(Instr::Jmp { tgt: RefCell::new(succ.clone()) });
                 mid.connect(succ.clone());
                 block.disconnect(&succ);
-                block.connect(mid);
+                block.connect(mid.clone());
+                // Replace phi source in the split successor
+                succ.instr.borrow_mut().iter_mut().for_each(|instr| {
+                    if let Instr::Phi { src, dst } = instr.as_ref().clone() {
+                        let mut src = src.clone();
+                        src.iter_mut().for_each(|(pred, _)| {
+                            if pred == &Some(block.clone()) {
+                                *pred = Some(mid.clone())
+                            }
+                        });
+                        *instr = ExtRc::new(Instr::Phi { src, dst })
+                    }
+                })
             })
         });
         self.build_dom()
