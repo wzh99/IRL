@@ -201,21 +201,33 @@ impl BlockRef {
     /// This method add `to` to the successor set of this block and add this block to the
     /// predecessor set of `to` block.
     pub fn connect(&self, to: BlockRef) {
+        // Modify predecessor and successor list
         if to.pred.borrow().iter().find(|b| *b == self).is_none() {
             to.pred.borrow_mut().push(self.clone())
         }
         if self.succ.borrow().iter().find(|b| *b == &to).is_none() {
-            self.succ.borrow_mut().push(to)
+            self.succ.borrow_mut().push(to.clone())
         }
+        // Modify target in control flow instructions
+        self.instr.borrow_mut().iter_mut().rev().for_each(|instr| {
+            match instr.as_ref() {
+                Instr::Jmp { tgt } => { tgt.replace(to.clone()); }
+                Instr::Br { cond: _, tr, fls } => {
+                    if tr.borrow().deref() == &to { tr.replace(to.clone()); }
+                    if fls.borrow().deref() == &to { fls.replace(to.clone()); }
+                }
+                _ => {}
+            }
+        })
     }
 
     /// Remove a directed edge from this block to another.
     /// If there was an edge before, this is the inverse operation of `connect`. Otherwise,
     /// nothing will be actually done.
-    pub fn disconnect(&self, to: BlockRef) {
+    pub fn disconnect(&self, to: &BlockRef) {
         let pos = to.pred.borrow().iter().position(|b| b == self);
         pos.map(|i| to.pred.borrow_mut().remove(i));
-        let pos = self.succ.borrow().iter().position(|b| b == &to);
+        let pos = self.succ.borrow().iter().position(|b| b == to);
         pos.map(|i| self.succ.borrow_mut().remove(i));
     }
 
@@ -253,7 +265,7 @@ impl Func {
             let pred_list: Vec<BlockRef> = block.pred.borrow().clone();
             for pred in pred_list {
                 if !marked.contains(&pred) {
-                    pred.disconnect(block.clone())
+                    pred.disconnect(&block)
                 }
             }
         })
@@ -313,6 +325,34 @@ pub trait BlockListener {
     fn on_exit_child(&mut self, this: BlockRef, child: BlockRef);
 }
 
+/// Generate block that has unique name in a function.
+pub struct BlockGen {
+    name: HashSet<String>,
+    pre: String,
+    count: usize,
+}
+
+impl BlockGen {
+    pub fn new(func: &Func, pre: &str) -> BlockGen {
+        let mut name = HashSet::new();
+        func.iter_dom(|block| { name.insert(block.name.clone()); });
+        BlockGen {
+            name,
+            pre: pre.to_string(),
+            count: 0,
+        }
+    }
+
+    pub fn gen(&mut self) -> BlockRef {
+        loop {
+            let name = format!("{}{}", self.pre, self.count);
+            self.count += 1;
+            if self.name.contains(&name) { continue; }
+            return ExtRc::new(BasicBlock::new(name));
+        }
+    }
+}
+
 impl Func {
     /// Walk the dominator tree of this function with given listener trait object
     pub fn walk_dom<L>(&self, listener: &mut L) where L: BlockListener {
@@ -344,6 +384,25 @@ impl Func {
                 None => break
             }
         }
+    }
+
+    /// Split critical edge in the CFG. This requires reconstructing dominator tree.
+    pub fn split_edge(&self) {
+        let mut blk_gen = BlockGen::new(self, "B");
+        self.iter_dom(|block| {
+            if block.succ.borrow().len() <= 1 { return; }
+            let to_split: Vec<_> = block.succ.borrow().iter().cloned().filter(|succ| {
+                succ.pred.borrow().len() > 1
+            }).collect();
+            to_split.iter().for_each(|succ| {
+                let mid = blk_gen.gen();
+                mid.push_back(Instr::Jmp { tgt: RefCell::new(succ.clone()) });
+                mid.connect(succ.clone());
+                block.disconnect(&succ);
+                block.connect(mid);
+            })
+        });
+        self.build_dom()
     }
 }
 

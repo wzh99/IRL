@@ -7,7 +7,7 @@ use std::ops::Deref;
 use crate::lang::func::{BlockListener, BlockRef, Func};
 use crate::lang::instr::{BinOp, Instr};
 use crate::lang::Program;
-use crate::lang::util::WorkList;
+use crate::lang::util::{ExtRc, WorkList};
 use crate::lang::value::{Const, SymbolGen, SymbolRef, Type, Typed, Value};
 use crate::opt::{FnPass, Pass};
 use crate::opt::gvn::Gvn;
@@ -255,6 +255,9 @@ impl Pass for PreOpt {
 
 impl FnPass for PreOpt {
     fn opt_fn(&mut self, func: &Func) {
+        // Make sure the CFG is edge split
+        func.split_edge();
+
         // Renumber the non-continuous symbols given by GVN
         let mut sym_num = Gvn::new().number(func);
         let num_set: BTreeSet<usize> = sym_num.values().copied().collect();
@@ -428,6 +431,23 @@ impl FnPass for PreOpt {
                 }
             });
         }
+
+        // Eliminate redundant computation
+        func.iter_dom(|ref block| {
+            block.instr.borrow_mut().iter_mut().for_each(|instr| {
+                if let Instr::Bin { op: _, fst: _, snd: _, dst } = instr.as_ref() {
+                    let dst = dst.borrow().clone();
+                    let num = self.table.find(&Expr::Temp(dst.clone())).unwrap();
+                    let leader = Self::find_leader(&sets[block].avail_out, num).unwrap();
+                    if leader != dst.clone() {
+                        *instr = ExtRc::new(Instr::Mov {
+                            src: RefCell::new(Value::Var(leader)),
+                            dst: RefCell::new(dst),
+                        })
+                    }
+                }
+            })
+        })
     }
 }
 

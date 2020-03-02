@@ -143,7 +143,7 @@ impl FnPass for SccpOpt {
                         *block.instr.borrow_mut().back_mut().unwrap() = ExtRc::new(
                             Instr::Jmp { tgt: RefCell::new(tgt) }
                         );
-                        block.disconnect(rm);
+                        block.disconnect(&rm);
                     }
                     _ => {}
                 }
@@ -152,7 +152,8 @@ impl FnPass for SccpOpt {
         });
         func.remove_unreachable();
 
-        // Rebuild scope
+        // Rebuild dominator tree and scope, since the structure of CFG may have changed
+        func.build_dom();
         func.rebuild_ssa_scope();
 
         // Clear all data structure for this function.
