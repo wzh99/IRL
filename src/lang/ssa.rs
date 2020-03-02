@@ -413,7 +413,7 @@ impl ValueListener for Renamer {
                 Symbol::Local { name: _, ty: _, ver: _ } => {
                     let new_sym = self.sym.get_mut(sym.name()).unwrap().rename();
                     self.def.last_mut().unwrap().push(new_sym.name().to_string());
-                    self.scope.as_deref().unwrap().add(new_sym.clone());
+                    self.scope.as_deref().unwrap().insert(new_sym.clone());
                     new_sym
                 }
                 _ => sym.clone()

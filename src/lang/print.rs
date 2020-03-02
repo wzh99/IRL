@@ -1,7 +1,6 @@
 use std::cell::RefCell;
 use std::io::{Error, Write};
 use std::ops::Deref;
-use std::rc::Rc;
 
 use crate::lang::func::{BlockRef, Func};
 use crate::lang::instr::{Instr, InstrRef};
@@ -30,7 +29,7 @@ impl Printer<'_> {
         writeln!(self.writer, "")?;
         // Print functions
         for f in &pro.funcs {
-            self.print_fn(f)?;
+            self.print_fn(f.deref())?;
             writeln!(self.writer, "")?;
         }
         Ok(())
@@ -55,7 +54,7 @@ impl Printer<'_> {
         writeln!(self.writer, "{};", s)
     }
 
-    fn print_fn(&mut self, func: &Rc<Func>) -> Result<(), Error> {
+    pub fn print_fn(&mut self, func: &Func) -> Result<(), Error> {
         // Print signature
         let mut s = format!("fn @{}(", func.name);
         let params: Vec<String> = func.param.iter().map(|s| {

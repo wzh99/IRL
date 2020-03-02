@@ -55,7 +55,7 @@ impl Builder {
         for t in def {
             if let Term::AliasDef { loc, id: Token::GlobalId(_, id), ty: _ } = t {
                 let name = self.trim_tag(id);
-                let added = pro.global.add(ExtRc::new(
+                let added = pro.global.insert(ExtRc::new(
                     Symbol::Type {
                         name: name.to_string(),
                         ty: RefCell::new(Type::Void),
@@ -89,7 +89,7 @@ impl Builder {
                     let var = Rc::new(self.build_global_var(id, ty, init, &pro.global)?);
                     pro.vars.push(var.clone());
                     let sym = ExtRc::new(Symbol::Global(var));
-                    let added = pro.global.add(sym.clone());
+                    let added = pro.global.insert(sym.clone());
                     if !added {
                         return Err(CompileErr {
                             loc: loc.clone(),
@@ -103,7 +103,7 @@ impl Builder {
                     let func = Rc::new(self.build_fn_sig(sig, &pro.global)?);
                     pro.funcs.push(func.clone());
                     let sym = ExtRc::new(Symbol::Func(func));
-                    let added = pro.global.add(sym.clone());
+                    let added = pro.global.insert(sym.clone());
                     if !added {
                         return Err(CompileErr {
                             loc: loc.clone(),
@@ -149,7 +149,7 @@ impl Builder {
                             self.create_local(s, self.create_type(ty, global)?)?
                         );
                         plist.push(RefCell::new(sym.clone()));
-                        let added = scope.add(sym.clone());
+                        let added = scope.insert(sym.clone());
                         if !added {
                             return Err(CompileErr {
                                 loc: loc.clone(),
@@ -709,7 +709,7 @@ impl Builder {
                 }
                 None => {
                     let sym = ExtRc::new(self.create_local(s, ty.clone())?);
-                    let _ = ctx.func.scope.add(sym.clone());
+                    let _ = ctx.func.scope.insert(sym.clone());
                     Ok(sym)
                 }
             }

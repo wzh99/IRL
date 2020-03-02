@@ -66,60 +66,6 @@ impl Func {
     }
 }
 
-impl Func {
-    /// Return an iterator to breadth-first search the CFG.
-    pub fn bfs(&self) -> BfsIter<BlockRef> {
-        Vertex::bfs(self.ent.borrow().deref())
-    }
-
-    /// Return an iterator to depth-first search the CFG.
-    pub fn dfs(&self) -> DfsIter<BlockRef> {
-        Vertex::dfs(self.ent.borrow().deref())
-    }
-}
-
-/// Visitor trait of dominance tree
-pub trait BlockListener {
-    /// Called on the very beginning of visiting.
-    fn on_begin(&mut self, func: &Func);
-
-    /// Called when the visiting is finished.
-    fn on_end(&mut self, func: &Func);
-
-    /// Called when the subtree whose root is current block is entered, before visiting its
-    /// children.
-    fn on_enter(&mut self, block: BlockRef);
-
-    /// Called when the offspring of this block have already been visited, and ready to leave
-    /// this subtree.
-    fn on_exit(&mut self, block: BlockRef);
-
-    /// Called when a child subtree is entered.
-    fn on_enter_child(&mut self, this: BlockRef, child: BlockRef);
-
-    /// Called when leaving a child subtree
-    fn on_exit_child(&mut self, this: BlockRef, child: BlockRef);
-}
-
-impl Func {
-    /// Walk the dominator tree of this function with given listener trait object
-    pub fn walk_dom<L>(&self, listener: &mut L) where L: BlockListener {
-        listener.on_begin(self);
-        self.visit_block(self.ent.borrow().clone(), listener);
-        listener.on_end(self);
-    }
-
-    fn visit_block<L>(&self, block: BlockRef, listener: &mut L) where L: BlockListener {
-        listener.on_enter(block.clone());
-        for child in block.child.borrow().iter() {
-            listener.on_enter_child(block.clone(), child.clone());
-            self.visit_block(child.clone(), listener);
-            listener.on_exit_child(block.clone(), child.clone());
-        }
-        listener.on_exit(block);
-    }
-}
-
 #[derive(Debug)]
 pub struct BasicBlock {
     /// Name of this basic block
@@ -226,9 +172,9 @@ impl BasicBlock {
             .and_then(|idx| self.instr.borrow().get(idx + 1).cloned())
     }
 
-    /// If the tail of the instruction list is a control flow instruction, push `ins` before
+    /// If the tail of the instruction list is a control flow instruction, insert `ins` before
     /// it. Otherwise, push to the back of the list.
-    pub fn push_before_ctrl(&self, ins: Instr) {
+    pub fn insert_before_ctrl(&self, ins: Instr) {
         if self.is_complete() {
             let idx = self.instr.borrow().len() - 1;
             self.instr.borrow_mut().insert(idx, ExtRc::new(ins))
@@ -328,6 +274,75 @@ impl Func {
         for (block, dom) in result {
             block.parent.replace(Some(dom.clone()));
             dom.child.borrow_mut().push(block);
+        }
+    }
+}
+
+impl Func {
+    /// Return an iterator to breadth-first search the CFG.
+    pub fn bfs(&self) -> BfsIter<BlockRef> {
+        Vertex::bfs(self.ent.borrow().deref())
+    }
+
+    /// Return an iterator to depth-first search the CFG.
+    pub fn dfs(&self) -> DfsIter<BlockRef> {
+        Vertex::dfs(self.ent.borrow().deref())
+    }
+}
+
+/// Visitor trait of dominance tree
+pub trait BlockListener {
+    /// Called on the very beginning of visiting.
+    fn on_begin(&mut self, func: &Func);
+
+    /// Called when the visiting is finished.
+    fn on_end(&mut self, func: &Func);
+
+    /// Called when the subtree whose root is current block is entered, before visiting its
+    /// children.
+    fn on_enter(&mut self, block: BlockRef);
+
+    /// Called when the offspring of this block have already been visited, and ready to leave
+    /// this subtree.
+    fn on_exit(&mut self, block: BlockRef);
+
+    /// Called when a child subtree is entered.
+    fn on_enter_child(&mut self, this: BlockRef, child: BlockRef);
+
+    /// Called when leaving a child subtree
+    fn on_exit_child(&mut self, this: BlockRef, child: BlockRef);
+}
+
+impl Func {
+    /// Walk the dominator tree of this function with given listener trait object
+    pub fn walk_dom<L>(&self, listener: &mut L) where L: BlockListener {
+        listener.on_begin(self);
+        self.visit_block(self.ent.borrow().clone(), listener);
+        listener.on_end(self);
+    }
+
+    fn visit_block<L>(&self, block: BlockRef, listener: &mut L) where L: BlockListener {
+        listener.on_enter(block.clone());
+        for child in block.child.borrow().iter() {
+            listener.on_enter_child(block.clone(), child.clone());
+            self.visit_block(child.clone(), listener);
+            listener.on_exit_child(block.clone(), child.clone());
+        }
+        listener.on_exit(block);
+    }
+
+    /// Iterate blocks in dominator tree order.
+    /// This provide a simpler interface for procedures that only want to visit each block.\
+    pub fn iter_dom<F>(&self, mut f: F) where F: FnMut(BlockRef) {
+        let mut stack = vec![self.ent.borrow().clone()];
+        loop {
+            match stack.pop() {
+                Some(block) => {
+                    block.child.borrow().iter().cloned().for_each(|c| stack.push(c));
+                    f(block)
+                }
+                None => break
+            }
         }
     }
 }
@@ -459,12 +474,12 @@ impl Func {
     /// Compute dominance frontiers for all basic blocks.
     /// This should be called after dominator tree is built.
     pub fn compute_df(&self) -> HashMap<BlockRef, Vec<BlockRef>> {
-        let mut creator = DfBuilder {
+        let mut builder = DfBuilder {
             stack: vec![],
             df: HashMap::new(),
         };
-        self.walk_dom(&mut creator);
-        creator.df
+        self.walk_dom(&mut builder);
+        builder.df
     }
 }
 

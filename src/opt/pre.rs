@@ -8,7 +8,7 @@ use crate::lang::func::{BlockListener, BlockRef, Func};
 use crate::lang::instr::{BinOp, Instr};
 use crate::lang::Program;
 use crate::lang::util::WorkList;
-use crate::lang::value::{Const, SymbolRef, Type, Typed, Value};
+use crate::lang::value::{Const, SymbolGen, SymbolRef, Type, Typed, Value};
 use crate::opt::{FnPass, Pass};
 use crate::opt::gvn::Gvn;
 
@@ -22,6 +22,16 @@ enum Expr {
     Temp(SymbolRef),
 }
 
+impl Typed for Expr {
+    fn get_type(&self) -> Type {
+        match self {
+            Expr::Const(c) => c.get_type(),
+            Expr::Binary(bin) => bin.get_type(),
+            Expr::Temp(sym) => sym.get_type()
+        }
+    }
+}
+
 #[derive(Eq, Clone, Debug)]
 struct BinExpr {
     op: BinOp,
@@ -29,6 +39,10 @@ struct BinExpr {
     // type of operands, not of result
     fst: usize,
     snd: usize,
+}
+
+impl Typed for BinExpr {
+    fn get_type(&self) -> Type { self.op.res_type(&self.ty).unwrap() }
 }
 
 impl PartialEq for BinExpr {
@@ -273,7 +287,7 @@ impl FnPass for PreOpt {
                     // This block has one successor, deal with phis in this block
                     1 => {
                         let succ = &block.succ.borrow()[0];
-                        antic_out = self.trans_phi(sets[succ].antic_in.clone(), block.clone(),
+                        antic_out = self.phi_trans(sets[succ].antic_in.clone(), block.clone(),
                                                    succ.clone());
                     }
                     // This block has several successors, find intersection of anticipated sets
@@ -307,8 +321,113 @@ impl FnPass for PreOpt {
                 }
             })
         }
-        self.table.tab.iter().enumerate().for_each(|(i, list)| println!("{}: {:?}", i, list));
-        sets.iter().for_each(|(block, set)| println!("{:?}: {:?}", block, set));
+        // self.table.tab.iter().enumerate().for_each(|(i, list)| println!("{}: {:?}", i, list));
+
+        // Hoist expressions to earlier points
+        let mut new_tmp: HashMap<BlockRef, HashMap<usize, SymbolRef>> = HashMap::new();
+        let mut sym_gen = SymbolGen::new("_t", func.scope.clone());
+        let mut inserted = true;
+        while inserted {
+            inserted = false;
+            // Traverse dominator tree
+            func.iter_dom(|ref block| {
+                // Inherit created temporaries from dominator
+                new_tmp.insert(block.clone(), HashMap::new());
+                if block.parent().is_none() { return; }
+                let ref dom = block.parent().unwrap();
+                new_tmp[dom].clone().into_iter().for_each(|(num, sym)| {
+                    new_tmp.get_mut(block).unwrap().insert(num, sym.clone());
+                    sets.get_mut(block).unwrap().avail_out.insert(num, Expr::Temp(sym));
+                });
+
+                // Insert instructions using work list algorithm
+                if block.pred.borrow().len() <= 1 { return; } // only insert at merge point
+                let mut work: WorkList<(usize, Expr)> = sets[block].antic_in.clone().into_iter()
+                    .collect();
+                while !work.is_empty() {
+                    // Find insertion point
+                    let (num, expr) = work.pick().unwrap();
+                    let expr = if let Expr::Binary(bin) = expr { bin } else { continue; };
+                    if Self::find_leader(&sets[dom].avail_out, num).is_some() { continue; }
+                    let mut avail: HashMap<BlockRef, Expr> = HashMap::new();
+                    let mut by_some = false;
+                    let mut all_same = true;
+                    let mut first_sym = None;
+
+                    block.pred.borrow().iter().for_each(|pred| {
+                        let (trans_num, trans_expr) =
+                            self.phi_trans_one(num, Expr::Binary(expr.clone()), pred.clone(),
+                                               block.clone());
+                        match Self::find_leader(&sets[pred].avail_out, trans_num) {
+                            Some(leader) => {
+                                avail.insert(pred.clone(), Expr::Temp(leader.clone()));
+                                by_some = true;
+                                if first_sym == None {
+                                    first_sym = Some(leader)
+                                } else if first_sym != Some(leader) {
+                                    all_same = false
+                                }
+                            }
+                            None => {
+                                avail.insert(pred.clone(), trans_expr);
+                                all_same = false;
+                            }
+                        }
+                    });
+
+                    // Insert expression where it is not available
+                    if all_same || !by_some { continue; }
+                    // Operands in inserted expressions may depend on temporaries that has not yet
+                    // been created. In this case, we just skip inserting phi instruction and wait
+                    // for the next iteration.
+                    let success = block.pred.borrow().iter().try_for_each(|pred| {
+                        if let Expr::Binary(BinExpr { op, ty, fst, snd }) = avail[pred].clone() {
+                            let fst_val = if let Some(fst_val) =
+                            self.create_opd(&sets[pred].avail_out, fst) {
+                                fst_val
+                            } else { return Err(()); };
+                            let snd_val = if let Some(snd_val) =
+                            self.create_opd(&sets[pred].avail_out, snd) {
+                                snd_val
+                            } else { return Err(()); };
+                            let dst_sym = sym_gen.gen(&ty);
+                            pred.insert_before_ctrl(Instr::Bin {
+                                op,
+                                fst: RefCell::new(fst_val),
+                                snd: RefCell::new(snd_val),
+                                dst: RefCell::new(dst_sym.clone()),
+                            });
+                            let expr_num = self.table.find_or_add(Expr::Binary(
+                                BinExpr { op, ty, fst, snd }
+                            ));
+                            self.table.add_num(expr_num, Expr::Temp(dst_sym.clone()));
+                            sets.get_mut(pred).unwrap().avail_out
+                                .insert(expr_num, Expr::Temp(dst_sym.clone()));
+                            avail.insert(pred.clone(), Expr::Temp(dst_sym));
+                        }
+                        Ok(())
+                    }).is_ok();
+                    if !success || sets[block].phi.contains_key(&num) { continue; }
+                    let dst_sym = sym_gen.gen(&expr.get_type());
+                    self.table.add_num(num, Expr::Temp(dst_sym.clone()));
+                    sets.get_mut(block).unwrap().avail_out
+                        .insert(num, Expr::Temp(dst_sym.clone()));
+                    let phi_src = block.phi_pred().into_iter().map(|block| {
+                        let sym = if let Expr::Temp(sym) = avail[block.as_ref().unwrap()].clone() {
+                            sym
+                        } else { unreachable!() };
+                        (block, RefCell::new(Value::Var(sym)))
+                    }).collect();
+                    block.push_front(Instr::Phi {
+                        src: phi_src,
+                        dst: RefCell::new(dst_sym.clone()),
+                    });
+                    sets.get_mut(block).unwrap().phi.insert(num, dst_sym.clone());
+                    new_tmp.get_mut(block).unwrap().insert(num, dst_sym);
+                    inserted = true;
+                }
+            });
+        }
     }
 }
 
@@ -317,7 +436,15 @@ impl PreOpt {
         PreOpt { table: ValueTable::new(0) }
     }
 
-    fn trans_phi(&mut self, set: HashMap<usize, Expr>, pred: BlockRef, succ: BlockRef)
+    fn phi_trans_one(&mut self, num: usize, expr: Expr, pred: BlockRef, succ: BlockRef)
+                     -> (usize, Expr)
+    {
+        let set = HashMap::from_iter(vec![(num, expr)]);
+        let res: Vec<(usize, Expr)> = self.phi_trans(set, pred, succ).into_iter().collect();
+        res[0].clone()
+    }
+
+    fn phi_trans(&mut self, set: HashMap<usize, Expr>, pred: BlockRef, succ: BlockRef)
                  -> HashMap<usize, Expr>
     {
         // Build number map for all phi destinations in successor block
@@ -351,6 +478,16 @@ impl PreOpt {
                 }
             })
         }).collect()
+    }
+
+    /// Find leader temporary of `num` in `set` first. If a symbol is found, a local variable is
+    /// created. Otherwise, a constant is returned. In this optimization, no global variable is
+    /// considered, so this method is complete.
+    fn create_opd(&self, set: &HashMap<usize, Expr>, num: usize) -> Option<Value> {
+        match Self::find_leader(set, num) {
+            Some(leader) => Some(Value::Var(leader)),
+            None => self.table.find_const(num).and_then(|c| Some(Value::Const(c)))
+        }
     }
 
     fn find_value(&mut self, val: &RefCell<Value>) -> (usize, Expr) {

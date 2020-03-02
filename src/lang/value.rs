@@ -255,14 +255,14 @@ impl Scope {
     }
 
     /// Add a symbol to the scope, and return if this symbol was successfully added.
-    pub fn add(&self, sym: SymbolRef) -> bool {
+    pub fn insert(&self, sym: SymbolRef) -> bool {
         let id = sym.id();
         self.map.borrow_mut().insert(id, sym).is_none()
     }
 
     /// Append a collection of symbols to Scope
     pub fn append<I>(&self, iter: I) where I: Iterator<Item=SymbolRef> {
-        iter.for_each(|sym| { self.add(sym); })
+        iter.for_each(|sym| { self.insert(sym); })
     }
 
     /// Lookup a symbol with given `id`.
@@ -284,6 +284,38 @@ impl Scope {
     /// Run the given function on each symbol in this scope
     pub fn for_each<F>(&self, f: F) where F: FnMut(SymbolRef) {
         self.map.borrow().values().cloned().for_each(f)
+    }
+}
+
+/// Procedural symbol generator
+pub struct SymbolGen {
+    pre: String,
+    num: usize,
+    scope: Rc<Scope>,
+}
+
+impl SymbolGen {
+    pub fn new(pre: &str, scope: Rc<Scope>) -> SymbolGen {
+        SymbolGen {
+            pre: pre.to_string(),
+            num: 0,
+            scope,
+        }
+    }
+
+    pub fn gen(&mut self, ty: &Type) -> SymbolRef {
+        loop {
+            let name = format!("{}{}", self.pre, self.num);
+            self.num += 1;
+            if self.scope.find(&name).is_some() { continue; }
+            let sym = ExtRc::new(Symbol::Local {
+                name,
+                ty: ty.clone(),
+                ver: None,
+            });
+            self.scope.insert(sym.clone());
+            return sym
+        }
     }
 }
 
