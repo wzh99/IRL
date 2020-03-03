@@ -454,7 +454,7 @@ impl FnPass for PreOpt {
         });
 
         // Propagate copy
-        CopyProp().opt_fn(func)
+        CopyProp {}.opt_fn(func)
     }
 }
 

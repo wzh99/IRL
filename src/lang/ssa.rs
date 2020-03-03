@@ -435,12 +435,13 @@ pub enum DefPos {
     /// Defined in parameter list
     Param,
     /// Defined in instruction
-    Instr(InstrRef),
+    Instr(BlockRef, InstrRef),
     None,
 }
 
 struct DefUseBuilder {
-    info: HashMap<SymbolRef, DefUse>
+    info: HashMap<SymbolRef, DefUse>,
+    blk: Vec<BlockRef>,
 }
 
 impl BlockListener for DefUseBuilder {
@@ -458,10 +459,11 @@ impl BlockListener for DefUseBuilder {
     fn on_end(&mut self, _: &Func) {}
 
     fn on_enter(&mut self, block: BlockRef) {
-        InstrListener::on_enter(self, block)
+        self.blk.push(block.clone());
+        InstrListener::on_enter(self, block);
     }
 
-    fn on_exit(&mut self, _: BlockRef) {}
+    fn on_exit(&mut self, _: BlockRef) { self.blk.pop(); }
 
     fn on_enter_child(&mut self, _: BlockRef, _: BlockRef) {}
 
@@ -480,8 +482,8 @@ impl InstrListener for DefUseBuilder {
 
 impl ValueListener for DefUseBuilder {
     fn on_use(&mut self, instr: InstrRef, opd: &RefCell<Value>) {
-        if let Value::Var(sym) = opd.borrow().deref() {
-            match self.info.get_mut(sym) {
+        match opd.borrow().deref() {
+            Value::Var(sym) if sym.is_local_var() => match self.info.get_mut(sym) {
                 Some(info) => info.uses.push(instr),
                 None => { // some symbols may be undefined in transformed SSA
                     self.info.insert(sym.clone(), DefUse {
@@ -490,14 +492,18 @@ impl ValueListener for DefUseBuilder {
                     });
                 }
             }
+            _ => {}
         }
     }
 
     fn on_def(&mut self, instr: InstrRef, def: &RefCell<SymbolRef>) {
-        self.info.insert(def.borrow().clone(), DefUse {
-            def: DefPos::Instr(instr),
-            uses: vec![],
-        });
+        let def = def.borrow().clone();
+        if def.is_local_var() {
+            self.info.insert(def.clone(), DefUse {
+                def: DefPos::Instr(self.blk.last().unwrap().clone(), instr),
+                uses: vec![],
+            });
+        }
     }
 }
 
@@ -525,7 +531,10 @@ impl Func {
 impl Func {
     /// Compute define-use information for symbols
     pub fn def_use(&self) -> HashMap<SymbolRef, DefUse> {
-        let mut listener = DefUseBuilder { info: HashMap::new() };
+        let mut listener = DefUseBuilder {
+            info: HashMap::new(),
+            blk: vec![],
+        };
         self.walk_dom(&mut listener);
         listener.info
     }
@@ -547,7 +556,7 @@ impl Func {
             if !def_use.get(&sym).unwrap().uses.is_empty() { continue; }
             // Find the instruction where it is defined.
             match def_use.get(&sym).unwrap().def.clone() {
-                DefPos::Instr(instr) if !instr.has_side_effect() => {
+                DefPos::Instr(_, instr) if !instr.has_side_effect() => {
                     // Mark this instruction, if it has no other effects
                     target.insert(instr.clone());
                     for opd in instr.src() {

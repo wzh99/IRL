@@ -90,6 +90,13 @@ impl Instr {
         }
     }
 
+    pub fn is_ret(&self) -> bool {
+        match self {
+            Instr::Ret { val: _ } => true,
+            _ => false
+        }
+    }
+
     /// Possible return the destination symbol of this instruction. This symbol is defined by
     /// this instruction.
     pub fn dst(&self) -> Option<&RefCell<SymbolRef>> {

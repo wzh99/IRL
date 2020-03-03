@@ -1,4 +1,4 @@
-// Test PRE
+// Test Partial Redundancy Elimination
 // See Figure 3 of Value-Based Partial Redundancy Elimination
 
 @g: i64;

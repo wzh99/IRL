@@ -1,0 +1,17 @@
+// Test Aggressive Dead Code Elimination
+// See Figure 19.16 of Tiger Book
+
+fn @test() -> i64 {
+%B1:
+    $k.1 <- mov i64 1;
+    jmp %B2;
+%B2:
+    $k.2 <- phi i64 [%B1: 0] [%B3: $k.3];
+    $c <- le i64 $k.2, 100;
+    br $c ? %B3 : %B4;
+%B3:
+    $k.3 <- add i64 $k.2, 1;
+    jmp %B2;
+%B4:
+    ret 1;
+}

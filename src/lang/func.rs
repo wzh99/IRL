@@ -139,6 +139,11 @@ impl BasicBlock {
         }
     }
 
+    /// Visit each instruction in this block
+    pub fn for_each<F>(&self, f: F) where F: FnMut(InstrRef) {
+        self.instr.borrow().iter().cloned().for_each(f)
+    }
+
     /// Push instruction to the front of the instruction list.
     pub fn push_front(&self, ins: Instr) {
         self.instr.borrow_mut().push_front(ExtRc::new(ins))
@@ -423,9 +428,13 @@ impl Func {
 }
 
 /// Represent an vertex in the reverse CFG
-#[derive(Eq, Clone, Debug)]
+#[derive(Eq, Clone)]
 enum RevVert<'a> {
+    /// Entrance of the function, this does not represent the entrance block in th original CFG.
+    Enter(&'a Func),
+    /// Represent a block in the CFG.
     Block(BlockRef, &'a Func),
+    /// Exit of the function, the common predecessor of all exit blocks in reverse CFG.
     Exit(&'a Func),
 }
 
@@ -436,6 +445,7 @@ impl PartialEq for RevVert<'_> {
             (RevVert::Block(b1, _), RevVert::Block(b2, _)) => b1.eq(b2),
             // There is no chance that two blocks from different function are compared.
             (RevVert::Exit(_), RevVert::Exit(_)) => true,
+            (RevVert::Enter(_), RevVert::Enter(_)) => true,
             _ => false
         }
     }
@@ -445,7 +455,24 @@ impl Hash for RevVert<'_> {
     fn hash<H: Hasher>(&self, state: &mut H) {
         match self {
             RevVert::Block(block, _) => block.hash(state),
-            RevVert::Exit(func) => (*func as *const Func).hash(state)
+            RevVert::Enter(func) => {
+                (*func as *const Func).hash(state);
+                0.hash(state)
+            }
+            RevVert::Exit(func) => {
+                (*func as *const Func).hash(state);
+                1.hash(state)
+            }
+        }
+    }
+}
+
+impl Debug for RevVert<'_> {
+    fn fmt(&self, f: &mut Formatter<'_>) -> Result<(), Error> {
+        match self {
+            RevVert::Enter(_) => write!(f, "Enter"),
+            RevVert::Exit(_) => write!(f, "Exit"),
+            RevVert::Block(block, _) => write!(f, "Block({})", block.name)
         }
     }
 }
@@ -464,6 +491,12 @@ impl<'a> Vertex<RevVert<'a>> for RevVert<'a> {
                 block.succ.borrow().iter().cloned()
                     .map(|succ| RevVert::Block(succ, func)).collect()
             }
+            // Function entrance has both entrance block in the original CFG and function exit as
+            // predecessors.
+            RevVert::Enter(func) => vec![
+                RevVert::Block(func.ent.borrow().clone(), func),
+                RevVert::Exit(func)
+            ],
             // Function exit has no predecessors in the reverse CFG, since it has no successors in
             // the forward CFG.
             RevVert::Exit(_) => vec![]
@@ -473,13 +506,26 @@ impl<'a> Vertex<RevVert<'a>> for RevVert<'a> {
     fn succ(&self) -> Vec<RevVert<'a>> {
         match self {
             // Successors of a block in the reverse CFG are predecessors of that block in the
-            // forward CFG.
-            RevVert::Block(block, func) => block.pred.borrow().iter().cloned()
-                .map(|pred| RevVert::Block(pred, func)).collect(),
+            // forward CFG. For entrance blocks of the function, its predecessor should be the
+            // `Enter` vertex, since it is not included in the original forward CFG.
+            RevVert::Block(block, func) => if func.ent.borrow().deref() == block {
+                vec![RevVert::Enter(func)]
+            } else {
+                block.pred.borrow().iter().cloned()
+                    .map(|pred| RevVert::Block(pred, func)).collect()
+            }
+            // Function entrance has no successor in the reverse CFG, since it has no predecessor
+            // in the forward CFG.
+            RevVert::Enter(_) => vec![],
             // Successors of function exit in the reverse CFG are exit blocks, since its
-            // predecessors are these blocks in the forward CFG
-            RevVert::Exit(func) => func.exit.borrow().iter().cloned()
-                .map(|exit| RevVert::Block(exit, func)).collect()
+            // predecessors are these blocks in the forward CFG. Also, it has successor as function
+            // entrance as successor.
+            RevVert::Exit(func) => {
+                let mut succ: Vec<_> = func.exit.borrow().iter().cloned()
+                    .map(|exit| RevVert::Block(exit, func)).collect();
+                succ.push(RevVert::Enter(func));
+                succ
+            }
         }
     }
 }
@@ -501,7 +547,7 @@ impl Func {
             match stack.pop() {
                 Some(node) => {
                     child[&node].iter().cloned().for_each(|v| stack.push(v));
-                    if let RevVert::Block(block, _) = node { f(block) } else { unreachable!() }
+                    if let RevVert::Block(block, _) = node { f(block) } else {}
                 }
                 None => break
             }
@@ -555,5 +601,88 @@ impl Func {
         };
         self.walk_dom(&mut builder);
         builder.df
+    }
+}
+
+impl Func {
+    /// Compute dominance frontier for reverse CFG
+    pub fn rev_df(&self) -> HashMap<BlockRef, Vec<BlockRef>> {
+        // Build post-dominator tree
+        let root = RevVert::Exit(self);
+        let parent = dom::build(root.clone());
+        let mut child: HashMap<_, Vec<_>> = HashMap::new();
+        parent.iter().for_each(|(c, p)| {
+            match child.get_mut(p) {
+                Some(list) => list.push(c.clone()),
+                None => { child.insert(p.clone(), vec![c.clone()]); }
+            }
+        });
+
+        // Build post-dominance frontier
+        let mut builder = RevDf {
+            parent,
+            child,
+            df: Default::default(),
+        };
+        builder.build(root);
+
+        // Convert to block map
+        let mut blk_df: HashMap<BlockRef, Vec<BlockRef>> = HashMap::new();
+        builder.df.into_iter().for_each(|(b, list)| {
+            if let RevVert::Block(b, _) = b {
+                list.into_iter().for_each(|df| {
+                    if let RevVert::Block(df, _) = df {
+                        match blk_df.get_mut(&b) {
+                            Some(list) => list.push(df),
+                            None => { blk_df.insert(b.clone(), vec![df]); }
+                        }
+                    }
+                })
+            }
+        });
+        blk_df
+    }
+}
+
+/// Dominance frontier construction for reverse CFG.
+/// To make the generic graph algorithm efficient, the vertices in reverse CFG cannot have much
+/// bookkeeping, so the listener pattern cannot be adopted here. So the implementation is different
+/// from the original CFG, although the algorithm is the same.
+struct RevDf<'a> {
+    parent: HashMap<RevVert<'a>, RevVert<'a>>,
+    child: HashMap<RevVert<'a>, Vec<RevVert<'a>>>,
+    df: HashMap<RevVert<'a>, Vec<RevVert<'a>>>,
+}
+
+impl<'a> RevDf<'a> {
+    fn build(&mut self, vert: RevVert<'a>) {
+        let mut set = HashSet::new();
+        vert.succ().iter().for_each(|succ| {
+            if self.parent.get(succ) != Some(&vert) {
+                set.insert(succ.clone());
+            }
+        });
+        self.child.get(&vert).cloned().map(|list| {
+            list.iter().for_each(|child| {
+                self.build(child.clone());
+                self.df[&child].clone().iter().for_each(|df| {
+                    if !self.dom(&vert, df) || vert == *df {
+                        set.insert(df.clone());
+                    }
+                });
+            });
+        });
+        self.df.insert(vert.clone(), set.into_iter().collect());
+    }
+
+    fn dom(&self, parent: &RevVert, child: &RevVert) -> bool {
+        let mut cur = Some(child.clone());
+        loop {
+            match cur {
+                Some(ref block) if parent == block => return true,
+                None => return false,
+                _ => cur = self.parent.get(&cur.unwrap()).cloned()
+            }
+        }
     }
 }
