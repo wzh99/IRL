@@ -2,7 +2,7 @@
 
 ## Introduction
 
-This project implement some technical aspects of IR (intermediate representation) language, including compilation, analysis, optimization, execution, etc. The functionality is quite similar to [LLVM](https://www.llvm.org), but substantially simplified. This project is written in pure and safe Rust. Some of the implementation is ported and improved from my previous project [GoCompiler](https://github.com/wzh99/GoCompiler). This project is also inspired by [LLIRInterpreter](https://github.com/abcdabcd987/LLIRInterpreter) and [ssa-anf](https://github.com/jacobstanley/ssa-anf).
+This project implement some technical aspects of IR (intermediate representation) language, including compilation, analysis, optimization, execution, etc. The functionality is quite similar to [LLVM](https://www.llvm.org), but substantially simplified. This project is written in pure and safe Rust. Some of the implementation is ported and improved from my previous project [GoCompiler](https://github.com/wzh99/GoCompiler). 
 
 ## Language
 
@@ -93,7 +93,7 @@ Take an aggressive approach to Dead Code Elimination. It only keep instructions 
 
 ### Copy Propagation
 
-Replace later uses of copied values with their original ones. Can serve as a subroutine for other optimizations. Implementation at [`opt::simple::CopyProp`].
+Replace later uses of copied values with their original ones. Can serve as a subroutine for other optimizations. Implementation at [`opt::simple::CopyProp`](src/opt/simple.rs).
 
 Other optimizations will be added to this project successively.
 
