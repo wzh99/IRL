@@ -2,7 +2,7 @@
 
 ## Introduction
 
-This project implement some technical aspects of IR (intermediate representation) language, including compilation, analysis, optimization, execution, etc. The functionality is quite similar to [LLVM](https://www.llvm.org), but substantially simplified. Some of the implementation is ported and improved from my previous project [GoCompiler](https://github.com/wzh99/GoCompiler). This project is also inspired by [LLIRInterpreter](https://github.com/abcdabcd987/LLIRInterpreter) and [ssa-anf](https://github.com/jacobstanley/ssa-anf).
+This project implement some technical aspects of IR (intermediate representation) language, including compilation, analysis, optimization, execution, etc. The functionality is quite similar to [LLVM](https://www.llvm.org), but substantially simplified. This project is written in pure and safe Rust. Some of the implementation is ported and improved from my previous project [GoCompiler](https://github.com/wzh99/GoCompiler). This project is also inspired by [LLIRInterpreter](https://github.com/abcdabcd987/LLIRInterpreter) and [ssa-anf](https://github.com/jacobstanley/ssa-anf).
 
 ## Language
 
@@ -73,15 +73,15 @@ Optimizations are implemented as passes of transforms on the program, which is u
 
 ### Global Value Numbering
 
-Detect fully redundant computations by finding congruent variables. Implementation at [`opt::gvn::GvnOpt`](src/opt/gvn.rs), example at [gvn.ir](test/gvn.ir).
+Detect fully redundant computations by finding congruent variables. Implementation at [`opt::gvn::GvnOpt`](src/opt/gvn.rs).
 
 ### Sparse Conditional Constant Propagation
 
-Replace later uses of compile-time constants with their corresponding values. It applies this transformation by symbolic execution of the function using both control flow graph and SSA value graph. Implementation at [`opt::sccp:SccpOpt`](src/opt/sccp.rs), example at [sccp.ir](test/sccp.ir).
+Replace later uses of compile-time constants with their corresponding values. It applies this transformation by symbolic execution of the function using both control flow graph and SSA value graph. Implementation at [`opt::sccp:SccpOpt`](src/opt/sccp.rs).
 
 ### Partial Redundancy Elimination
 
-Place each (binary) computation at its optimal position. GVN-PRE algorithm is adopted, which utilizes GVN as a subroutine to better handle expressions that may not be lexically equivalent. Implementation at [`opt::pre::PreOpt`](src/opt/pre.rs), example at [pre.ir](test/pre.ir).
+Place each (binary) computation at its optimal position. GVN-PRE algorithm is adopted, which utilizes GVN as a subroutine to better handle expressions that may not be lexically equivalent. Algebraic simplification is also applied during optimization. Implementation at [`opt::pre::PreOpt`](src/opt/pre.rs).
 
 ### Dead Code Elimination
 
@@ -89,11 +89,11 @@ Conventional mark-sweep algorithm to find instructions that define unused variab
 
 ### Aggressive DCE
 
-Take an aggressive approach to Dead Code Elimination. It only keep instructions that contribute to the returned result, and remove the rest. Note that this may alter the runtime behavior of a function. Implementation at [`opt::simple::AdceOpt`](src/opt/simple.rs), example at [adce.ir](test/adce.ir).
+Take an aggressive approach to Dead Code Elimination. It only keep instructions that contribute to the returned result, and remove the rest. Note that this may alter the runtime behavior of a function. Implementation at [`opt::simple::AdceOpt`](src/opt/simple.rs).
 
 ### Copy Propagation
 
-Replace later uses of copied values with their original ones. Serve as a subroutine for other optimizations. Implementation at [`opt::simple::CopyProp`](src/opt/simple.rs).
+Replace later uses of copied values with their original ones. Can serve as a subroutine for other optimizations. Implementation at [`opt::simple::CopyProp`].
 
 Other optimizations will be added to this project successively.
 

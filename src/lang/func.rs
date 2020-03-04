@@ -189,7 +189,8 @@ impl BasicBlock {
 
     /// Generate predecessor list from for phi instructions.
     /// The difference is that this allows one predecessor to be `None` if it is the entrance
-    /// block.
+    /// block. This method rely on the dominator tree. If it is not built, the result could always
+    /// contain a `None`.
     pub fn phi_pred(&self) -> Vec<Option<BlockRef>> {
         let mut pred: Vec<Option<BlockRef>> = self.pred.borrow().iter().cloned()
             .map(|p| Some(p)).collect();
@@ -213,16 +214,16 @@ impl BlockRef {
             self.succ.borrow_mut().push(to.clone())
         }
         // Modify target in control flow instructions
-        self.instr.borrow_mut().iter_mut().rev().for_each(|instr| {
+        for instr in self.instr.borrow_mut().iter_mut().rev() {
             match instr.as_ref() {
                 Instr::Jmp { tgt } => { tgt.replace(to.clone()); }
                 Instr::Br { cond: _, tr, fls } => {
                     if tr.borrow().deref() == &to { tr.replace(to.clone()); }
                     if fls.borrow().deref() == &to { fls.replace(to.clone()); }
                 }
-                _ => {}
+                _ => break
             }
-        })
+        }
     }
 
     /// Remove a directed edge from this block to another.
@@ -258,20 +259,54 @@ impl Vertex<BlockRef> for BlockRef {
 
 impl Func {
     /// Remove unreachable blocks in this function. This is necessary for algorithms that rely
-    /// on predecessors of blocks.
+    /// on predecessors of blocks. This procedure will rebuild phi instructions in blocks. Phi
+    /// reconstruction rely on dominance tree, so if it is not built yet, the reconstruction will
+    /// not be carried out.
     pub fn remove_unreachable(&self) {
         // Mark all reachable blocks
         let mut marked = HashSet::new();
         self.dfs().for_each(|block| { marked.insert(block); });
 
-        // Sweep unmarked blocks
+        // Sweep unmarked blocks in predecessors
         self.dfs().for_each(|block| {
             let pred_list: Vec<BlockRef> = block.pred.borrow().clone();
-            for pred in pred_list {
-                if !marked.contains(&pred) {
-                    pred.disconnect(&block)
-                }
+            pred_list.iter().for_each(|pred| {
+                // Disconnect this predecessor
+                if marked.contains(pred) { return; }
+                pred.disconnect(&block);
+            });
+
+            // Rebuild phi instruction of this block
+            if block.parent().is_none() && block.children().is_empty() {
+                // this indicates that the dominator tree is not built yet
+                return;
             }
+            block.instr.borrow_mut().iter_mut().for_each(|instr| {
+                if let Instr::Phi { src, dst } = instr.as_ref() {
+                    let prev_src = src.clone();
+                    let new_src: Vec<_> = block.phi_pred().iter().map(|pred| {
+                        prev_src.iter().find(|(p, _)| p == pred).unwrap().clone()
+                    }).collect();
+                    match new_src.len() {
+                        // Phi predecessor list will not be empty at any time
+                        0 => unreachable!(),
+                        // Replace this instruction with a move
+                        1 => {
+                            *instr = ExtRc::new(Instr::Mov {
+                                src: new_src[0].1.clone(),
+                                dst: dst.clone(),
+                            })
+                        }
+                        // Rebuild phi sources
+                        _ => {
+                            *instr = ExtRc::new(Instr::Phi {
+                                src: new_src,
+                                dst: dst.clone(),
+                            })
+                        }
+                    }
+                }
+            });
         })
     }
 
@@ -287,6 +322,7 @@ impl Func {
         });
         // Run the Lengauer-Tarjan algorithm
         let result = dom::build(self.ent.borrow().clone());
+        println!("{:?}", result);
         for (block, dom) in result {
             block.parent.replace(Some(dom.clone()));
             dom.child.borrow_mut().push(block);
