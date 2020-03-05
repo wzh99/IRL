@@ -1,6 +1,6 @@
 // Demonstrate basic syntax of this language
 
-type @Foo = { i64, { [2][4]i64 }, *@Bar } // type alias is available
+type @Foo = { i16, { [2][4]i8 }, *@Bar } // type alias is available
 type @Bar = { *i64, *@Foo } // order of definition can be arbitrary
 
 @g: i64 <- 0; // global variable definition, can be initialized

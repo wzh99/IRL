@@ -9,36 +9,34 @@ This project implement some technical aspects of IR (intermediate representation
 The language involved is an CFG-based, register-to-register model IR. Phi instruction is provided to build SSA form, but is not mandatory. The following is an example to show the structure of a simple program. The program is not very practical, but should suffice to show some characteristics of this language. This example can also be seen in [example.ir](test/example.ir)
 
 ```
-type @Foo = { i64, { [2][4]i64 }, *@Bar } // type alias is available
-type @Bar = { *i64, *@Foo } // order of definition can be arbitrary
+type @Foo = { i16, { [2][4]i8 }, *@Bar }
+type @Bar = { *i64, *@Foo }
 
-@g: i64 <- 0; // global variable definition, can be initialized
+@g: i64 <- 0;
 
-// Demonstrate the use of memory-related instructions
 fn @main() {
 %Begin:
-    @g <- call i64 @max(1, 2); // no need to annotate type for arguments
-    $b <- alloc [4]i64; // aggregate should be allocated before accessed
-    $p <- ptr *i64 $b [@g]; // operands in the square bracket are indices INSIDE aggregates
+    @g <- call i64 @max(1, 2);
+    $b <- alloc [4]i64;
+    $p <- ptr *i64 $b [@g];
     $v <- ld i64 $p;
-    $q <- ptr *i64 $p, 1; // second operand is OFFSET of pointer
-    st i64 $v -> $q; // use arrow to indicate data flow
+    $q <- ptr *i64 $p, 1;
+    st i64 $v -> $q;
     ret;
 }
 
-// Demonstrate SSA form of function
-fn @max($a: i64, $b: i64) -> i64 { // post type annotation
+fn @max($a: i64, $b: i64) -> i64 {
 %Begin:
-    $c <- ge i64 $a, $b; // result type of comparing operator is always `i1`
-    br $c ? %True : %False; // ternary expression for branch target, condition must be of type `i1`
+    $c <- ge i64 $a, $b;
+    br $c ? %True : %False;
 %True:
-    $x.0 <- mov i64 $a; // versioned variable can be used
+    $x.0 <- mov i64 $a;
     jmp %End;
 %False:
     $x.1 <- mov i64 $b;
     jmp %End;
 %End:
-    $x.2 <- phi i64 [%True: $x.0] [%False: $x.1]; // one square bracket indicate one predecessor
+    $x.2 <- phi i64 [%True: $x.0] [%False: $x.1];
     ret $x.2;
 }
 ```

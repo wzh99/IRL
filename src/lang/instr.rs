@@ -195,8 +195,8 @@ impl UnOp {
     /// Get result type of operators
     pub fn res_type(&self, ty: &Type) -> Option<Type> {
         match (self, ty) {
-            (UnOp::Not, Type::I1) | (UnOp::Not, Type::I64) => Some(ty.clone()),
-            (UnOp::Neg, Type::I64) => Some(Type::I64),
+            (UnOp::Not, Type::I(_)) => Some(ty.clone()),
+            (UnOp::Neg, Type::I(b)) if *b != 1 => Some(Type::I(*b)),
             _ => None
         }
     }
@@ -373,10 +373,10 @@ impl BinOp {
     /// Get result type of operators
     pub fn res_type(&self, ty: &Type) -> Option<Type> {
         match (self, ty) {
-            (op, Type::I1) | (op, Type::I64) if op.is_bitwise() => Some(ty.clone()),
-            (op, Type::I1) | (op, Type::I64) if op.is_eq() => Some(Type::I1),
-            (op, Type::I64) if op.is_arith() | op.is_shift() => Some(Type::I64),
-            (op, Type::I64) if op.is_ord() => Some(Type::I1),
+            (op, Type::I(_)) if op.is_bitwise() => Some(ty.clone()),
+            (op, Type::I(_)) if op.is_eq() => Some(Type::I(1)),
+            (op, Type::I(b)) if (op.is_arith() | op.is_shift()) && *b != 1 => Some(Type::I(*b)),
+            (op, Type::I(b)) if op.is_ord() && *b != 1 => Some(Type::I(*b)),
             _ => None
         }
     }

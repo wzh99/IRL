@@ -327,7 +327,7 @@ impl Builder {
                 }
                 2 => {
                     base = self.find_symbol(list.get(0).unwrap(), ctx)?;
-                    off = Some(self.create_value(&Type::I64, list.get(1).unwrap(), ctx)?);
+                    off = Some(self.create_value(&Type::I(64), list.get(1).unwrap(), ctx)?);
                 }
                 n => return Err(CompileErr {
                     loc: loc.clone(),
@@ -349,7 +349,7 @@ impl Builder {
                 Term::OpdList { loc: _, list } => {
                     let mut idx = vec![];
                     for tok in list {
-                        let val = self.create_value(&Type::I64, tok, ctx)?;
+                        let val = self.create_value(&Type::I(64), tok, ctx)?;
                         elem_ty = self.elem_idx(&elem_ty, &val, tok)?;
                         idx.push(val);
                     }
@@ -464,7 +464,7 @@ impl Builder {
                     });
                 }
                 let dst = if op.is_cmp() { // compare result is always `i1`
-                    self.create_symbol(dst, &Type::I1, ctx)?
+                    self.create_symbol(dst, &Type::I(1), ctx)?
                 } else {
                     self.create_symbol(dst, ty, ctx)?
                 };
@@ -649,7 +649,7 @@ impl Builder {
                 loc: _, cond, tr: Token::Label(t_loc, t_lab),
                 fls: Token::Label(f_loc, f_lab)
             } => {
-                let cond = self.create_value(&Type::I1, cond, ctx)?;
+                let cond = self.create_value(&Type::I(1), cond, ctx)?;
                 let t_lab = self.trim_tag(t_lab);
                 let tr = ctx.labels.get(t_lab).ok_or(
                     CompileErr {
@@ -750,18 +750,10 @@ impl Builder {
 
     fn create_const(&self, tok: &Token, ty: &Type) -> Result<Const, CompileErr> {
         if let Token::Integer(l, i) = tok {
-            match ty {
-                Type::I1 => match i.as_str() {
-                    "0" => Ok(Const::I1(false)),
-                    "1" => Ok(Const::I1(true)),
-                    _ => Err(CompileErr {
-                        loc: l.clone(),
-                        msg: format!("cannot create constant {} of type i1", i),
-                    })
-                }
-                Type::I64 => Ok(Const::I64(i.parse().unwrap())),
-                _ => unreachable!()
-            }
+            Const::from_str(i, ty).map_err(|()| CompileErr {
+                loc: l.clone(),
+                msg: format!("cannot create constant {} of type {}", i, ty.to_string()),
+            })
         } else { unreachable!() }
     }
 

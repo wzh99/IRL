@@ -12,10 +12,8 @@ use crate::lang::util::ExtRc;
 pub enum Type {
     /// Void type, which does not represent any value and has no size.
     Void,
-    /// 1-bit integer, usually serves as booleans.
-    I1,
-    /// 64-bit integer.
-    I64,
+    /// Integers, could be 1, 8, 16, 32 and 64 bits
+    I(u8),
     /// Function (pointer) with `param` as parameter type(s) and `ret` as return type.
     Fn { param: Vec<Type>, ret: Box<Type> },
     /// Pointer type
@@ -38,8 +36,11 @@ impl FromStr for Type {
     /// Other type should be resolved by compiler, instead of this method.
     fn from_str(s: &str) -> Result<Self, Self::Err> {
         match s {
-            "i1" => Ok(Type::I1),
-            "i64" => Ok(Type::I64),
+            "i1" => Ok(Type::I(1)),
+            "i8" => Ok(Type::I(8)),
+            "i16" => Ok(Type::I(16)),
+            "i32" => Ok(Type::I(32)),
+            "i64" => Ok(Type::I(64)),
             _ => Err("unknown type".to_string())
         }
     }
@@ -49,8 +50,7 @@ impl ToString for Type {
     fn to_string(&self) -> String {
         match self {
             Type::Void => "void".to_string(),
-            Type::I1 => "i1".to_string(),
-            Type::I64 => "i64".to_string(),
+            Type::I(b) => format!("i{}", b),
             Type::Fn { param, ret } => {
                 let p_str = Self::vec_to_string(param);
                 let r_str = match ret.deref() {
@@ -332,22 +332,47 @@ impl SymbolGen {
 #[derive(Ord, PartialOrd, Eq, PartialEq, Copy, Clone, Hash, Debug)]
 pub enum Const {
     I1(bool),
+    I8(i8),
+    I16(i16),
+    I32(i32),
     I64(i64),
 }
 
 impl Const {
+    pub fn from_str(s: &str, ty: &Type) -> Result<Const, ()> {
+        let d: i64 = s.parse().map_err(|_| ())?;
+        match ty {
+            Type::I(1) => match d {
+                0 => Ok(Const::I1(false)),
+                1 => Ok(Const::I1(true)),
+                _ => Err(())
+            },
+            Type::I(8) => Ok(Const::I8(d as i8)),
+            Type::I(16) => Ok(Const::I16(d as i16)),
+            Type::I(32) => Ok(Const::I32(d as i32)),
+            Type::I(64) => Ok(Const::I64(d as i64)),
+            _ => unreachable!()
+        }
+    }
+
     pub fn zero(ty: &Type) -> Const {
         match ty {
-            Type::I1 => Const::I1(false),
-            Type::I64 => Const::I64(0),
+            Type::I(1) => Const::I1(false),
+            Type::I(8) => Const::I8(0),
+            Type::I(16) => Const::I16(0),
+            Type::I(32) => Const::I32(0),
+            Type::I(64) => Const::I64(0),
             _ => unreachable!()
         }
     }
 
     pub fn one(ty: &Type) -> Const {
         match ty {
-            Type::I1 => Const::I1(true),
-            Type::I64 => Const::I64(1),
+            Type::I(1) => Const::I1(true),
+            Type::I(8) => Const::I8(1),
+            Type::I(16) => Const::I16(1),
+            Type::I(32) => Const::I32(1),
+            Type::I(64) => Const::I64(1),
             _ => unreachable!()
         }
     }
@@ -356,8 +381,11 @@ impl Const {
 impl Typed for Const {
     fn get_type(&self) -> Type {
         match self {
-            Const::I1(_) => Type::I1,
-            Const::I64(_) => Type::I64,
+            Const::I1(_) => Type::I(1),
+            Const::I8(_) => Type::I(8),
+            Const::I16(_) => Type::I(16),
+            Const::I32(_) => Type::I(32),
+            Const::I64(_) => Type::I(64),
         }
     }
 }
@@ -366,6 +394,9 @@ impl ToString for Const {
     fn to_string(&self) -> String {
         match self {
             Const::I1(v) => if *v { "1".to_string() } else { "0".to_string() }
+            Const::I8(v) => format!("{}", v),
+            Const::I16(v) => format!("{}", v),
+            Const::I32(v) => format!("{}", v),
             Const::I64(v) => format!("{}", v),
         }
     }
@@ -377,7 +408,10 @@ impl Not for Const {
     fn not(self) -> Self::Output {
         match self {
             Const::I1(v) => Const::I1(!v),
-            _ => unreachable!()
+            Const::I8(v) => Const::I8(!v),
+            Const::I16(v) => Const::I16(!v),
+            Const::I32(v) => Const::I32(!v),
+            Const::I64(v) => Const::I64(!v),
         }
     }
 }
@@ -387,6 +421,9 @@ impl Neg for Const {
 
     fn neg(self) -> Self::Output {
         match self {
+            Const::I8(v) => Const::I8(-v),
+            Const::I16(v) => Const::I16(-v),
+            Const::I32(v) => Const::I32(-v),
             Const::I64(v) => Const::I64(-v),
             _ => unreachable!()
         }
@@ -399,6 +436,9 @@ macro_rules! bin_arith_impl {
             type Output = Self;
             fn $func(self, rhs: Self) -> Self::Output {
                 match (self, rhs) {
+                    (Const::I8(l), Const::I8(r)) => Const::I8(l $op r),
+                    (Const::I16(l), Const::I16(r)) => Const::I16(l $op r),
+                    (Const::I32(l), Const::I32(r)) => Const::I32(l $op r),
                     (Const::I64(l), Const::I64(r)) => Const::I64(l $op r),
                     _ => unreachable!()
                 }
@@ -423,6 +463,9 @@ macro_rules! bin_bitwise_impl {
             fn $func(self, rhs: Self) -> Self::Output {
                 match (self, rhs) {
                     (Const::I1(l), Const::I1(r)) => Const::I1(l $op r),
+                    (Const::I8(l), Const::I8(r)) => Const::I8(l $op r),
+                    (Const::I16(l), Const::I16(r)) => Const::I16(l $op r),
+                    (Const::I32(l), Const::I32(r)) => Const::I32(l $op r),
                     (Const::I64(l), Const::I64(r)) => Const::I64(l $op r),
                     _ => unreachable!()
                 }
@@ -440,6 +483,9 @@ macro_rules! cmp_ord_impl {
         impl Const {
             pub fn $func(self, rhs: Self) -> Self {
                 match (self, rhs) {
+                    (Const::I8(l), Const::I8(r)) => Const::I1(l $op r),
+                    (Const::I16(l), Const::I16(r)) => Const::I1(l $op r),
+                    (Const::I32(l), Const::I32(r)) => Const::I1(l $op r),
                     (Const::I64(l), Const::I64(r)) => Const::I1(l $op r),
                     _ => unreachable!()
                 }
@@ -460,6 +506,9 @@ macro_rules! cmp_eq_impl {
             pub fn $func(self, rhs: Self) -> Self {
                 match (self, rhs) {
                     (Const::I1(l), Const::I1(r)) => Const::I1(l $op r),
+                    (Const::I8(l), Const::I8(r)) => Const::I1(l $op r),
+                    (Const::I16(l), Const::I16(r)) => Const::I1(l $op r),
+                    (Const::I32(l), Const::I32(r)) => Const::I1(l $op r),
                     (Const::I64(l), Const::I64(r)) => Const::I1(l $op r),
                     _ => unreachable!()
                 }

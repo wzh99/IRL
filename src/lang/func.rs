@@ -322,7 +322,6 @@ impl Func {
         });
         // Run the Lengauer-Tarjan algorithm
         let result = dom::build(self.ent.borrow().clone());
-        println!("{:?}", result);
         for (block, dom) in result {
             block.parent.replace(Some(dom.clone()));
             dom.child.borrow_mut().push(block);
