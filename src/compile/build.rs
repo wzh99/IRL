@@ -86,7 +86,7 @@ impl Builder {
                 }
                 // Create global variable, possibly with initial value
                 Term::VarDef { loc, id, init, ty } => {
-                    let var = Rc::new(self.build_global_var(id, ty, init, &pro.global)?);
+                    let var = ExtRc::new(self.build_global_var(id, ty, init, &pro.global)?);
                     pro.vars.push(var.clone());
                     let sym = ExtRc::new(Symbol::Global(var));
                     let added = pro.global.insert(sym.clone());
@@ -122,6 +122,12 @@ impl Builder {
                         -> Result<GlobalVar, CompileErr>
     {
         let ty = self.create_type(ty, global)?;
+        if !ty.is_reg() {
+            Err(CompileErr {
+                loc: id.loc(),
+                msg: format!("cannot create global variable of type {}", ty.to_string()),
+            })?
+        }
         let init = match init {
             Some(c) => Some(self.create_const(c, &ty)?),
             None => None
@@ -298,7 +304,7 @@ impl Builder {
                         return Err(CompileErr {
                             loc: dst_loc.clone(),
                             msg: format!("destination {} is not local variable", dst.id()),
-                        })
+                        });
                     }
                     self.build_phi_instr(&ty, dst, list, ctx)
                 } else { unreachable!() }
@@ -420,6 +426,12 @@ impl Builder {
     {
         match op {
             "mov" => {
+                if !ty.is_reg() {
+                    Err(CompileErr {
+                        loc: loc.clone(),
+                        msg: format!("cannot move value of type {}", ty.to_string()),
+                    })?
+                }
                 let dst = self.create_symbol(dst, ty, ctx)?;
                 let src = self.build_opd_list(vec![ty.clone()], opd, ctx)?[0].clone();
                 Ok(Instr::Mov { src: RefCell::new(src), dst: RefCell::new(dst) })
@@ -429,7 +441,18 @@ impl Builder {
                 let dst = self.create_symbol(dst, &Type::Ptr(Box::new(ty.clone())), ctx)?;
                 Ok(Instr::Alloc { dst: RefCell::new(dst) })
             }
+            "new" => {
+                self.build_opd_list(vec![], opd, ctx)?;
+                let dst = self.create_symbol(dst, &Type::Ptr(Box::new(ty.clone())), ctx)?;
+                Ok(Instr::New { dst: RefCell::new(dst) })
+            }
             "ld" => {
+                if !ty.is_reg() {
+                    Err(CompileErr {
+                        loc: loc.clone(),
+                        msg: format!("cannot load value of type {}", ty.to_string()),
+                    })?
+                }
                 let dst = self.create_symbol(dst, ty, ctx)?;
                 let src = self.build_opd_list(vec![Type::Ptr(Box::new(ty.clone()))], opd, ctx)?;
                 Ok(Instr::Ld {
@@ -672,8 +695,14 @@ impl Builder {
                     fls: RefCell::new(fls.clone()),
                 })
             }
-            Term::StInstr { loc: _, ty, src, dst } => {
+            Term::StInstr { loc, ty, src, dst } => {
                 let ty = self.create_type(ty.deref(), &ctx.global)?;
+                if !ty.is_reg() {
+                    Err(CompileErr {
+                        loc: loc.clone(),
+                        msg: format!("cannot store value of type {}", ty.to_string()),
+                    })?
+                }
                 let src = self.create_value(&ty, src, ctx)?;
                 let dst = self.create_value(&Type::Ptr(Box::new(ty.clone())), dst, ctx)?;
                 Ok(Instr::St {
@@ -750,7 +779,7 @@ impl Builder {
 
     fn create_const(&self, tok: &Token, ty: &Type) -> Result<Const, CompileErr> {
         if let Token::Integer(l, i) = tok {
-            Const::from_str(i, ty).map_err(|()| CompileErr {
+            Const::from_str(i, ty).ok_or_else(|| CompileErr {
                 loc: l.clone(),
                 msg: format!("cannot create constant {} of type {}", i, ty.to_string()),
             })

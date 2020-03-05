@@ -2,7 +2,7 @@
 
 ## Introduction
 
-This project implement some technical aspects of IR (intermediate representation) language, including compilation, analysis, optimization, execution, etc. The functionality is quite similar to [LLVM](https://www.llvm.org), but substantially simplified. This project is written in pure and safe Rust. Some of the implementation is ported and improved from my previous project [GoCompiler](https://github.com/wzh99/GoCompiler). 
+This project implement some technical aspects of IR (intermediate representation) language, including compilation, analysis, optimization, execution, etc. The functionality is quite similar to [LLVM](https://www.llvm.org), but substantially simplified. This project is written in pure and safe Rust, except for the VM, where some `unsafe` code appears, but safe indeed. Some of the implementation is ported and improved from my previous project [GoCompiler](https://github.com/wzh99/GoCompiler). 
 
 ## Language
 

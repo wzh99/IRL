@@ -1,3 +1,4 @@
+use std::cell::{Ref, RefCell, RefMut};
 use std::hash::{Hash, Hasher};
 use std::iter::FromIterator;
 use std::ops::Deref;
@@ -9,10 +10,6 @@ pub struct ExtRc<T>(pub Rc<T>);
 
 impl<T> ExtRc<T> {
     pub fn new(e: T) -> Self { ExtRc(Rc::new(e)) }
-}
-
-impl<T> From<Rc<T>> for ExtRc<T> {
-    fn from(rc: Rc<T>) -> Self { ExtRc(rc) }
 }
 
 impl<T> PartialEq for ExtRc<T> {
@@ -38,6 +35,34 @@ impl<T> Deref for ExtRc<T> {
 
 impl<T> Clone for ExtRc<T> {
     fn clone(&self) -> Self { ExtRc(self.0.clone()) }
+}
+
+/// Extended reference counting with interior mutability
+#[derive(Eq)]
+pub struct MutRc<T>(pub Rc<RefCell<T>>);
+
+impl<T> MutRc<T> {
+    pub fn new(e: T) -> Self { MutRc(Rc::new(RefCell::new(e))) }
+}
+
+impl<T> PartialEq for MutRc<T> {
+    fn eq(&self, other: &Self) -> bool { Rc::ptr_eq(&self.0, &other.0) }
+}
+
+impl<T> Hash for MutRc<T> {
+    fn hash<H: Hasher>(&self, state: &mut H) {
+        (self.0.as_ref() as *const RefCell<T>).hash(state)
+    }
+}
+
+impl<T> Clone for MutRc<T> {
+    fn clone(&self) -> Self { MutRc(self.0.clone()) }
+}
+
+impl<T> MutRc<T> {
+    pub fn borrow(&self) -> Ref<T> { self.0.deref().borrow() }
+
+    pub fn borrow_mut(&self) -> RefMut<T> { self.0.deref().borrow_mut() }
 }
 
 /// Encapsulation of `HashSet` to aid work list algorithms

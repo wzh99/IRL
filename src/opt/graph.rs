@@ -229,7 +229,7 @@ impl InstrListener for GraphBuilder {
                 vert.add_opd(cond);
                 self.graph.add(vert, None);
             }
-            Instr::Alloc { dst } => {
+            Instr::Alloc { dst } | Instr::New { dst } => {
                 let vert = ExtRc::new(SsaVert::new(
                     VertTag::Cell(dst.borrow().id()),
                     Some((instr.clone(), self.block.clone().unwrap())),

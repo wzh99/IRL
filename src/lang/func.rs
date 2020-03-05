@@ -87,6 +87,7 @@ pub struct BasicBlock {
     child: RefCell<Vec<BlockRef>>,
 }
 
+
 pub type BlockRef = ExtRc<BasicBlock>;
 
 impl Debug for BlockRef {

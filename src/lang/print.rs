@@ -102,8 +102,10 @@ impl Printer<'_> {
                         fmt_val!(fst), fmt_val!(snd))
             }
             Instr::Call { func, arg, dst } => {
-                let mut s = format!("call {} @{}({})", func.ret.to_string(), func.name,
-                                    self.fmt_opd_list(arg));
+                let ty = if let Type::Void = func.ret { "".to_string() } else {
+                    func.ret.to_string() + " "
+                };
+                let mut s = format!("call {}@{}({})", ty, func.name, self.fmt_opd_list(arg));
                 dst.as_ref().map(|dst| s = format!("{} <- ", fmt_val!(dst)) + s.as_str());
                 s
             }
@@ -123,6 +125,13 @@ impl Printer<'_> {
                     elem.deref().clone()
                 } else { unreachable!() };
                 format!("{} <- alloc {}", fmt_val!(dst), elem_ty.to_string())
+            }
+            Instr::New { dst } => {
+                let dst_ty = dst.borrow().get_type();
+                let elem_ty = if let Type::Ptr(elem) = dst_ty {
+                    elem.deref().clone()
+                } else { unreachable!() };
+                format!("{} <- new {}", fmt_val!(dst), elem_ty.to_string())
             }
             Instr::Ptr { base, off, ind, dst } => {
                 let mut s = format!("{} <- ptr {} {}", fmt_val!(dst), fmt_ty!(dst),

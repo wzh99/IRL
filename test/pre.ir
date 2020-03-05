@@ -9,7 +9,7 @@ fn @test($t1: i64) {
 %B2:
     $t2 <- phi i64 [%B1: $t1] [%B6: $t3];
     $t3 <- add i64 $t2, 1;
-    br 0 ? %B7 : %B3;
+    br 1 ? %B7 : %B3;
 %B3:
     br 1 ? %B4 : %B5;
 %B4:
@@ -30,5 +30,11 @@ fn @test($t1: i64) {
     $t13 <- add i64 $t12, $t3;
     jmp %B2;
 %B7:
+    ret;
+}
+
+fn @main() {
+%B1:
+    call @test(0);
     ret;
 }

@@ -8,11 +8,11 @@ use std::str::FromStr;
 use crate::lang::func::Func;
 use crate::lang::util::ExtRc;
 
-#[derive(Clone, Eq, PartialEq, Debug)]
+#[derive(Clone, Eq, Debug)]
 pub enum Type {
     /// Void type, which does not represent any value and has no size.
     Void,
-    /// Integers, could be 1, 8, 16, 32 and 64 bits
+    /// Integers, could be 1, 8, 16, 32 or 64 bits
     I(u8),
     /// Function (pointer) with `param` as parameter type(s) and `ret` as return type.
     Fn { param: Vec<Type>, ret: Box<Type> },
@@ -27,6 +27,23 @@ pub enum Type {
     /// with different names are not equivalent, and an alias type is not equivalent to any non-
     /// alias type.
     Alias(SymbolRef),
+}
+
+impl PartialEq for Type {
+    fn eq(&self, other: &Self) -> bool {
+        match (self, other) {
+            (Type::Void, Type::Void) => true,
+            (Type::I(b1), Type::I(b2)) => b1 == b2,
+            (Type::Fn { param: p1, ret: r1 }, Type::Fn { param: p2, ret: r2 }) =>
+                p1 == p2 && r1 == r2,
+            (Type::Ptr(p1), Type::Ptr(p2)) => p1 == p2,
+            (Type::Array { elem: e1, len: l1 }, Type::Array { elem: e2, len: l2 }) =>
+                l1 == l2 && e1 == e2,
+            (Type::Struct { field: f1 }, Type::Struct { field: f2 }) => f1 == f2,
+            (Type::Alias(_), Type::Alias(_)) => self.orig() == other.orig(),
+            _ => false
+        }
+    }
 }
 
 impl FromStr for Type {
@@ -83,6 +100,14 @@ impl Type {
     fn vec_to_string(vec: &Vec<Type>) -> String {
         let str_list: Vec<String> = vec.iter().map(|p| p.to_string()).collect();
         str_list.join(", ")
+    }
+
+    /// Whether values of this type could be stored in virtual registers
+    pub fn is_reg(&self) -> bool {
+        match self {
+            Type::I(_) | Type::Ptr(_) => true,
+            _ => false
+        }
     }
 }
 
@@ -157,7 +182,7 @@ pub enum Symbol {
         ty: Type,
         ver: Option<usize>,
     },
-    Global(Rc<GlobalVar>),
+    Global(GlobalVarRef),
     Type {
         name: String,
         ty: RefCell<Type>,
@@ -239,6 +264,14 @@ pub struct GlobalVar {
 
 impl Typed for GlobalVar {
     fn get_type(&self) -> Type { return self.ty.clone(); }
+}
+
+pub type GlobalVarRef = ExtRc<GlobalVar>;
+
+impl Debug for GlobalVarRef {
+    fn fmt(&self, f: &mut Formatter<'_>) -> Result<(), Error> {
+        write!(f, "@{}", self.name)
+    }
 }
 
 #[derive(Debug)]
@@ -339,18 +372,19 @@ pub enum Const {
 }
 
 impl Const {
-    pub fn from_str(s: &str, ty: &Type) -> Result<Const, ()> {
-        let d: i64 = s.parse().map_err(|_| ())?;
+    /// Create constant `s` of type `ty`. Return `None` if the constant cannot be created.
+    pub fn from_str(s: &str, ty: &Type) -> Option<Const> {
+        let d: i64 = s.parse().ok()?;
         match ty {
             Type::I(1) => match d {
-                0 => Ok(Const::I1(false)),
-                1 => Ok(Const::I1(true)),
-                _ => Err(())
+                0 => Some(Const::I1(false)),
+                1 => Some(Const::I1(true)),
+                _ => None
             },
-            Type::I(8) => Ok(Const::I8(d as i8)),
-            Type::I(16) => Ok(Const::I16(d as i16)),
-            Type::I(32) => Ok(Const::I32(d as i32)),
-            Type::I(64) => Ok(Const::I64(d as i64)),
+            Type::I(8) => Some(Const::I8(d as i8)),
+            Type::I(16) => Some(Const::I16(d as i16)),
+            Type::I(32) => Some(Const::I32(d as i32)),
+            Type::I(64) => Some(Const::I64(d as i64)),
             _ => unreachable!()
         }
     }
