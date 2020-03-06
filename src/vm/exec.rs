@@ -109,16 +109,19 @@ impl Machine {
                     }
                     Instr::Ret { val } => {
                         let res = val.as_ref().map(|val| self.reg_from_src(val, file));
+                        self.stack.pop_frame();
                         return Ok(res);
                     }
                     Instr::Jmp { tgt } => {
                         next_blk = tgt.borrow().clone();
+                        frame.borrow_mut().instr = 0;
                         break;
                     }
                     Instr::Br { cond, tr, fls } => {
                         let cond = self.reg_from_src(cond, file).get_const();
                         let cond = if let Const::I1(b) = cond { b } else { unreachable!() };
                         next_blk = if cond { tr.borrow().clone() } else { fls.borrow().clone() };
+                        frame.borrow_mut().instr = 0;
                         break;
                     }
                     Instr::Alloc { dst } => {
@@ -131,6 +134,7 @@ impl Machine {
                     Instr::Ld { ptr, dst } => self.exec_ld(ptr, dst, file)?,
                     Instr::St { src, ptr } => self.exec_st(src, ptr, file)?
                 }
+                frame.borrow_mut().instr += 1;
             }
         }
     }
@@ -178,7 +182,7 @@ impl Machine {
     }
 
     fn write<T>(mem: &mut Vec<u8>, addr: usize, val: T) {
-        let ptr = mem[addr] as *mut u8 as *mut T;
+        let ptr = &mut mem[addr] as *mut u8 as *mut T;
         unsafe { *ptr = val }
     }
 
@@ -333,7 +337,13 @@ pub struct RuntimeErr {
 
 impl Debug for RuntimeErr {
     fn fmt(&self, f: &mut Formatter<'_>) -> Result<(), Error> {
-        write!(f, "runtime error: {}", self.msg)
+        writeln!(f, "runtime error: {}", self.msg)?;
+        writeln!(f, "call stack: ")?;
+        for (i, frame) in self.frame.iter().rev().enumerate() {
+            writeln!(f, "{} @{}, %{:?}, #{}", i, frame.borrow().func.name,
+                     frame.borrow().block.as_ref().unwrap(), frame.borrow().instr)?;
+        }
+        Ok(())
     }
 }
 

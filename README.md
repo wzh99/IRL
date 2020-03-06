@@ -2,7 +2,7 @@
 
 ## Introduction
 
-This project aims to building a complete intermediate representation language and cover several technical aspects of a programming language, including compilation, analysis, optimization, execution, etc. It is designed so that IR can be directly and easily constructed by hand, without translation from higher level languages. The functionality is quite similar to [LLVM](https://www.llvm.org), but simplified and adjusted to suit the need of research. This project is written in pure and safe Rust, except for the VM, where some `unsafe` code appears, but safe indeed. 
+This project aims to building a complete intermediate representation language and cover several technical aspects of a programming language, including compilation, optimization, execution, etc. It is designed so that IR can be directly and easily constructed by hand, without translation from higher level languages. The functionality is quite similar to [LLVM](https://www.llvm.org), but simplified and adjusted to suit the need of research. This project is written in pure and safe Rust, except for the interpreter, where some `unsafe` code appears, but safe indeed. 
 
 ## Language
 
@@ -55,7 +55,7 @@ This project supports reading a text source of the language and convert it to me
 
 ### Parsing
 
-The lexer and parser are all written by hand. The lexical and syntactical rules can be seen in [`compile::syntax`](src/compile/syntax.rs). The grammar is an LL(1) one. The lexer creates a token one at a time. The recursive-descent parser keeps a buffer for the incoming token stream, either peeks to see which rule to use, or consumes token in the buffer to progress. The parsing is rather efficient.
+The lexer and parser are all written by hand. The lexical and syntactical rules can be seen in [`compile::syntax`](src/compile/syntax.rs). The grammar is LL(2). The lexer creates a token one at a time. The recursive-descent parser keeps a buffer for the incoming token stream, either peeks to see which rule to use, or consumes token in the buffer to progress. The parsing is rather efficient.
 
 ### Construction and Verification
 
@@ -101,6 +101,6 @@ Other optimizations will be added to this project successively.
 
 ## Execution
 
-[`vm::exec::Machine`](src/vm/exec.rs) is an interpreter that could actually execute the program written in this language. It can be seen as a virtual machine that support instructions defined in this language. The machine could check all of the *runtime* errors, including null pointer dereference, access to unallocated memory and out-of-bound index, stop immediately and report it to the user. This makes sure that the interpreter will not panic itself at any time, as long as the program is correct in terms of its static semantics. For programs that have not gone through semantic analysis, especially those constructed directly by API, nonexistence of VM panic or unexpected behavior cannot be guaranteed.
+[`vm::exec::Machine`](src/vm/exec.rs) is an interpreter that could actually execute the program written in this language. It can be seen as a virtual machine that supports instructions defined in this language. The interpreter could check all of the *runtime* errors, including null pointer dereference, access to unallocated memory and out-of-bound index, stop immediately and report the error to the programmer. This makes sure that the interpreter will not panic itself at any time, as long as the program is correct in terms of its static semantics. For programs that have not gone through semantic analysis, especially those constructed directly by API, nonexistence of VM panic or unexpected behavior cannot be guaranteed.
 
 The interpreter also counts the number of executed instructions and hypothetical execution time. The time is counted by compute weight of each instruction and sum all the weights up. The weights are based on the number of clock cycles required to do the corresponding computation in real-world processors. This could serve as a metric for evaluating the efficiency of certain optimizations.
