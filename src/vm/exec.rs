@@ -60,6 +60,9 @@ impl Machine {
             .map(|(p, r)| { (p.borrow().clone(), r) }).collect();
 
         // Push a new frame to stack
+        if self.stack.len() >= 256 {
+            self.err(format!("stack overflow"))?
+        }
         self.stack.push_frame(func);
         let frame = self.stack.top();
 

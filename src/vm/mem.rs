@@ -37,6 +37,8 @@ impl Stack {
 
     pub fn unwind(&self) -> Vec<FrameRef> { self.frame.clone() }
 
+    pub fn len(&self) -> usize { self.frame.len() }
+
     /// Push a new frame to stack with the given function.
     pub fn push_frame(&mut self, func: &Rc<Func>) {
         let frame = Frame {
