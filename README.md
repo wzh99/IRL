@@ -2,7 +2,7 @@
 
 ## Introduction
 
-This project implement some technical aspects of IR (intermediate representation) language, including compilation, analysis, optimization, execution, etc. The functionality is quite similar to [LLVM](https://www.llvm.org), but substantially simplified. This project is written in pure and safe Rust, except for the VM, where some `unsafe` code appears, but safe indeed. Some of the implementation is ported and improved from my previous project [GoCompiler](https://github.com/wzh99/GoCompiler). 
+This project aims to building a complete intermediate representation language and cover several technical aspects of a programming language, including compilation, analysis, optimization, execution, etc. It is designed so that IR can be directly and easily constructed by hand, without translation from higher level languages. The functionality is quite similar to [LLVM](https://www.llvm.org), but simplified and adjusted to suit the need of research. This project is written in pure and safe Rust, except for the VM, where some `unsafe` code appears, but safe indeed. 
 
 ## Language
 
@@ -19,9 +19,11 @@ fn @main() {
     @g <- call i64 @max(1, 2);
     $b <- alloc [4]i64;
     $p <- ptr *i64 $b [@g];
-    $v <- ld i64 $p;
     $q <- ptr *i64 $p, 1;
-    st i64 $v -> $q;
+    st i64 @g -> $q;
+    $s <- ld i64 $q;
+    $t <- add i64 $s, 2;
+    @g <- mov i64 $t;
     $a <- new [@g][2]i16;
     $r <- ptr *i16 $a, 1 [1];
     ret;
@@ -99,4 +101,6 @@ Other optimizations will be added to this project successively.
 
 ## Execution
 
-To be done.
+[`vm::exec::Machine`](src/vm/exec.rs) is an interpreter that could actually execute the program written in this language. It can be seen as a virtual machine that support instructions defined in this language. The machine could check all of the *runtime* errors, including null pointer dereference, access to unallocated memory and out-of-bound index, stop immediately and report it to the user. This makes sure that the interpreter will not panic itself at any time, as long as the program is correct in terms of its static semantics. For programs that have not gone through semantic analysis, especially those constructed directly by API, nonexistence of VM panic or unexpected behavior cannot be guaranteed.
+
+The interpreter also counts the number of executed instructions and hypothetical execution time. The time is counted by compute weight of each instruction and sum all the weights up. The weights are based on the number of clock cycles required to do the corresponding computation in real-world processors. This could serve as a metric for evaluating the efficiency of certain optimizations.

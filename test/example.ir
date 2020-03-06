@@ -11,9 +11,11 @@ fn @main() {
     @g <- call i64 @max(1, 2); // no need to annotate type for arguments
     $b <- alloc [4]i64; // aggregate should be allocated before accessed
     $p <- ptr *i64 $b [@g]; // operands in the square bracket are indices INSIDE aggregates
-    $v <- ld i64 $p;
     $q <- ptr *i64 $p, 1; // second operand is OFFSET of pointer
-    st i64 $v -> $q; // use arrow to indicate data flow
+    st i64 @g -> $q; // use arrow to indicate data flow
+    $s <- ld i64 $q;
+    $t <- add i64 $s, 2;
+    @g <- mov i64 $t;
     $a <- new [@g][2]i16; // dynamically allocate heap memory by `new`, return `*[2]i16`
     $r <- ptr *i16 $a, 1 [1];
     ret;

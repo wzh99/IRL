@@ -121,21 +121,15 @@ impl Printer<'_> {
                 format!("br {} ? %{} : %{}", fmt_val!(cond), tr.borrow().name, fls.borrow().name),
             Instr::Alloc { dst } => {
                 let dst_ty = dst.borrow().get_type();
-                let elem_ty = if let Type::Ptr(elem) = dst_ty {
-                    elem.deref().clone()
-                } else { unreachable!() };
-                format!("{} <- alloc {}", fmt_val!(dst), elem_ty.to_string())
+                format!("{} <- alloc {}", fmt_val!(dst), dst_ty.tgt_type().to_string())
             }
             Instr::New { dst, len } => {
                 let dst_ty = dst.borrow().get_type();
-                let elem_ty = if let Type::Ptr(elem) = dst_ty {
-                    elem.deref().clone()
-                } else { unreachable!() };
                 let len = match len {
                     Some(len) => format!("[{}]", fmt_val!(len)),
                     None => "".to_string()
                 };
-                format!("{} <- new {}{}", fmt_val!(dst), len, elem_ty.to_string())
+                format!("{} <- new {}{}", fmt_val!(dst), len, dst_ty.tgt_type().to_string())
             }
             Instr::Ptr { base, off, ind, dst } => {
                 let mut s = format!("{} <- ptr {} {}", fmt_val!(dst), fmt_ty!(dst),

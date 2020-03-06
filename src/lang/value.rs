@@ -109,6 +109,13 @@ impl Type {
             _ => false
         }
     }
+
+    /// Get target type for pointer types
+    pub fn tgt_type(&self) -> Type {
+        if let Type::Ptr(t) = self { t.deref().clone() } else {
+            panic!("cannot get target type of non-pointer type")
+        }
+    }
 }
 
 pub trait Typed {
