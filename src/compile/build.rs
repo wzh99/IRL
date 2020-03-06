@@ -315,6 +315,15 @@ impl Builder {
                 self.build_ptr(dst, opd.deref(), idx.as_ref().map(|idx| idx.deref().clone()),
                                ctx, loc)
             }
+            Term::NewRhs { loc: _, ty, len } => {
+                let ty = self.create_type(ty, &ctx.global)?;
+                let dst = self.create_symbol(dst, &Type::Ptr(Box::new(ty)), ctx)?;
+                let len = match len.as_ref() {
+                    Some(len) => Some(RefCell::new(Value::Var(self.find_symbol(len, ctx)?))),
+                    None => None
+                };
+                Ok(Instr::New { dst: RefCell::new(dst), len })
+            }
             _ => unreachable!()
         }
     }
@@ -373,7 +382,8 @@ impl Builder {
         if dst_ty != elem_ptr_ty {
             return Err(CompileErr {
                 loc: loc.clone(),
-                msg: format!("expect type {}, got {}", elem_ty.to_string(), dst_ty.to_string()),
+                msg: format!("expect type {}, got {}", elem_ptr_ty.to_string(),
+                             dst_ty.to_string()),
             });
         }
 
@@ -440,11 +450,6 @@ impl Builder {
                 self.build_opd_list(vec![], opd, ctx)?; // no operands
                 let dst = self.create_symbol(dst, &Type::Ptr(Box::new(ty.clone())), ctx)?;
                 Ok(Instr::Alloc { dst: RefCell::new(dst) })
-            }
-            "new" => {
-                self.build_opd_list(vec![], opd, ctx)?;
-                let dst = self.create_symbol(dst, &Type::Ptr(Box::new(ty.clone())), ctx)?;
-                Ok(Instr::New { dst: RefCell::new(dst) })
             }
             "ld" => {
                 if !ty.is_reg() {

@@ -14,6 +14,8 @@ fn @main() {
     $v <- ld i64 $p;
     $q <- ptr *i64 $p, 1; // second operand is OFFSET of pointer
     st i64 $v -> $q; // use arrow to indicate data flow
+    $a <- new [@g][2]i16; // dynamically allocate heap memory by `new`, return `*[2]i16`
+    $r <- ptr *i16 $a, 1 [1];
     ret;
 }
 

@@ -229,11 +229,22 @@ impl InstrListener for GraphBuilder {
                 vert.add_opd(cond);
                 self.graph.add(vert, None);
             }
-            Instr::Alloc { dst } | Instr::New { dst } => {
+            Instr::Alloc { dst } => {
                 let vert = ExtRc::new(SsaVert::new(
                     VertTag::Cell(dst.borrow().id()),
                     Some((instr.clone(), self.block.clone().unwrap())),
                 ));
+                self.graph.add(vert, Some(dst.borrow().clone()));
+            }
+            Instr::New { dst, len } => {
+                let vert = ExtRc::new(SsaVert::new(
+                    VertTag::Cell(dst.borrow().id()),
+                    Some((instr.clone(), self.block.clone().unwrap())),
+                ));
+                len.as_ref().map(|len| {
+                    let len = self.get_src_vert(len);
+                    vert.add_opd(len);
+                });
                 self.graph.add(vert, Some(dst.borrow().clone()));
             }
             Instr::Ptr { base, off, ind, dst } =>

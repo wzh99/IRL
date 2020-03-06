@@ -7,26 +7,26 @@ use crate::lang::Program;
 use crate::lang::value::GlobalVarRef;
 use crate::vm::mem::{FrameRef, Reg, Stack};
 
-pub struct Interpreter {
+pub struct Machine {
     global: HashMap<GlobalVarRef, Reg>,
     stack: Stack,
     count: Counter,
 }
 
-impl Interpreter {
+impl Machine {
     pub fn new() -> Self {
-        Interpreter {
+        Machine {
             global: Default::default(),
             stack: Stack::new(),
             count: Counter::new(),
         }
     }
 
-    pub fn run(&mut self, pro: &Program) -> Result<VmState, RuntimeErr> {
+    pub fn run(&mut self, pro: &Program) -> Result<VmRcd, RuntimeErr> {
         // Initialize global variable
         pro.vars.iter().for_each(|var| {
             let mut reg = Reg::from(&var.ty);
-            var.init.map(|c| reg.set(c));
+            var.init.map(|init| reg.set(init));
             self.global.insert(var.clone(), reg);
         });
 
@@ -46,7 +46,7 @@ impl Interpreter {
         self.stack.clear();
         self.count.reset();
 
-        Ok(VmState { global })
+        Ok(VmRcd { global, count: self.count })
     }
 
     fn call(&mut self, func: &Rc<Func>, arg: Vec<Reg>) -> Result<Option<Reg>, RuntimeErr> {
@@ -59,8 +59,10 @@ impl Interpreter {
     }
 }
 
-pub struct VmState {
-    pub global: Vec<(GlobalVarRef, Reg)>
+/// Record of VM when executing this program
+pub struct VmRcd {
+    pub global: Vec<(GlobalVarRef, Reg)>,
+    pub count: Counter,
 }
 
 pub struct RuntimeErr {
@@ -74,7 +76,8 @@ impl Debug for RuntimeErr {
     }
 }
 
-struct Counter {
+#[derive(Copy, Clone)]
+pub struct Counter {
     /// Number of instructions executed
     num: usize,
     /// Time consumed in executing this program
@@ -88,4 +91,32 @@ impl Counter {
         self.num = 0;
         self.time = 0;
     }
+}
+
+#[test]
+fn test_exec() {
+    use crate::compile::lex::Lexer;
+    use crate::compile::parse::Parser;
+    use crate::compile::build::Builder;
+    use crate::lang::print::Printer;
+    use crate::vm::exec::Machine;
+    use std::io::stdout;
+    use std::fs::File;
+    use std::convert::TryFrom;
+    use std::io::Read;
+    use std::borrow::BorrowMut;
+
+    let mut file = File::open("test/example.ir").unwrap();
+    let lexer = Lexer::try_from(&mut file as &mut dyn Read).unwrap();
+    let parser = Parser::new(lexer);
+    let tree = parser.parse().unwrap();
+    let builder = Builder::new(tree);
+    let mut pro = builder.build().unwrap();
+
+    let mut out = stdout();
+    let mut printer = Printer::new(out.borrow_mut());
+    printer.print(&pro).unwrap();
+
+    let mut mach = Machine::new();
+    mach.run(&mut pro).unwrap();
 }

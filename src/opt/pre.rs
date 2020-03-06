@@ -744,7 +744,7 @@ fn test_pre() {
     use crate::compile::parse::Parser;
     use crate::compile::build::Builder;
     use crate::lang::print::Printer;
-    use crate::vm::exec::Interpreter;
+    use crate::vm::exec::Machine;
     use std::io::stdout;
     use std::fs::File;
     use std::convert::TryFrom;
@@ -764,6 +764,6 @@ fn test_pre() {
     let mut printer = Printer::new(out.borrow_mut());
     printer.print(&pro).unwrap();
 
-    let mut int = Interpreter::new();
-    int.run(&mut pro).unwrap();
+    let mut mach = Machine::new();
+    mach.run(&mut pro).unwrap();
 }

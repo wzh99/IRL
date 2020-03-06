@@ -31,8 +31,8 @@ pub enum Instr {
     Phi { src: Vec<PhiSrc>, dst: RefCell<SymbolRef> },
     /// Allocate memory on stack, and return pointer to the beginning of that location.
     Alloc { dst: RefCell<SymbolRef> },
-    /// Allocate memory on heap, and return pointer to the beginning of that location.
-    New { dst: RefCell<SymbolRef> },
+    /// Dynamically allocate memory on heap, and return pointer to the beginning of that location.
+    New { dst: RefCell<SymbolRef>, len: Option<RefCell<Value>> },
     /// Pointer arithmetic
     /// `base` is a pointer value. If `off` is not `None`, the instruction offset pointer by `off`
     /// multiplied by the size of target type of `base`. If `ind` is none, the pointer is returned.
@@ -75,7 +75,7 @@ impl Instr {
             Instr::Ret { val: _ } => "ret".to_string(),
             Instr::Phi { src: _, dst: _ } => "phi".to_string(),
             Instr::Alloc { dst: _ } => "alloc".to_string(),
-            Instr::New { dst: _ } => "new".to_string(),
+            Instr::New { dst: _, len: _ } => "new".to_string(),
             Instr::Ptr { base: _, off: _, ind: _, dst: _ } => "ptr".to_string(),
             Instr::Ld { ptr: _, dst: _ } => "ld".to_string(),
             Instr::St { src: _, ptr: _ } => "st".to_string(),
@@ -112,7 +112,7 @@ impl Instr {
             Instr::Jmp { tgt: _ } => None,
             Instr::Br { cond: _, tr: _, fls: _ } => None,
             Instr::Ret { val: _ } => None,
-            Instr::Alloc { dst } | Instr::New { dst } => Some(dst),
+            Instr::Alloc { dst } | Instr::New { dst, len: _ } => Some(dst),
             Instr::Ptr { base: _, off: _, ind: _, dst } => Some(dst),
             Instr::Ld { ptr: _, dst } => Some(dst),
             Instr::St { src: _, ptr: _ } => None,
@@ -136,7 +136,11 @@ impl Instr {
             }
             Instr::Jmp { tgt: _ } => vec![],
             Instr::Br { cond, tr: _, fls: _ } => vec![cond],
-            Instr::Alloc { dst: _ } | Instr::New { dst: _ } => vec![],
+            Instr::Alloc { dst: _ } => vec![],
+            Instr::New { dst: _, len } => match len {
+                Some(len) => vec![len],
+                None => vec![]
+            }
             Instr::Ptr { base, off, ind, dst: _ } => {
                 let mut v = vec![base];
                 off.as_ref().map(|off| v.push(off));

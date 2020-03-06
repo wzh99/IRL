@@ -22,6 +22,8 @@ fn @main() {
     $v <- ld i64 $p;
     $q <- ptr *i64 $p, 1;
     st i64 $v -> $q;
+    $a <- new [@g][2]i16;
+    $r <- ptr *i16 $a, 1 [1];
     ret;
 }
 

@@ -126,12 +126,16 @@ impl Printer<'_> {
                 } else { unreachable!() };
                 format!("{} <- alloc {}", fmt_val!(dst), elem_ty.to_string())
             }
-            Instr::New { dst } => {
+            Instr::New { dst, len } => {
                 let dst_ty = dst.borrow().get_type();
                 let elem_ty = if let Type::Ptr(elem) = dst_ty {
                     elem.deref().clone()
                 } else { unreachable!() };
-                format!("{} <- new {}", fmt_val!(dst), elem_ty.to_string())
+                let len = match len {
+                    Some(len) => format!("[{}]", fmt_val!(len)),
+                    None => "".to_string()
+                };
+                format!("{} <- new {}{}", fmt_val!(dst), len, elem_ty.to_string())
             }
             Instr::Ptr { base, off, ind, dst } => {
                 let mut s = format!("{} <- ptr {} {}", fmt_val!(dst), fmt_ty!(dst),

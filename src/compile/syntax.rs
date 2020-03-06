@@ -62,8 +62,9 @@ pub enum Term {
     /// AssignInstr : Id `<-` AssignRhs ;
     AssignInstr { loc: Loc, id: Token, rhs: Box<Term> },
 
-    /// AssignRhs : CommonRhs | CallRhs | PhiRhs | PtrRhs ;
-    /// FIRST = { `call` -> CallRhs, `phi` -> PhiRhs, `ptr` -> PtrRhs, Reserved -> CommonRhs }
+    /// AssignRhs : CommonRhs | CallRhs | PhiRhs | PtrRhs | NewRhs ;
+    /// FIRST = { `call` -> CallRhs, `phi` -> PhiRhs, `ptr` -> PtrRhs, `new` -> NewRhs,
+    ///     Reserved -> CommonRhs }
     /// FOLLOW = { `;` }
     AssignRhs { loc: Loc, rhs: Box<Term> },
 
@@ -77,8 +78,10 @@ pub enum Term {
     PhiRhs { loc: Loc, ty: Box<Term>, list: Box<Term> },
 
     /// PtrRhs : `ptr` TypeDecl OpdList IndexList? ;
-    /// FOLLOW = { `;` }
     PtrRhs { loc: Loc, ty: Box<Term>, opd: Box<Term>, idx: Option<Box<Term>> },
+
+    /// NewRhs : `new` ( `[` Integer `]` )? TypeDecl ;
+    NewRhs { loc: Loc, ty: Box<Term>, len: Option<Token> },
 
     /// OpdList : ( Opd ( `,` Opd )* )?
     /// FIRST = { Opd, `` }

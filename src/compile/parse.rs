@@ -236,6 +236,7 @@ impl Parser {
                 "call" => self.call_rhs(),
                 "phi" => self.phi_rhs(),
                 "ptr" => self.ptr_rhs(),
+                "new" => self.new_rhs(),
                 _ => self.common_rhs()
             }
             tok => self.err(vec!["{Reserved}"], tok)
@@ -269,6 +270,23 @@ impl Parser {
             tok => return self.err(vec!["[", ";"], tok)
         };
         Ok(Term::PtrRhs { loc, ty: Box::new(ty), opd: Box::new(opd), idx })
+    }
+
+    fn new_rhs(&mut self) -> ParseResult {
+        let loc = self.loc.clone();
+        self.consume()?; // `new`
+        let len = match (self.peek(0)?, self.peek(1)?) {
+            (Token::LeftSquare(_), id) if id.is_id() => {
+                self.consume()?; // `[`
+                let id = self.consume()?; // Id
+                let right = self.consume()?;
+                check_op!(self, right, "]");
+                Some(id)
+            }
+            _ => None
+        };
+        let ty = self.type_decl()?;
+        Ok(Term::NewRhs { loc, ty: Box::new(ty), len })
     }
 
     fn index_list(&mut self) -> ParseResult {
