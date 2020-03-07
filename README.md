@@ -101,6 +101,24 @@ Other optimizations will be added to this project successively.
 
 ## Execution
 
-[`vm::exec::Machine`](src/vm/exec.rs) is an interpreter that could actually execute the program written in this language. It can be seen as a virtual machine that supports instructions defined in this language. The interpreter could check all of the *runtime* errors, including null pointer dereference, access to unallocated memory and out-of-bound index, stop immediately and report the error to the programmer. This makes sure that the interpreter will not panic itself at any time, as long as the program is correct in terms of its static semantics. For programs that have not gone through semantic analysis, especially those constructed directly by API, nonexistence of VM panic or unexpected behavior cannot be guaranteed.
+[`vm::exec::Machine`](src/vm/exec.rs) is an interpreter that could actually execute the program written in this language. It can be seen as a virtual machine that supports instructions defined in this language. The interpreter could check all of the *runtime* errors, including null pointer dereference, access to unallocated memory and stack overflow, stop immediately and report the error to the programmer. This makes sure that the interpreter will not panic itself at any time, as long as the program is correct in terms of its static semantics. For programs that have not gone through semantic analysis, especially those constructed directly by API, nonexistence of VM panic or unexpected behavior cannot be guaranteed.
 
-The interpreter also counts the number of executed instructions and hypothetical execution time. The time is counted by compute weight of each instruction and sum all the weights up. The weights are based on the number of clock cycles required to do the corresponding computation in real-world processors. This could serve as a metric for evaluating the efficiency of certain optimizations.
+The interpreter also counts the number of executed instructions and hypothetical execution time. The time is counted by computing weight of each instruction and summing all the weights up. The weights are based on the number of clock cycles required to do the corresponding computation in real-world processors. This could serve as a metric for evaluating the efficiency of certain optimizations.
+
+If we execute the example program, we get the following feedback:
+
+```
+VmRcd { global: [(@g, Val(I64(4)))], count: Counter { num: 17, time: 37 } }
+``` 
+
+Here we know that the final value for global variable `@g` is 4. 17 instructions were executed, and it took 37 clock cycles in this machine.
+
+What if some runtime error occurs? We can see by modifying `$q <- ptr *i64 $p, 1;` to `$q <- ptr *i64 $p, 2;`. Since we only allocated four `i64`s, access to 2 + 2 = 4th element not be accepted.
+
+```
+runtime error: memory access out of bound
+call stack: 
+0 @main, %Begin, #4
+```
+
+The interpreter prints the error message and unwinds the call stack. We can know from the output that the error occurs at instruction number 4 (0-indexed) of block `%Begin` in function `@main`, when the program tries to store `@g` to pointer `$q`.

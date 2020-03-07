@@ -41,17 +41,18 @@ impl Machine {
             None => self.err(format!("cannot find program entrance"))?
         }
 
-        // Collect final global variables
+        // Collect machine statistics
         let mut global: Vec<_> = self.global.iter()
             .map(|(v, r)| (v.clone(), r.clone())).collect();
         global.sort_by_cached_key(|(v, _)| v.name.clone());
+        let count = self.count;
 
         // Clear machine state for this program
         self.global.clear();
         self.stack.clear();
         self.count.reset();
 
-        Ok(VmRcd { global, count: self.count })
+        Ok(VmRcd { global, count })
     }
 
     fn call(&mut self, func: &Rc<Func>, arg: Vec<Reg>) -> Result<Option<Reg>, RuntimeErr> {
@@ -88,6 +89,7 @@ impl Machine {
             let cur_blk = next_blk.clone();
             frame.borrow_mut().block = Some(cur_blk.clone());
             for instr in cur_blk.instr.borrow().iter() {
+                self.count.count(instr.as_ref());
                 match instr.as_ref() {
                     Instr::Phi { src: _, dst: _ } => {}
                     Instr::Mov { src, dst } => {
