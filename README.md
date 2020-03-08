@@ -2,11 +2,11 @@
 
 ## Introduction
 
-This project aims to building a complete intermediate representation language and cover several technical aspects of a programming language, including compilation, optimization, execution, etc. It is designed so that IR can be directly and easily constructed by hand, without translation from higher level languages. The functionality is quite similar to [LLVM](https://www.llvm.org), but simplified and adjusted to suit the need of study and research. This project is written in pure and safe Rust, except for the interpreter, where some `unsafe` code appears, but safe indeed. 
+This project aims to building a complete intermediate representation language and covers several technical aspects of a programming language, including compilation, optimization, execution, etc. It is designed so that IR can be directly and easily constructed by hand, without translation from higher level languages. The functionality is quite similar to [LLVM](https://www.llvm.org), but simplified and adjusted to suit the need of study and research. This project is written in pure and safe Rust, except for the interpreter, where some `unsafe` code appears, but safe indeed. 
 
 ## Language
 
-The language involved is an CFG-based, register-to-register model IR. Phi instruction is provided to build SSA form, but is not mandatory. The following is an example to show the structure of a simple program. The program is not very practical, but should suffice to show some characteristics of this language. This example can also be seen in [example.ir](test/example.ir)
+The language is a CFG-based register-transfer IR. Phi instruction is provided to build SSA form. The following is an example to show the structure of a simple program. The program is not very practical, but should suffice to show some characteristics of this language. This example can also be seen in [example.ir](test/example.ir)
 
 ```
 type @Foo = { i16, { [2][4]i8 }, *@Bar }
@@ -112,9 +112,9 @@ If we execute the example program, we get the following feedback:
 VmRcd { global: [(@g, Val(I64(4)))], count: Counter { num: 18, time: 39 } }
 ``` 
 
-Here we know that the final value of global variable `@g` is 4. Eighteen instructions were executed, and it took 39 clock cycles in this machine.
+Here we know that the final value of global variable `@g` is four. 18 instructions were executed, and it took 39 clock cycles to run this program.
 
-What if some runtime error occurs? We can see by modifying `$q <- ptr *i64 $p, 1;` to `$q <- ptr *i64 $p, 2;`. Since we only allocated four `i64`s, access to 2 + 2 = 4th element not be accepted.
+What if some runtime error occurs? We can see by modifying `$q <- ptr *i64 $p, 1;` to `$q <- ptr *i64 $p, 2;`.
 
 ```
 runtime error: memory access out of bound
@@ -122,4 +122,4 @@ call stack:
 0 @main, %Begin, #4
 ```
 
-The interpreter prints the error message and unwinds the call stack. We can know from the output that the error occurs at instruction number 4 (0-indexed) of block `%Begin` in function `@main`, when the program tries to store `@g` to pointer `$q`.
+The interpreter prints the error message and unwinds the call stack. We can know from the output that the error occurs at instruction number 4 (0-indexed) of block `%Begin` in function `@main`, when the program tries to store `@g` to pointer `$q`. Since the program only allocates four `i64`s, access to 2 + 2 = 4th element is not accepted.
