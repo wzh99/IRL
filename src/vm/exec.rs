@@ -307,7 +307,10 @@ impl Machine {
 
     fn reg_from_src(&mut self, src: &RefCell<Value>, file: &RegFile) -> Reg {
         match src.borrow().deref() {
-            Value::Var(sym) if sym.is_local_var() => file[sym].clone(),
+            Value::Var(sym) if sym.is_local_var() => match file.get(sym) {
+                Some(reg) => reg.clone(),
+                None => Reg::zero(&src.borrow().get_type())
+            },
             Value::Var(sym) => if let Symbol::Global(g) = sym.as_ref() {
                 self.global[g].clone()
             } else { unreachable!() }

@@ -117,6 +117,14 @@ impl From<&Type> for Reg {
 }
 
 impl Reg {
+    pub fn zero(ty: &Type) -> Reg {
+        match ty {
+            Type::I(_) => Reg::Val(Const::zero(ty)),
+            Type::Ptr(_) => Reg::Ptr { base: None, off: 0 },
+            _ => panic!("cannot create zero value for type {:?}", ty)
+        }
+    }
+
     pub fn is_val(&self) -> bool {
         match self {
             Reg::Val(_) => true,
