@@ -202,7 +202,7 @@ impl SccpOpt {
     fn visit_ssa(&mut self) {
         // Pick one SSA edge from work list.
         let edge = self.ssa_work.pick().unwrap();
-        let (instr, block) = match &edge.us.instr { // extract the instruction that uses this value
+        let (block, instr) = match &edge.us.def { // extract the instruction that uses this value
             Some(pair) => pair,
             None => return
         };
