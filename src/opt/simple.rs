@@ -65,6 +65,9 @@ impl BlockListener for CopyListener {
 impl InstrListener for CopyListener {
     fn on_instr(&mut self, instr: InstrRef) {
         if let Instr::Mov { src, dst } = instr.as_ref() {
+            if src.borrow().is_global_var() || dst.borrow().is_global_var() {
+                return; // don't propagate global variable
+            }
             self.map.insert(dst.borrow().clone(), src.borrow().clone());
             self.def.last_mut().unwrap().push(dst.borrow().clone());
             self.rm.insert(instr);

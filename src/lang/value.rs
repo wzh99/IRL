@@ -186,7 +186,7 @@ impl Value {
     /// Whether this value is global variable
     pub fn is_global_var(&self) -> bool {
         match self {
-            Value::Var(sym) if !sym.is_local_var() => true,
+            Value::Var(sym) if sym.is_global_var() => true,
             _ => false
         }
     }
@@ -263,10 +263,18 @@ impl Symbol {
         } else { self.name().to_string() }
     }
 
-    /// Whether this symbol refers to local variable.
+    /// Whether this symbol is a local variable.
     pub fn is_local_var(&self) -> bool {
         match self {
             Symbol::Local { name: _, ty: _, ver: _ } => true,
+            _ => false
+        }
+    }
+
+    /// Whether this symbol refers to a global variable.
+    pub fn is_global_var(&self) -> bool {
+        match self {
+            Symbol::Global(_) => true,
             _ => false
         }
     }
