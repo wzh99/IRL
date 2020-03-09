@@ -342,7 +342,7 @@ impl Builder {
                 }
                 2 => {
                     base = self.find_symbol(list.get(0).unwrap(), ctx)?;
-                    off = Some(self.create_value(&Type::I(64), list.get(1).unwrap(), ctx)?);
+                    off = Some(self.create_def_val(&Type::I(64), list.get(1).unwrap(), ctx)?);
                 }
                 n => return Err(CompileErr {
                     loc: loc.clone(),
@@ -364,7 +364,7 @@ impl Builder {
                 Term::OpdList { loc: _, list } => {
                     let mut idx = vec![];
                     for tok in list {
-                        let val = self.create_value(&Type::I(64), tok, ctx)?;
+                        let val = self.create_def_val(&Type::I(64), tok, ctx)?;
                         elem_ty = self.elem_idx(&elem_ty, &val, tok)?;
                         idx.push(val);
                     }
@@ -562,6 +562,7 @@ impl Builder {
         let mut pairs: Vec<(Option<BlockRef>, RefCell<Value>)> = Vec::new();
         for t in list {
             if let Term::PhiOpd { loc, bb, opd } = t {
+                // the operand may not be defined when reading this instruction
                 let val = self.create_value(ty, opd, ctx)?;
                 let block = match bb {
                     Some(Token::Label(loc, s)) => {
@@ -613,16 +614,30 @@ impl Builder {
                 });
             }
             for (ty, opd) in ty.iter().zip(list.iter()) {
-                v.push(self.create_value(ty, opd, ctx)?);
+                v.push(self.create_def_val(ty, opd, ctx)?);
             }
             Ok(v)
         } else { unreachable!() }
     }
 
+    /// Create value from token.
     fn create_value(&self, ty: &Type, tok: &Token, ctx: &Context) -> Result<Value, CompileErr> {
         match tok {
             Token::GlobalId(_, _) | Token::LocalId(_, _) =>
                 Ok(Value::Var(self.create_symbol(tok, ty, ctx)?)),
+            Token::Integer(_, _) => Ok(Value::Const(self.create_const(tok, ty)?)),
+            _ => unreachable!()
+        }
+    }
+
+    /// Create defined value (defined variables and constants) from token.
+    fn create_def_val(&self, ty: &Type, tok: &Token, ctx: &Context) -> Result<Value, CompileErr> {
+        match tok {
+            Token::GlobalId(loc, _) | Token::LocalId(loc, _) => {
+                let sym = self.find_symbol(tok, ctx)?;
+                self.check_type(&sym, ty, loc)?;
+                Ok(Value::Var(sym))
+            }
             Token::Integer(_, _) => Ok(Value::Const(self.create_const(tok, ty)?)),
             _ => unreachable!()
         }
@@ -642,7 +657,7 @@ impl Builder {
                         })
                     }
                     ty => if opd.is_some() {
-                        let ret = self.create_value(ty, opd.as_ref().unwrap(), ctx)?;
+                        let ret = self.create_def_val(ty, opd.as_ref().unwrap(), ctx)?;
                         Ok(Instr::Ret { val: Some(RefCell::new(ret)) })
                     } else {
                         Err(CompileErr {
@@ -670,7 +685,7 @@ impl Builder {
                 loc: _, cond, tr: Token::Label(t_loc, t_lab),
                 fls: Token::Label(f_loc, f_lab)
             } => {
-                let cond = self.create_value(&Type::I(1), cond, ctx)?;
+                let cond = self.create_def_val(&Type::I(1), cond, ctx)?;
                 let t_lab = self.trim_tag(t_lab);
                 let tr = ctx.labels.get(t_lab).ok_or(
                     CompileErr {
@@ -701,7 +716,7 @@ impl Builder {
                         msg: format!("cannot store value of type {}", ty.to_string()),
                     })?
                 }
-                let src = self.create_value(&ty, src, ctx)?;
+                let src = self.create_def_val(&ty, src, ctx)?;
                 let dst = self.create_value(&Type::Ptr(Box::new(ty.clone())), dst, ctx)?;
                 Ok(Instr::St {
                     src: RefCell::new(src),

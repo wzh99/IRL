@@ -309,7 +309,7 @@ impl Machine {
         match src.borrow().deref() {
             Value::Var(sym) if sym.is_local_var() => match file.get(sym) {
                 Some(reg) => reg.clone(),
-                None => Reg::zero(&src.borrow().get_type())
+                None => panic!("value {:?} undefined", src.borrow().deref())
             },
             Value::Var(sym) => if let Symbol::Global(g) = sym.as_ref() {
                 self.global[g].clone()
@@ -365,7 +365,7 @@ fn test_exec() {
     use std::convert::TryFrom;
     use std::io::Read;
 
-    let mut file = File::open("test/exec.ir").unwrap();
+    let mut file = File::open("test/example.ir").unwrap();
     let lexer = Lexer::try_from(&mut file as &mut dyn Read).unwrap();
     let parser = Parser::new(lexer);
     let tree = parser.parse().unwrap();
