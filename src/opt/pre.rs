@@ -96,7 +96,7 @@ impl ValueTable {
     /// Map `expr` to given number, as long as it is not `Expr::Result` of a global variable.
     fn map(&mut self, expr: Expr, num: usize) {
         match expr {
-            Expr::Temp(sym) if !sym.is_local_var() => {} // never map global variables
+            Expr::Temp(sym) if sym.is_global_var() => {} // never map global variables
             expr => { self.num.insert(expr, num); }
         }
     }
@@ -644,7 +644,7 @@ impl BlockListener for SetBuilder<'_> {
             // Skip those whose results are not stored in local variables
             match instr.dst() {
                 None => return, // this instruction does not produce a value
-                Some(sym) if !sym.borrow().is_local_var() => return, // result stored to global
+                Some(sym) if sym.borrow().is_global_var() => return, // result stored to global
                 _ => {}
             }
 

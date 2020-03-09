@@ -7,7 +7,7 @@ use std::iter::FromIterator;
 use std::ops::Deref;
 use std::rc::Rc;
 
-use crate::lang::graph::{BfsIter, DfsIter, Vertex};
+use crate::lang::graph::{BfsIter, DfsIter, RevPostOrd, Vertex};
 use crate::lang::graph::dom;
 use crate::lang::instr::{Instr, InstrRef};
 use crate::lang::ssa::SsaFlag;
@@ -332,14 +332,13 @@ impl Func {
 
 impl Func {
     /// Return an iterator to breadth-first search the CFG.
-    pub fn bfs(&self) -> BfsIter<BlockRef> {
-        Vertex::bfs(self.ent.borrow().deref())
-    }
+    pub fn bfs(&self) -> BfsIter<BlockRef> { self.ent.borrow().bfs() }
 
     /// Return an iterator to depth-first search the CFG.
-    pub fn dfs(&self) -> DfsIter<BlockRef> {
-        Vertex::dfs(self.ent.borrow().deref())
-    }
+    pub fn dfs(&self) -> DfsIter<BlockRef> { self.ent.borrow().dfs() }
+
+    /// Return an iterator for reverse post-order traversal.
+    pub fn rpo(&self) -> RevPostOrd<BlockRef> { self.ent.borrow().rpo() }
 }
 
 /// Visitor trait of dominance tree

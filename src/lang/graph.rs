@@ -5,24 +5,37 @@ use std::iter::FromIterator;
 /// Generic data structure of vertex in a graph.
 /// Implement this trait if some algorithms provided here are needed.
 pub trait Vertex<T> where T: Vertex<T> + Eq + Clone + Hash {
+    /// Give a clone of this object.
+    /// This work cannot be done by the default method. Trait `Vertex<T>` it not equivalent to
+    /// `T`. Therefore, the trait bound of `T` does not applies to `Vertex<T>`. If this method is
+    /// implemented, the trait bound of `T` can be transferred to `Vertex<T>`
     fn this(&self) -> T;
     fn pred(&self) -> Vec<T>;
     fn succ(&self) -> Vec<T>;
 
     fn dfs(&self) -> DfsIter<T> {
-        let ent = self.this();
         DfsIter {
-            stack: vec![ent.clone()],
-            visited: HashSet::from_iter(vec![ent]),
+            stack: vec![self.this()],
+            visited: HashSet::from_iter(vec![self.this()]),
         }
     }
 
     fn bfs(&self) -> BfsIter<T> {
-        let ent = self.this();
         BfsIter {
-            queue: VecDeque::from_iter(vec![ent.clone()]),
-            visited: HashSet::from_iter(vec![ent]),
+            queue: VecDeque::from_iter(vec![self.this()]),
+            visited: HashSet::from_iter(vec![self.this()]),
         }
+    }
+
+    fn post_ord(&self) -> PostOrd<T> {
+        PostOrd {
+            stack: vec![(self.this(), false)],
+            visited: HashSet::from_iter(vec![self.this()]),
+        }
+    }
+
+    fn rpo(&self) -> RevPostOrd<T> {
+        RevPostOrd { post: self.post_ord().collect() }
     }
 }
 
@@ -37,7 +50,7 @@ impl<T> Iterator for DfsIter<T> where T: Vertex<T> + Eq + Clone + Hash {
 
     fn next(&mut self) -> Option<Self::Item> {
         self.stack.pop().map(|next| {
-            for succ in next.succ().iter().rev() {
+            for succ in next.succ().iter() {
                 if !self.visited.contains(succ) {
                     self.stack.push(succ.clone());
                     self.visited.insert(succ.clone());
@@ -68,6 +81,47 @@ impl<T> Iterator for BfsIter<T> where T: Vertex<T> + Eq + Clone + Hash {
             next
         })
     }
+}
+
+pub struct PostOrd<T> where T: Vertex<T> + Eq + Clone + Hash {
+    // An element will be returned only if it is visited twice
+    stack: Vec<(T, bool)>,
+    visited: HashSet<T>,
+}
+
+impl<T> Iterator for PostOrd<T> where T: Vertex<T> + Eq + Clone + Hash {
+    type Item = T;
+
+    fn next(&mut self) -> Option<Self::Item> {
+        loop {
+            match self.stack.pop() {
+                // This vertex is visited twice before, can return this time
+                Some((next, true)) => return Some(next),
+                // This vertex is visited only once, mark it as twice, push its successors to stack
+                Some((next, false)) => {
+                    self.stack.push((next.clone(), true));
+                    let unvisited: Vec<T> = next.succ().into_iter()
+                        .filter(|succ| !self.visited.contains(&succ)).collect();
+                    unvisited.into_iter().for_each(|succ| {
+                        self.visited.insert(succ.clone());
+                        self.stack.push((succ, false))
+                    });
+                }
+                // Stack is empty, no more vertices to process
+                None => return None
+            }
+        }
+    }
+}
+
+pub struct RevPostOrd<T> where T: Vertex<T> + Eq + Clone + Hash {
+    post: Vec<T>
+}
+
+impl<T> Iterator for RevPostOrd<T> where T: Vertex<T> + Eq + Clone + Hash {
+    type Item = T;
+
+    fn next(&mut self) -> Option<Self::Item> { self.post.pop() }
 }
 
 /// Implement Lengauer-Tarjan algorithm for building dominator tree
