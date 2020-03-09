@@ -23,9 +23,6 @@ pub enum Type {
     /// Structure type
     Struct { field: Vec<Type> },
     /// Type alias
-    /// Nominal typing is used to decide equivalence for alias types, which means two alias types
-    /// with different names are not equivalent, and an alias type is not equivalent to any non-
-    /// alias type.
     Alias(SymbolRef),
 }
 
@@ -40,7 +37,12 @@ impl PartialEq for Type {
             (Type::Array { elem: e1, len: l1 }, Type::Array { elem: e2, len: l2 }) =>
                 l1 == l2 && e1 == e2,
             (Type::Struct { field: f1 }, Type::Struct { field: f2 }) => f1 == f2,
-            (Type::Alias(_), Type::Alias(_)) => self.orig() == other.orig(),
+            // Nominal typing is used to decide equivalence for alias types, which means two alias
+            // types with different names are not equivalent. However, an alias type can be equal
+            // to its original type.
+            (Type::Alias(a1), Type::Alias(a2)) => a1 == a2,
+            (Type::Alias(_), _) => self.orig() == *other,
+            (_, Type::Alias(_)) => *self == other.orig(),
             _ => false
         }
     }
@@ -102,9 +104,17 @@ impl Type {
         str_list.join(", ")
     }
 
+    /// Whether this type is alias type
+    pub fn is_alias(&self) -> bool {
+        match self {
+            Type::Alias(_) => true,
+            _ => false
+        }
+    }
+
     /// Whether values of this type could be stored in virtual registers
     pub fn is_reg(&self) -> bool {
-        match self {
+        match self.orig() {
             Type::I(_) | Type::Ptr(_) => true,
             _ => false
         }

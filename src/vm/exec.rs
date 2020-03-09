@@ -280,7 +280,7 @@ impl Machine {
         for idx in ind {
             let idx = self.reg_from_src(idx, file).get_const();
             let idx = if let Const::I64(c) = idx { c as usize } else { unreachable!() };
-            match tgt_ty.clone() {
+            match tgt_ty.orig().clone() {
                 Type::Array { elem, len } => {
                     if idx >= len {
                         self.err(format!("index {} out of bound {}", idx, len))?
@@ -365,7 +365,7 @@ fn test_exec() {
     use std::convert::TryFrom;
     use std::io::Read;
 
-    let mut file = File::open("test/example.ir").unwrap();
+    let mut file = File::open("test/exec.ir").unwrap();
     let lexer = Lexer::try_from(&mut file as &mut dyn Read).unwrap();
     let parser = Parser::new(lexer);
     let tree = parser.parse().unwrap();

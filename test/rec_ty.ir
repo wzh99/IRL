@@ -1,0 +1,13 @@
+type @Foo = { i16, { [2][4]i8 }, *@Bar }
+type @Bar = { *i64, *@Foo }
+
+fn @main() {
+%B1:
+    $f <- alloc @Foo;
+    $fb <- ptr **@Bar $f [2];
+    $b <- alloc @Bar;
+    $bf <- ptr **@Foo $b [1];
+    st *@Foo $f -> $bf;
+    st *@Bar $b -> $fb;
+    ret;
+}

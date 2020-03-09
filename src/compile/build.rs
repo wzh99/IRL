@@ -353,7 +353,7 @@ impl Builder {
 
         // Check indices
         let mut elem_ty = match base.get_type().orig() {
-            Type::Ptr(tgt) => tgt.orig(),
+            Type::Ptr(tgt) => tgt.deref().clone(),
             ty => return Err(CompileErr {
                 loc: loc.clone(),
                 msg: format!("expect pointer type, got {}", ty.to_string()),
@@ -396,17 +396,17 @@ impl Builder {
     }
 
     fn elem_idx(&self, ag_ty: &Type, val: &Value, tok: &Token) -> Result<Type, CompileErr> {
-        match ag_ty {
+        match ag_ty.orig() {
             Type::Array { elem, len } => {
                 if let Value::Const(Const::I64(c)) = val {
-                    if *c as usize >= *len {
+                    if *c as usize >= len {
                         return Err(CompileErr {
                             loc: tok.loc(),
                             msg: format!("index {} out of range {}", c, len),
                         });
                     }
                 }
-                Ok(elem.deref().orig())
+                Ok(elem.deref().clone())
             }
             Type::Struct { field } => {
                 if let Value::Const(Const::I64(c)) = val {
@@ -416,7 +416,7 @@ impl Builder {
                             msg: format!("index {} out of range {}", c, field.len()),
                         });
                     }
-                    Ok(field.get(*c as usize).unwrap().orig())
+                    Ok(field.get(*c as usize).unwrap().clone())
                 } else {
                     return Err(CompileErr {
                         loc: tok.loc(),
