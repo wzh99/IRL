@@ -159,13 +159,13 @@ pub enum Term {
 /// Lexical rules for the language.
 #[derive(Clone, Debug)]
 pub enum Token {
-    /// Global identifier `/@[A-Za-z0-9_]+/`
+    /// Global identifier `/@[A-Za-z0-9._]+/`
     GlobalId(Loc, String),
-    /// Local identifier `/$[A-Za-z0-9_]+(.[0-9]+)?/`
+    /// Local identifier `/$[A-Za-z0-9._]/`
     LocalId(Loc, String),
     /// Label `/%[A-Za-z0-9_]+/`
     Label(Loc, String),
-    /// Reserved words `/[A-Za-z_][A-Za-z0-9_]*/`
+    /// Reserved words `/[A-Za-z_][A-Za-z0-9._]*/`
     Reserved(Loc, String),
     /// Integer `/-?[0-9]+/`
     Integer(Loc, String),

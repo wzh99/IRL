@@ -240,8 +240,8 @@ impl BlockRef {
     /// Decide if this block dominates the given block.
     /// This method has logarithm time complexity. Though a linear time algorithm is possible,
     /// it requires keeping extra data in the block structure.
-    pub fn dominates(&self, other: BlockRef) -> bool {
-        let mut cur = Some(other);
+    pub fn dominates(&self, other: &BlockRef) -> bool {
+        let mut cur = Some(other.clone());
         loop {
             match cur {
                 Some(block) if *self == block => return true,
@@ -618,9 +618,9 @@ impl BlockListener for DfBuilder {
     fn on_enter_child(&mut self, _: BlockRef, _: BlockRef) {}
 
     fn on_exit_child(&mut self, this: BlockRef, child: BlockRef) {
-        for w in self.df.get(&child).cloned().unwrap() {
-            if !this.dominates(w.clone()) || this == w { // this does not strictly dominates w
-                self.stack.last_mut().unwrap().insert(w);
+        for w in self.df.get(&child).unwrap() {
+            if !this.dominates(w) || this == *w { // this does not strictly dominates w
+                self.stack.last_mut().unwrap().insert(w.clone());
             }
         }
     }

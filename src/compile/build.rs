@@ -159,7 +159,7 @@ impl Builder {
                         if !added {
                             return Err(CompileErr {
                                 loc: loc.clone(),
-                                msg: format!("parameter {} already defined", sym.id()),
+                                msg: format!("parameter {} already defined", sym.name()),
                             });
                         }
                     } else { unreachable!() }
@@ -259,20 +259,6 @@ impl Builder {
     fn assume_ssa(&self, instr: &Instr) -> bool {
         // Criteria 1: Phi instruction
         if let Instr::Phi { src: _, dst: _ } = instr { return true; }
-
-        // Criteria 2: Contain versioned symbol
-        if let Some(sym) = instr.dst() {
-            if let Symbol::Local { name: _, ty: _, ver: Some(_) } = sym.borrow().as_ref() {
-                return true;
-            }
-        }
-        for u in instr.src() {
-            if let Value::Var(sym) = u.borrow().deref() {
-                if let Symbol::Local { name: _, ty: _, ver: Some(_) } = sym.deref() {
-                    return true;
-                }
-            }
-        }
         false
     }
 
@@ -303,7 +289,7 @@ impl Builder {
                     if !dst.is_local_var() {
                         return Err(CompileErr {
                             loc: dst_loc.clone(),
-                            msg: format!("destination {} is not local variable", dst.id()),
+                            msg: format!("destination {} is not local variable", dst.name()),
                         });
                     }
                     self.build_phi_instr(&ty, dst, list, ctx)
@@ -576,7 +562,7 @@ impl Builder {
                     }
                     None => match &val { // ensure this operand is from parameter
                         Value::Var(sym) => match sym.deref() {
-                            Symbol::Local { name: _, ty: _, ver: _ } =>
+                            Symbol::Local { name: _, ty: _ } =>
                                 if ctx.func.param.iter().find(|s| *s.borrow() == *sym).is_some() {
                                     None
                                 } else {
@@ -800,16 +786,8 @@ impl Builder {
     }
 
     fn create_local(&self, s: &str, ty: Type) -> Result<Symbol, CompileErr> {
-        let mut name = self.trim_tag(s); // trim local tag
-        let ver = match name.find(".") {
-            Some(_) => {
-                let split: Vec<&str> = name.split('.').collect();
-                name = split[0];
-                Some(usize::from_str(split[1]).unwrap())
-            }
-            None => None
-        };
-        Ok(Symbol::Local { name: name.to_string(), ty, ver })
+        let name = self.trim_tag(s); // trim local tag
+        Ok(Symbol::Local { name: name.to_string(), ty })
     }
 
     fn create_type(&self, term: &Term, global: &Rc<Scope>) -> Result<Type, CompileErr> {

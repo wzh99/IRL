@@ -176,7 +176,7 @@ impl ValueListener for Verifier {
         match opd.borrow().deref() {
             Value::Var(sym) if sym.is_local_var() && !self.is_avail(sym) => {
                 self.err.push(format!(
-                    "variable {} is used before defined", sym.id()
+                    "variable {} is used before defined", sym.name()
                 ));
             }
             _ => ()
@@ -187,7 +187,7 @@ impl ValueListener for Verifier {
         if def.borrow().is_local_var() {
             let sym = def.borrow().clone();
             if self.def.contains(&sym) { // already statically defined
-                self.err.push(format!("variable {} already defined", sym.id()));
+                self.err.push(format!("variable {} already defined", sym.name()));
             } else {
                 self.def.insert(sym.clone()); // mark this static definition
                 // add to current frame of availability stack
@@ -279,7 +279,7 @@ impl Func {
         for instr in block.instr.borrow().iter() {
             for sym in instr.dst() {
                 match sym.borrow().as_ref() {
-                    Symbol::Local { name: _, ty: _, ver: _ } => {
+                    Symbol::Local { name: _, ty: _ } => {
                         def.insert(sym.borrow().clone());
                     }
                     _ => continue
@@ -291,6 +291,8 @@ impl Func {
 }
 
 struct RenamedSym {
+    /// Original name of this symbol
+    name: String,
     /// How many versions are defined now
     count: usize,
     /// Stack of versioned variables
@@ -305,11 +307,10 @@ impl RenamedSym {
     fn rename(&mut self) -> SymbolRef {
         self.count += 1;
         let new_sym =
-            if let Symbol::Local { name, ty, ver: Some(_) } = self.latest().deref() {
+            if let Symbol::Local { name: _, ty } = self.latest().deref() {
                 ExtRc::new(Symbol::Local {
-                    name: name.clone(),
+                    name: format!("{}.{}", self.name, self.count),
                     ty: ty.clone(),
-                    ver: Some(self.count),
                 })
             } else { unreachable!() };
         self.stack.push(new_sym.clone());
@@ -334,10 +335,10 @@ impl BlockListener for Renamer {
             let new_sym = ExtRc::new(Symbol::Local {
                 name: sym.name().to_string(),
                 ty: sym.get_type(),
-                ver: Some(0),
             });
             added.push(new_sym.clone());
             self.sym.insert(sym.name().to_string(), RenamedSym {
+                name: sym.name().to_string(),
                 count: 0,
                 stack: vec![new_sym],
             });
@@ -396,7 +397,7 @@ impl ValueListener for Renamer {
         opd.replace_with(|opd| {
             match opd.deref() {
                 Value::Var(sym) => match sym.deref() {
-                    Symbol::Local { name: _, ty: _, ver: _ } => {
+                    Symbol::Local { name: _, ty: _ } => {
                         let latest = self.sym.get(sym.name()).unwrap().latest();
                         Value::Var(latest)
                     }
@@ -410,9 +411,11 @@ impl ValueListener for Renamer {
     fn on_def(&mut self, _: InstrRef, def: &RefCell<SymbolRef>) {
         def.replace_with(|sym| {
             match sym.as_ref() {
-                Symbol::Local { name: _, ty: _, ver: _ } => {
-                    let new_sym = self.sym.get_mut(sym.name()).unwrap().rename();
-                    self.def.last_mut().unwrap().push(new_sym.name().to_string());
+                Symbol::Local { name: _, ty: _ } => {
+                    let rename_sym = self.sym.get_mut(sym.name()).unwrap();
+                    let name = rename_sym.name.clone();
+                    let new_sym = rename_sym.rename();
+                    self.def.last_mut().unwrap().push(name);
                     self.scope.as_deref().unwrap().insert(new_sym.clone());
                     new_sym
                 }
@@ -516,8 +519,8 @@ impl Func {
         self.dfs().for_each(|block| {
             block.instr.borrow().iter().for_each(|instr| {
                 match instr.dst() {
-                    Some(dst) if dst.borrow().is_local_var() => match dst.borrow().as_ref() {
-                        Symbol::Local { name: _, ty: _, ver: _ } => sym.push(dst.borrow().clone()),
+                    Some(dst) if dst.borrow().is_local_var() => match dst.borrow().deref() {
+                        dst if dst.is_local_var() => sym.push(dst.clone()),
                         _ => unreachable!()
                     }
                     _ => {}
@@ -583,7 +586,7 @@ impl Func {
         self.dfs().for_each(|block| {
             block.instr.borrow_mut().retain(|instr| {
                 if target.contains(instr) {
-                    instr.dst().map(|dst| self.scope.remove(&dst.borrow().id()));
+                    instr.dst().map(|dst| self.scope.remove(&dst.borrow().name()));
                     false
                 } else { true }
             })
@@ -603,7 +606,7 @@ fn test_ssa() {
     use std::io::Read;
     use std::borrow::BorrowMut;
 
-    let mut file = File::open("test/example.ir").unwrap();
+    let mut file = File::open("test/ssa.ir").unwrap();
     let lexer = Lexer::try_from(&mut file as &mut dyn Read).unwrap();
     let parser = Parser::new(lexer);
     let tree = parser.parse().unwrap();

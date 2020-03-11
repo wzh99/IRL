@@ -95,6 +95,15 @@ impl PartialEq for VertTag {
     }
 }
 
+impl VertTag {
+    pub fn is_const(&self) -> bool {
+        match self {
+            VertTag::Const(_) => true,
+            _ => false
+        }
+    }
+}
+
 pub struct SsaGraph {
     /// Keep all the vertices.
     pub vert: Vec<VertRef>,
@@ -143,9 +152,9 @@ impl BlockListener for GraphBuilder {
         // Create vertices for parameters
         func.param.iter().for_each(|param| {
             let param = param.borrow().clone();
-            if let Symbol::Local { name: _, ty: _, ver: _ } = param.as_ref() {
+            if param.is_local_var() {
                 let vert = ExtRc::new(SsaVert::new(
-                    VertTag::Param(param.id()),
+                    VertTag::Param(param.name().to_string()),
                     None,
                 ));
                 self.graph.add(vert.clone(), Some(param));
@@ -232,14 +241,14 @@ impl InstrListener for GraphBuilder {
             }
             Instr::Alloc { dst } => {
                 let vert = ExtRc::new(SsaVert::new(
-                    VertTag::Cell(dst.borrow().id()),
+                    VertTag::Cell(dst.borrow().name().to_string()),
                     Some(def),
                 ));
                 self.graph.add(vert, Some(dst.borrow().clone()));
             }
             Instr::New { dst, len } => {
                 let vert = ExtRc::new(SsaVert::new(
-                    VertTag::Cell(dst.borrow().id()),
+                    VertTag::Cell(dst.borrow().name().to_string()),
                     Some(def),
                 ));
                 len.as_ref().map(|len| {
@@ -253,7 +262,7 @@ impl InstrListener for GraphBuilder {
             Instr::Ld { ptr, dst } => {
                 let ptr = self.get_src_vert(ptr);
                 let vert = ExtRc::new(SsaVert::new(
-                    VertTag::Cell(dst.borrow().id()),
+                    VertTag::Cell(dst.borrow().name().to_string()),
                     Some(def),
                 ));
                 vert.add_opd(ptr.clone());
@@ -350,7 +359,7 @@ impl GraphBuilder {
             // Map to existing vertex or create new one
             _ => match dst.borrow().as_ref() {
                 // If destination is local variable, it can be safely mapped to source.
-                Symbol::Local { name: _, ty: _, ver: _ } =>
+                Symbol::Local { name: _, ty: _ } =>
                     self.graph.map_sym(dst.borrow().clone(), src),
                 // For global variable, it cannot be mapped to source, create new vertex for it.
                 Symbol::Global(_) => {
@@ -367,11 +376,11 @@ impl GraphBuilder {
         match val.borrow().deref() {
             Value::Var(sym) => match sym.deref() {
                 // Local source operand must have already been created.
-                Symbol::Local { name: _, ty: _, ver: _ } => self.graph.find(sym).unwrap(),
+                Symbol::Local { name: _, ty: _ } => self.graph.find(sym).unwrap(),
                 // For global operands, their vertices cannot be connected. Just create new one.
                 Symbol::Global(_) => {
                     let vert = ExtRc::new(SsaVert::new(
-                        VertTag::Cell(sym.id()),
+                        VertTag::Cell(sym.name().to_string()),
                         None,
                     ));
                     self.graph.add(vert.clone(), None);
@@ -396,7 +405,7 @@ impl GraphBuilder {
     {
         match sym.borrow().as_ref() {
             // For local variable, create variable vertex with given operation name.
-            Symbol::Local { name: _, ty: _, ver: _ } => {
+            Symbol::Local { name: _, ty: _ } => {
                 let vert = ExtRc::new(SsaVert::new(
                     VertTag::Value(op.to_string()),
                     def,
@@ -407,7 +416,7 @@ impl GraphBuilder {
             // For global variable, create cell vertex with the name of the symbol.
             Symbol::Global(_) => {
                 let vert = ExtRc::new(SsaVert::new(
-                    VertTag::Cell(sym.borrow().id()),
+                    VertTag::Cell(sym.borrow().name().to_string()),
                     def,
                 ));
                 self.graph.add(vert.clone(), None);

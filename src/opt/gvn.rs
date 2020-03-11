@@ -118,7 +118,7 @@ impl FnPass for GvnOpt {
         // variable vertices. Linear vector is not beneficial in this scenario.
         let mut rep: HashMap<usize, SymbolRef> = HashMap::new();
         sym_num.iter().for_each(|(sym, num)| {
-            if !rep.contains_key(num) || sym.id() < rep[num].id() {
+            if !rep.contains_key(num) || sym.name() < rep[num].name() {
                 rep.insert(*num, sym.clone());
             }
         });

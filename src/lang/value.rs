@@ -196,8 +196,7 @@ impl Value {
 pub enum Symbol {
     Local {
         name: String,
-        ty: Type,
-        ver: Option<usize>,
+        ty: Type
     },
     Global(GlobalVarRef),
     Type {
@@ -212,7 +211,7 @@ pub type SymbolRef = ExtRc<Symbol>;
 impl Typed for Symbol {
     fn get_type(&self) -> Type {
         match self {
-            Symbol::Local { name: _, ty, ver: _ } => ty.clone(),
+            Symbol::Local { name: _, ty } => ty.clone(),
             Symbol::Global(v) => v.ty.clone(),
             Symbol::Func(f) => f.get_type(),
             Symbol::Type { name: _, ty } => ty.borrow().clone()
@@ -223,7 +222,7 @@ impl Typed for Symbol {
 impl ToString for Symbol {
     fn to_string(&self) -> String {
         match self {
-            Symbol::Local { name: _, ty: _, ver: _ } => format!("${}", self.id()),
+            Symbol::Local { name: _, ty: _ } => format!("${}", self.name()),
             _ => format!("@{}", self.name())
         }
     }
@@ -244,29 +243,17 @@ impl Symbol {
     /// For local variable, only its name part is extracted
     pub fn name(&self) -> &str {
         match self {
-            Symbol::Local { name, ty: _, ver: _ } => name,
+            Symbol::Local { name, ty: _ } => name,
             Symbol::Global(v) => &v.name,
             Symbol::Type { name, ty: _ } => name,
             Symbol::Func(f) => &f.name
         }
     }
 
-    /// Get identifier of symbol without tag `@` or `%`
-    /// For local variable, its name, possibly connected with its version by `.` is returned.
-    /// (`{$name}(.{$ver})?`)
-    pub fn id(&self) -> String {
-        if let Symbol::Local { name, ty: _, ver } = self {
-            match ver {
-                Some(v) => format!("{}.{}", name, v),
-                None => name.to_string()
-            }
-        } else { self.name().to_string() }
-    }
-
     /// Whether this symbol is a local variable.
     pub fn is_local_var(&self) -> bool {
         match self {
-            Symbol::Local { name: _, ty: _, ver: _ } => true,
+            Symbol::Local { name: _, ty: _ } => true,
             _ => false
         }
     }
@@ -320,8 +307,8 @@ impl Scope {
 
     /// Add a symbol to the scope, and return if this symbol was successfully added.
     pub fn insert(&self, sym: SymbolRef) -> bool {
-        let id = sym.id();
-        self.map.borrow_mut().insert(id, sym).is_none()
+        let id = sym.name();
+        self.map.borrow_mut().insert(id.to_string(), sym).is_none()
     }
 
     /// Append a collection of symbols to Scope
@@ -375,7 +362,6 @@ impl SymbolGen {
             let sym = ExtRc::new(Symbol::Local {
                 name,
                 ty: ty.clone(),
-                ver: None,
             });
             self.scope.insert(sym.clone());
             return sym

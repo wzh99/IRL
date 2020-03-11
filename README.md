@@ -62,7 +62,7 @@ The lexer and parser are all written by hand. The lexical and syntactical rules 
 
 After parsing, the memory representation will be constructed, and the semantic correctness will be checked along the way. This process is divided into several passes: the first one deals with type aliases, global variable declarations and function signatures, and the second deal with basic blocks inside each function. 
 
-If a function contains one or more phi instructions, *or* if any versioned symbol appears in this function, it is assumed to be in SSA form, and another pass is required to verify this assumption. To be in SSA form, the following requirement should be satisfied: 
+If a function contains one or more phi instructions, it is assumed to be in SSA form, and another pass is required to verify this assumption. To be in SSA form, the following requirement should be satisfied: 
 
 * Each local variable should be defined only once in the static program.
 

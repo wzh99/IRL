@@ -49,8 +49,6 @@ enum NfaState {
     GlobalName,
     /// Expect name part for local identifier
     LocalName,
-    /// Expect version part for local identifier
-    LocalVer,
     /// Expect name part for label
     LabelName,
     /// Expect name part for reserved words
@@ -58,7 +56,7 @@ enum NfaState {
     /// Expect integer
     Int,
     /// In comment, ignore all characters until a new line
-    Comment
+    Comment,
 }
 
 type LexResult = Result<Token, CompileErr>;
@@ -99,7 +97,7 @@ impl Lexer {
                 NfaState::Start => match c {
                     '@' => {
                         read_char!();
-                        if !Self::is_alpha_num_under(self.peek()) {
+                        if !Self::is_alpha_num_mark(self.peek()) {
                             return self.err("expect [A-Za-z0-9_]");
                         }
                         read_char!();
@@ -108,7 +106,7 @@ impl Lexer {
                     '$' => {
                         // local identifier
                         read_char!();
-                        if !Self::is_alpha_num_under(self.peek()) {
+                        if !Self::is_alpha_num_mark(self.peek()) {
                             return self.err("expect [A-Za-z0-9_]");
                         }
                         read_char!();
@@ -117,7 +115,7 @@ impl Lexer {
                     '%' => {
                         // label
                         read_char!();
-                        if !Self::is_alpha_num_under(self.peek()) {
+                        if !Self::is_alpha_num_mark(self.peek()) {
                             return self.err("expect [A-Za-z0-9_]");
                         }
                         read_char!();
@@ -206,7 +204,7 @@ impl Lexer {
                     '/' => {
                         skip_char!(); // `/`
                         if self.peek() != '/' {
-                            return self.err("expect /")
+                            return self.err("expect /");
                         }
                         skip_char!(); // `/`
                         state = NfaState::Comment
@@ -215,38 +213,23 @@ impl Lexer {
                     _ => return self.err("unknown character")
                 }
                 NfaState::GlobalName =>
-                    if Self::is_alpha_num_under(c) {
+                    if Self::is_alpha_num_mark(c) {
                         read_char!();
                     } else {
                         return self.pop_buf(state, buf);
                     }
                 NfaState::LocalName => match c {
-                    _ if Self::is_alpha_num_under(c) => { read_char!(); }
-                    '.' => {
-                        // reaching version part of identifier
-                        read_char!();
-                        match self.peek() {
-                            '0'..='9' => {
-                                read_char!();
-                                state = NfaState::LocalVer
-                            }
-                            _ => return self.err("expect [0-9]")
-                        }
-                    }
+                    c if Self::is_alpha_num_mark(c) => { read_char!(); }
                     _ => return self.pop_buf(state, buf),
                 }
                 NfaState::LabelName =>
-                    if Self::is_alpha_num_under(c) {
+                    if Self::is_alpha_num_mark(c) {
                         read_char!();
                     } else {
                         return self.pop_buf(state, buf);
                     }
-                NfaState::LocalVer => match c {
-                    '0'..='9' => { read_char!(); }
-                    _ => return self.pop_buf(state, buf),
-                }
                 NfaState::ResName => match c {
-                    _ if Self::is_alpha_num_under(c) => { read_char!(); }
+                    _ if Self::is_alpha_num_mark(c) => { read_char!(); }
                     _ => return self.pop_buf(state, buf)
                 }
                 NfaState::Int => match c {
@@ -293,19 +276,25 @@ impl Lexer {
             // When the buffer is not empty, it cannot be in the start state.
             NfaState::Start | NfaState::Comment => unreachable!(),
             NfaState::GlobalName => Ok(Token::GlobalId(self.loc.clone(), s)),
-            NfaState::LocalName | NfaState::LocalVer =>
-                Ok(Token::LocalId(self.loc.clone(), s)),
+            NfaState::LocalName => Ok(Token::LocalId(self.loc.clone(), s)),
             NfaState::LabelName => Ok(Token::Label(self.loc.clone(), s)),
             NfaState::ResName => Ok(Token::Reserved(self.loc.clone(), s)),
             NfaState::Int => Ok(Token::Integer(self.loc.clone(), s))
         }
     }
 
+    /// Decide if `c` is a mark
+    fn is_mark(c: char) -> bool { c == '_' || c == '.' }
+
     /// Decide if `c` is ASCII alphanumeric or underline [A-Za-z0-9_]
-    fn is_alpha_num_under(c: char) -> bool { c.is_ascii_alphanumeric() || c == '_' }
+    fn is_alpha_num_mark(c: char) -> bool {
+        c.is_ascii_alphanumeric() || Self::is_mark(c)
+    }
 
     /// Decide if `c` is ASCII alphabetic or underline [A-Za-z_]
-    fn is_alpha_under(c: char) -> bool { c.is_ascii_alphabetic() || c == '_' }
+    fn is_alpha_under(c: char) -> bool {
+        c.is_ascii_alphabetic() || Self::is_mark(c)
+    }
 }
 
 #[test]
