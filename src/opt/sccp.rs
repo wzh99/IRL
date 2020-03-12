@@ -1,6 +1,7 @@
 use std::cell::RefCell;
 use std::collections::{HashMap, HashSet};
 use std::ops::Deref;
+use std::rc::Rc;
 
 use crate::lang::func::{BlockRef, Func};
 use crate::lang::instr::{BinOp, PhiSrc, UnOp};
@@ -81,7 +82,7 @@ impl Pass for SccpOpt {
 }
 
 impl FnPass for SccpOpt {
-    fn opt_fn(&mut self, func: &Func) {
+    fn opt_fn(&mut self, func: &Rc<Func>) {
         // Create value graph.
         let mut builder = GraphBuilder::new();
         func.walk_dom(&mut builder);

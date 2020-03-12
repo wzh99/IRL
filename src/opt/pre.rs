@@ -3,6 +3,7 @@ use std::collections::{BTreeSet, HashMap};
 use std::hash::{Hash, Hasher};
 use std::iter::FromIterator;
 use std::ops::Deref;
+use std::rc::Rc;
 
 use crate::lang::func::{BlockListener, BlockRef, Func};
 use crate::lang::instr::{BinOp, Instr};
@@ -255,7 +256,7 @@ impl Pass for PreOpt {
 }
 
 impl FnPass for PreOpt {
-    fn opt_fn(&mut self, func: &Func) {
+    fn opt_fn(&mut self, func: &Rc<Func>) {
         // Make sure the CFG is edge split
         func.split_edge();
 

@@ -1,4 +1,5 @@
 use std::ops::Deref;
+use std::rc::Rc;
 
 use crate::lang::func::Func;
 use crate::lang::Program;
@@ -18,10 +19,8 @@ pub trait Pass {
 /// Global (function-level) optimizer trait
 pub trait FnPass: Pass {
     fn opt(&mut self, pro: &mut Program) {
-        for func in &pro.func {
-            self.opt_fn(func.deref())
-        }
+        pro.func.iter().for_each(|func| self.opt_fn(func));
     }
 
-    fn opt_fn(&mut self, func: &Func);
+    fn opt_fn(&mut self, func: &Rc<Func>);
 }

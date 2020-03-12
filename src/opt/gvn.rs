@@ -1,5 +1,6 @@
 use std::cell::RefCell;
 use std::collections::{HashMap, HashSet};
+use std::rc::Rc;
 
 use crate::lang::func::{BlockListener, BlockRef, Func};
 use crate::lang::instr::InstrRef;
@@ -106,7 +107,7 @@ impl Pass for GvnOpt {
 }
 
 impl FnPass for GvnOpt {
-    fn opt_fn(&mut self, func: &Func) {
+    fn opt_fn(&mut self, func: &Rc<Func>) {
         // Number values
         let sym_num = Gvn::new().number(func);
 
