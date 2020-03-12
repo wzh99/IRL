@@ -146,7 +146,7 @@ impl Printer<'_> {
                 format!("st {} {} -> {}", fmt_ty!(src), fmt_val!(src), fmt_val!(ptr))
         };
 
-        writeln!(self.writer, "    {};", s)?;
+        writeln!(self.writer, "    {}", s)?;
         Ok(())
     }
 

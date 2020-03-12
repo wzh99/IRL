@@ -3,11 +3,11 @@ type @Bar = { *i64, *@Foo }
 
 fn @main() {
 %B1:
-    $f <- alloc @Foo;
-    $fb <- ptr **@Bar $f [2];
-    $b <- alloc @Bar;
-    $bf <- ptr **@Foo $b [1];
-    st *@Foo $f -> $bf;
-    st *@Bar $b -> $fb;
-    ret;
+    $f <- alloc @Foo
+    $fb <- ptr **@Bar $f [2]
+    $b <- alloc @Bar
+    $bf <- ptr **@Foo $b [1]
+    st *@Foo $f -> $bf
+    st *@Bar $b -> $fb
+    ret
 }

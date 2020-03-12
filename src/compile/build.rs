@@ -301,6 +301,11 @@ impl Builder {
                 self.build_ptr(dst, opd.deref(), idx.as_ref().map(|idx| idx.deref().clone()),
                                ctx, loc)
             }
+            Term::AllocRhs { loc: _, ty } => {
+                let ty = self.create_type(ty, &ctx.global)?;
+                let dst = self.create_symbol(dst, &Type::Ptr(Box::new(ty)), ctx)?;
+                Ok(Instr::Alloc { dst: RefCell::new(dst) })
+            }
             Term::NewRhs { loc: _, ty, len } => {
                 let ty = self.create_type(ty, &ctx.global)?;
                 let dst = self.create_symbol(dst, &Type::Ptr(Box::new(ty)), ctx)?;
@@ -431,11 +436,6 @@ impl Builder {
                 let dst = self.create_symbol(dst, ty, ctx)?;
                 let src = self.build_opd_list(vec![ty.clone()], opd, ctx)?[0].clone();
                 Ok(Instr::Mov { src: RefCell::new(src), dst: RefCell::new(dst) })
-            }
-            "alloc" => {
-                self.build_opd_list(vec![], opd, ctx)?; // no operands
-                let dst = self.create_symbol(dst, &Type::Ptr(Box::new(ty.clone())), ctx)?;
-                Ok(Instr::Alloc { dst: RefCell::new(dst) })
             }
             "ld" => {
                 if !ty.is_reg() {

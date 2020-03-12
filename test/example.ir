@@ -3,37 +3,37 @@
 type @Foo = { i16, { [2][4]i8 }, *@Bar } // type alias is available
 type @Bar = { *i64, *@Foo } // order of definition can be arbitrary
 
-@g: i64 <- 0; // global variable definition, can be initialized
+@g: i64 <- 0 // global variable definition, can be initialized
 
 // Demonstrate the use of memory-related instructions
 fn @main() {
 %Begin:
-    @g <- call i64 @max(1, 2); // no need to annotate type for arguments
-    $b <- alloc [4]i64; // aggregate should be allocated before accessed
-    $p <- ptr *i64 $b [@g]; // operands in the square bracket are indices INSIDE aggregates
-    $q <- ptr *i64 $p, 1; // second operand is OFFSET of pointer
-    st i64 @g -> $q; // use arrow to indicate data flow
-    $s <- ld i64 $q;
-    $t <- add i64 $s, 2;
-    @g <- mov i64 $t;
-    $a <- new [@g][2]i16; // dynamically allocate heap memory by `new`, return `*[2]i16`
-    $r <- ptr *i16 $a, 1 [1];
-    st i16 3 -> $r;
-    ret;
+    @g <- call i64 @max(1, 2) // no need to annotate type for arguments
+    $b <- alloc [4]i64 // aggregate should be allocated before accessed
+    $p <- ptr *i64 $b [@g] // operands in the square bracket are indices INSIDE aggregates
+    $q <- ptr *i64 $p, 1 // second operand is OFFSET of pointer
+    st i64 @g -> $q // use arrow to indicate data flow
+    $s <- ld i64 $q
+    $t <- add i64 $s, 2
+    @g <- mov i64 $t
+    $a <- new [@g][2]i16 // dynamically allocate heap memory by `new`, return `*[2]i16`
+    $r <- ptr *i16 $a, 1 [1]
+    st i16 3 -> $r
+    ret
 }
 
 // Demonstrate SSA form of function
 fn @max($a: i64, $b: i64) -> i64 { // post type annotation
 %Begin:
-    $c <- ge i64 $a, $b; // result type of comparing operator is always `i1`
-    br $c ? %True : %False; // ternary expression for branch target, condition must be of type `i1`
+    $c <- ge i64 $a, $b // result type of comparing operator is always `i1`
+    br $c ? %True : %False // ternary expression for branch target, condition must be of type `i1`
 %True:
-    $x.0 <- mov i64 $a; // versioned variable can be used
-    jmp %End;
+    $x.0 <- mov i64 $a // versioned variable can be used
+    jmp %End
 %False:
-    $x.1 <- mov i64 $b;
-    jmp %End;
+    $x.1 <- mov i64 $b
+    jmp %End
 %End:
-    $x.2 <- phi i64 [%True: $x.0] [%False: $x.1]; // one square bracket indicate one predecessor
-    ret $x.2;
+    $x.2 <- phi i64 [%True: $x.0] [%False: $x.1] // one square bracket indicate one predecessor
+    ret $x.2
 }

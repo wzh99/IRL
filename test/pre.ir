@@ -1,40 +1,40 @@
 // Test Partial Redundancy Elimination
 // See Figure 3 of Value-Based Partial Redundancy Elimination
 
-@g: i32;
+@g: i32
 
 fn @test($t1: i32) {
 %B1:
-    jmp %B2;
+    jmp %B2
 %B2:
-    $t2 <- phi i32 [%B1: $t1] [%B6: $t3];
-    $t3 <- add i32 $t2, 1;
-    br 1 ? %B7 : %B3;
+    $t2 <- phi i32 [%B1: $t1] [%B6: $t3]
+    $t3 <- add i32 $t2, 1
+    br 1 ? %B7 : %B3
 %B3:
-    br 1 ? %B4 : %B5;
+    br 1 ? %B4 : %B5
 %B4:
-    $t4 <- add i32 $t2, $t3;
-    $t5 <- mov i32 $t4;
-    $t6 <- add i32 $t1, $t5;
-    jmp %B6;
+    $t4 <- add i32 $t2, $t3
+    $t5 <- mov i32 $t4
+    $t6 <- add i32 $t1, $t5
+    jmp %B6
 %B5:
-    $t7 <- add i32 $t3, 1;
-    $t14 <- sub i32 $t7, 1; // test operator re-association
-    jmp %B6;
+    $t7 <- add i32 $t3, 1
+    $t14 <- sub i32 $t7, 1 // test operator re-association
+    jmp %B6
 %B6:
-    $t8 <- phi i32 [%B4: $t1] [%B5: $t7];
-    $t9 <- add i32 $t2, $t3;
-    $t10 <- add i32 $t9, $t8;
-    $t11 <- mov i32 @g;
-    $t12 <- add i32 $t9, $t11;
-    $t13 <- add i32 $t12, $t3;
-    jmp %B2;
+    $t8 <- phi i32 [%B4: $t1] [%B5: $t7]
+    $t9 <- add i32 $t2, $t3
+    $t10 <- add i32 $t9, $t8
+    $t11 <- mov i32 @g
+    $t12 <- add i32 $t9, $t11
+    $t13 <- add i32 $t12, $t3
+    jmp %B2
 %B7:
-    ret;
+    ret
 }
 
 fn @main() {
 %B1:
-    call @test(0);
-    ret;
+    call @test(0)
+    ret
 }

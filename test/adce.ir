@@ -3,15 +3,15 @@
 
 fn @test() -> i32 {
 %B1:
-    $k.1 <- mov i32 1;
-    jmp %B2;
+    $k.1 <- mov i32 1
+    jmp %B2
 %B2:
-    $k.2 <- phi i32 [%B1: $k.1] [%B3: 0];
-    $c <- le i32 $k.2, 100;
-    br $c ? %B3 : %B4;
+    $k.2 <- phi i32 [%B1: $k.1] [%B3: 0]
+    $c <- le i32 $k.2, 100
+    br $c ? %B3 : %B4
 %B3:
-    $k.3 <- add i32 $k.2, 1;
-    jmp %B2;
+    $k.3 <- add i32 $k.2, 1
+    jmp %B2
 %B4:
-    ret $k.2;
+    ret $k.2
 }

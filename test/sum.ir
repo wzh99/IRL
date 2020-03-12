@@ -3,20 +3,20 @@
 
 fn @sum($a: *i32, $n: i64) -> i32 {
 %Init:
-    $s.0 <- mov i32 0; // s = 0
-    $i.0 <- mov i64 0; // i = 0
-    jmp %Cond;
+    $s.0 <- mov i32 0 // s = 0
+    $i.0 <- mov i64 0 // i = 0
+    jmp %Cond
 %Cond:
-    $s.1 <- phi i32 [%Init: $s.0] [%Loop: $s.2];
-    $i.1 <- phi i64 [%Init: $i.0] [%Loop: $i.2];
-    $c <- lt i64 $i.1, $n; // i < n
-    br $c ? %Loop : %End;
+    $s.1 <- phi i32 [%Init: $s.0] [%Loop: $s.2]
+    $i.1 <- phi i64 [%Init: $i.0] [%Loop: $i.2]
+    $c <- lt i64 $i.1, $n // i < n
+    br $c ? %Loop : %End
 %Loop:
-    $p <- ptr *i32 $a, $i.1; // a[i]
-    $e <- ld i32 $p;
-    $s.2 <- add i32 $s.1, $e; // s += a[i]
-    $i.2 <- add i64 $i.1, 1; // i++
-    jmp %Cond;
+    $p <- ptr *i32 $a, $i.1 // a[i]
+    $e <- ld i32 $p
+    $s.2 <- add i32 $s.1, $e // s += a[i]
+    $i.2 <- add i64 $i.1, 1 // i++
+    jmp %Cond
 %End:
-    ret $s.1;
+    ret $s.1
 }

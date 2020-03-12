@@ -3,26 +3,26 @@
 
 fn @main($a: i64) -> i64 {
 %L1:
-    $i <- mov i64 1;
-    $j <- mov i64 1;
-    $k <- mov i64 0;
-    jmp %L2;
+    $i <- mov i64 1
+    $j <- mov i64 1
+    $k <- mov i64 0
+    jmp %L2
 %L2:
-    $c <- lt i64 $k, 100;
-    br $c ? %L3 : %L4;
+    $c <- lt i64 $k, 100
+    br $c ? %L3 : %L4
 %L3:
-    $d <- lt i64 $j, 20;
-    br $d ? %L5 : %L6;
+    $d <- lt i64 $j, 20
+    br $d ? %L5 : %L6
 %L4:
-    ret $j;
+    ret $j
 %L5:
-    $j <- mov i64 $i;
-    $k <- add i64 $k, 1;
-    jmp %L7;
+    $j <- mov i64 $i
+    $k <- add i64 $k, 1
+    jmp %L7
 %L6:
-    $j <- mov i64 $k;
-    $k <- add i64 $k, 2;
-    jmp %L7;
+    $j <- mov i64 $k
+    $k <- add i64 $k, 2
+    jmp %L7
 %L7:
-    jmp %L2;
+    jmp %L2
 }

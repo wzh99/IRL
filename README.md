@@ -12,37 +12,37 @@ The language is a CFG-based register-transfer IR. Phi instruction is provided to
 type @Foo = { i16, { [2][4]i8 }, *@Bar }
 type @Bar = { *i64, *@Foo }
 
-@g: i64 <- 0;
+@g: i64 <- 0
 
 fn @main() {
 %Begin:
-    @g <- call i64 @max(1, 2);
-    $b <- alloc [4]i64;
-    $p <- ptr *i64 $b [@g];
-    $q <- ptr *i64 $p, 1;
-    st i64 @g -> $q;
-    $s <- ld i64 $q;
-    $t <- add i64 $s, 2;
-    @g <- mov i64 $t;
-    $a <- new [@g][2]i16;
-    $r <- ptr *i16 $a, 1 [1];
-    st i16 3 -> $r;
-    ret;
+    @g <- call i64 @max(1, 2)
+    $b <- alloc [4]i64
+    $p <- ptr *i64 $b [@g]
+    $q <- ptr *i64 $p, 1
+    st i64 @g -> $q
+    $s <- ld i64 $q
+    $t <- add i64 $s, 2
+    @g <- mov i64 $t
+    $a <- new [@g][2]i16
+    $r <- ptr *i16 $a, 1 [1]
+    st i16 3 -> $r
+    ret
 }
 
 fn @max($a: i64, $b: i64) -> i64 {
 %Begin:
-    $c <- ge i64 $a, $b;
-    br $c ? %True : %False;
+    $c <- ge i64 $a, $b
+    br $c ? %True : %False
 %True:
-    $x.0 <- mov i64 $a;
-    jmp %End;
+    $x.0 <- mov i64 $a
+    jmp %End
 %False:
-    $x.1 <- mov i64 $b;
-    jmp %End;
+    $x.1 <- mov i64 $b
+    jmp %End
 %End:
-    $x.2 <- phi i64 [%True: $x.0] [%False: $x.1];
-    ret $x.2;
+    $x.2 <- phi i64 [%True: $x.0] [%False: $x.1]
+    ret $x.2
 }
 ```
 
@@ -72,7 +72,7 @@ If a function contains one or more phi instructions, it is assumed to be in SSA 
 
 ## Optimization
 
-Optimizations are implemented as passes of transforms on the program, which is usually the case in modern compilers. Most of the optimizations are based on the SSA form, so transformation to that form is mandatory. At present, the following optimizations are supported:
+Optimizations are implemented as passes of transformations on the program, which is usually the case in modern compilers. Most of the optimizations are based on the SSA form, so transformation to that form is mandatory. At present, the following optimizations are supported:
 
 ### Global Value Numbering
 
@@ -114,7 +114,7 @@ VmRcd { global: [(@g, Val(I64(4)))], count: Counter { num: 18, time: 39 } }
 
 Here we know that the final value of global variable `@g` is four. 18 instructions were executed, and it took 39 clock cycles to run this program.
 
-What if some runtime error occurs? We can see by modifying `$q <- ptr *i64 $p, 1;` to `$q <- ptr *i64 $p, 2;`.
+What if some runtime error occurs? We can see by modifying `$q <- ptr *i64 $p, 1` to `$q <- ptr *i64 $p, 2`.
 
 ```
 runtime error: memory access out of bound

@@ -80,6 +80,9 @@ pub enum Term {
     /// PtrRhs : `ptr` TypeDecl OpdList IndexList? ;
     PtrRhs { loc: Loc, ty: Box<Term>, opd: Box<Term>, idx: Option<Box<Term>> },
 
+    /// AllocRhs : `alloc` TypeDecl ;
+    AllocRhs { loc: Loc, ty: Box<Term> },
+
     /// NewRhs : `new` ( `[` Integer `]` )? TypeDecl ;
     NewRhs { loc: Loc, ty: Box<Term>, len: Option<Token> },
 

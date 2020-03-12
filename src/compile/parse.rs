@@ -68,8 +68,8 @@ impl Parser {
             Token::Semicolon(_) => None,
             tok => return self.err(vec!["<-", ";"], tok)
         };
-        let semi = self.consume()?;
-        check_op!(self, semi, ";");
+        // let semi = self.consume()?;
+        // check_op!(self, semi, ";");
         Ok(Term::VarDef { loc, id, init, ty: Box::new(ty) })
     }
 
@@ -162,7 +162,6 @@ impl Parser {
     fn fn_body(&mut self) -> ParseResult {
         let loc = self.loc.clone();
         let left_cur = self.consume()?;
-        // `{`
         check_op!(self, left_cur, "{");
         let mut bb = Vec::new();
         loop {
@@ -191,7 +190,6 @@ impl Parser {
             return self.err(vec!["{Label}"], lab);
         }
         let col = self.consume()?;
-        // `:`
         check_op!(self, col, ":");
         let mut instr = Vec::new();
         loop {
@@ -215,8 +213,8 @@ impl Parser {
             Token::Reserved(_, _) => self.non_assign_instr(),
             tok => return self.err(vec!["{Id}", "{Reserved}"], tok)
         };
-        let semi = self.consume()?;
-        check_op!(self, semi, ";");
+        // let semi = self.consume()?;
+        // check_op!(self, semi, ";");
         term
     }
 
@@ -225,7 +223,7 @@ impl Parser {
         let id = self.consume()?; // Id
         if !id.is_id() { return self.err(vec!["{Id}"], id); }
         let arr = self.consume()?;
-        check_op!(self, arr, "<-"); // <-
+        check_op!(self, arr, "<-");
         let expr = self.assign_rhs()?;
         Ok(Term::AssignInstr { loc, id, rhs: Box::new(expr) })
     }
@@ -236,6 +234,7 @@ impl Parser {
                 "call" => self.call_rhs(),
                 "phi" => self.phi_rhs(),
                 "ptr" => self.ptr_rhs(),
+                "alloc" => self.alloc_rhs(),
                 "new" => self.new_rhs(),
                 _ => self.common_rhs()
             }
@@ -266,10 +265,16 @@ impl Parser {
         let opd = self.opd_list()?;
         let idx = match self.peek(0)? {
             Token::LeftSquare(_) => Some(Box::new(self.index_list()?)),
-            Token::Semicolon(_) => None,
-            tok => return self.err(vec!["[", ";"], tok)
+            _ => None,
         };
         Ok(Term::PtrRhs { loc, ty: Box::new(ty), opd: Box::new(opd), idx })
+    }
+
+    fn alloc_rhs(&mut self) -> ParseResult {
+        let loc = self.loc.clone();
+        self.consume()?; // `alloc`
+        let ty = self.type_decl()?;
+        Ok(Term::AllocRhs { loc, ty: Box::new(ty) })
     }
 
     fn new_rhs(&mut self) -> ParseResult {
@@ -311,19 +316,14 @@ impl Parser {
         let loc = self.loc.clone();
         let mut list = Vec::new();
         loop {
-            match self.peek(0)? {
-                opd if opd.is_opd() => { // Opd
+            if self.peek(0)?.is_opd() {
+                let opd = self.consume()?;
+                list.push(opd);
+                if let Token::Comma(_) = self.peek(0)? {
                     self.consume()?;
-                    list.push(opd)
-                }
-                Token::Comma(_) => { // `,` Opd
-                    self.consume()?;
-                    let opd = self.consume()?;
-                    if !opd.is_opd() { return self.err(vec!["{Operand}"], opd); }
-                    list.push(opd)
-                }
-                _ => break
-            }
+                    continue; // there is another operand
+                } else { break; } // not more, parse next instruction
+            } else { break; }
         }
         Ok(Term::OpdList { loc, list })
     }
@@ -334,12 +334,8 @@ impl Parser {
         loop {
             match self.peek(0)? {
                 Token::LeftSquare(_) => list.push(self.phi_opd()?),
-                Token::Semicolon(_) if !list.is_empty() => break,
-                tok => {
-                    let mut expect = vec!["["];
-                    if !list.is_empty() { expect.push(";") }
-                    return self.err(expect, tok);
-                }
+                _ if !list.is_empty() => break,
+                tok => return self.err(vec!["["], tok)
             }
         }
         Ok(Term::PhiList { loc, list })
@@ -398,14 +394,9 @@ impl Parser {
     fn ret_instr(&mut self) -> ParseResult {
         let loc = self.loc.clone();
         self.consume()?; // `ret`
-        let opd = match self.peek(0)? {
-            opd if opd.is_opd() => {
-                self.consume()?;
-                Some(opd)
-            }
-            Token::Semicolon(_) => None,
-            tok => return self.err(vec!["{Operand}"], tok)
-        };
+        let opd = if self.peek(0)?.is_opd() {
+            Some(self.consume()?)
+        } else { None };
         Ok(Term::RetInstr { loc, opd })
     }
 
