@@ -8,7 +8,7 @@ use crate::lang::func::{BlockListener, BlockRef, Func};
 use crate::lang::instr::{Instr, InstrRef, PhiSrc};
 use crate::lang::ssa::InstrListener;
 use crate::lang::util::ExtRc;
-use crate::lang::value::{Const, Symbol, SymbolRef, Value};
+use crate::lang::value::{Const, Symbol, SymbolRef, Type, Typed, Value};
 
 #[derive(Debug)]
 pub struct SsaVert {
@@ -18,9 +18,15 @@ pub struct SsaVert {
     pub opd: RefCell<Vec<VertRef>>,
     /// Uses of this value (def -> use)
     pub uses: RefCell<Vec<VertRef>>,
-    /// Definition point in the CFG of this value
+    /// Instruction that defines this value in the CFG
     /// This field maybe `None` if the this vertex does not have a corresponding instruction.
-    pub def: Option<(BlockRef, InstrRef)>,
+    pub instr: Option<(BlockRef, InstrRef)>,
+    /// Local variable that this vertex corresponds to
+    pub sym: Option<SymbolRef>,
+}
+
+impl Typed for SsaVert {
+    fn get_type(&self) -> Type { self.sym.as_ref().unwrap().get_type() }
 }
 
 impl SsaVert {
@@ -29,7 +35,11 @@ impl SsaVert {
             tag,
             opd: RefCell::new(vec![]),
             uses: RefCell::new(vec![]),
-            def: instr,
+            instr: instr.clone(),
+            sym: instr.and_then(|(_, instr)| match instr.dst() {
+                Some(dst) if dst.borrow().is_local_var() => Some(dst.borrow().clone()),
+                _ => None
+            }),
         }
     }
 }
@@ -153,11 +163,13 @@ impl BlockListener for GraphBuilder {
         func.param.iter().for_each(|param| {
             let param = param.borrow().clone();
             if param.is_local_var() {
-                let vert = ExtRc::new(SsaVert::new(
+                let mut vert = SsaVert::new(
                     VertTag::Param(param.name().to_string()),
                     None,
-                ));
-                self.graph.add(vert.clone(), Some(param));
+                );
+                // parameters are not defined by instruction, so its symbol must be added manually
+                vert.sym = Some(param.clone());
+                self.graph.add(ExtRc::new(vert), Some(param));
             } else { unreachable!() }
         });
 
