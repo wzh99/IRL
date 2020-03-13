@@ -250,6 +250,11 @@ impl BlockRef {
             }
         }
     }
+
+    /// Decide if this block strictly dominates the given block.
+    pub fn strict_dom(&self, other: &BlockRef) -> bool {
+        self.dominates(other) && self != other
+    }
 }
 
 impl Vertex<BlockRef> for BlockRef {

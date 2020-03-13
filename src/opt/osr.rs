@@ -72,7 +72,6 @@ impl FnPass for OsrOpt {
             self.dfs(&vert.unwrap())
         }
 
-        // self.graph.vert.iter().for_each(|v| println!("{:?}", v.as_ref()));
         // self.expr.iter().for_each(|e| println!("{:?}", e));
 
         // Clear records for this function
@@ -110,13 +109,15 @@ impl OsrOpt {
         self.stack.push(v.clone());
 
         // Visit all operands
-        v.opd.borrow().iter().for_each(|o| {
+        let opd = v.opd.borrow().clone();
+        opd.iter().for_each(|o| {
             if self.unvisited.contains(o) {
                 self.dfs(o);
-                *self.low.get_mut(v).unwrap() = min(self.low[v], self.low[o]);
+                self.low.insert(v.clone(), min(self.low[v], self.low[o]));
             }
-            if self.df_num[o] < self.df_num[v] && self.stack.contains(o) {
-                *self.low.get_mut(v).unwrap() = min(self.low[v], self.df_num[o]);
+            if self.df_num.contains_key(o) && self.df_num[o] < self.df_num[v]
+                && self.stack.contains(o) {
+                self.low.insert(v.clone(), min(self.low[v], self.df_num[o]));
             }
         });
 
@@ -133,12 +134,12 @@ impl OsrOpt {
     }
 
     fn proc_scc(&mut self, scc: Vec<VertRef>) {
-        println!("scc {:?}", scc);
         // Process SCC with only one vertex
+        // println!("scc {:?}", scc);
         if scc.len() == 1 {
             let v = &scc[0];
-            if let Some((blk, _)) = &v.instr.borrow().as_ref() {
-                self.proc_vert(v, blk);
+            if let Some((blk, _)) = &v.instr.borrow().clone().as_ref() {
+                self.proc_vert(v, blk); // the header must be where it is defined
             }
             return;
         }
@@ -156,7 +157,7 @@ impl OsrOpt {
         });
 
         // Process values according to classification result
-        println!("{}", is_iv);
+        // println!("iv {}", is_iv);
         if is_iv {
             scc.into_iter().for_each(|v| {
                 self.header.insert(v, header.clone());
@@ -175,14 +176,14 @@ impl OsrOpt {
         }
 
         // Figure out IV and RC through pattern matching
-        println!("vert {:?} {:?}", v.as_ref(), header);
+        // println!("vert {:?} {:?}", v.as_ref(), header);
         let (fst, snd) = (&v.opd.borrow()[0], &v.opd.borrow()[1]);
         if let VertTag::Value(op) = &v.tag {
             match op.as_str() {
                 "add" | "sub" | "mul" if Self::is_iv_update(fst) && Self::is_rc(snd, header) =>
-                    { self.reduce_top(v, fst, snd); }
+                    { self.replace(v, fst, snd); }
                 "add" | "mul" if Self::is_rc(fst, header) && Self::is_iv_update(snd) =>
-                    { self.reduce_top(v, snd, fst); }
+                    { self.replace(v, snd, fst); }
                 _ => { self.header.remove(v); }
             }
         } else {
@@ -190,18 +191,31 @@ impl OsrOpt {
         };
     }
 
-    fn reduce_top(&mut self, v: &VertRef, iv: &VertRef, rc: &VertRef) {
+    fn replace(&mut self, v: &VertRef, iv: &VertRef, rc: &VertRef) {
+        // Get result of strength reduction
+        // println!("replace {:?} {:?} {:?}", v, iv, rc);
         let op = if let VertTag::Value(op) = &v.tag { op.as_str() } else {
             panic!("vertex {:?} is not a binary operation", v)
         };
         let res = self.reduce(op, iv, rc);
+        // println!("replace {:?}", res.as_ref());
         self.header.insert(res.clone(), self.header[iv].clone());
+        self.unvisited.insert(res.clone());
+
+        // Replace use of this value with the result
+        v.uses.borrow().iter().for_each(|u| {
+            let pos = u.opd.borrow().iter().position(|opd| opd == v).unwrap();
+            *u.opd.borrow_mut().get_mut(pos).unwrap() = res.clone();
+            u.instr.borrow().as_ref().map(|(_, instr)|
+                instr.src()[pos].replace(Self::val_from_vert(&res))
+            );
+        })
     }
 
     /// Inserts operation to strength reduce an induction variable and returns the result SSA
     /// vertex
     fn reduce(&mut self, op: &str, iv: &VertRef, rc: &VertRef) -> VertRef {
-        println!("reduce {} {:?} {:?}", op, iv, rc);
+        // println!("reduce {} {:?} {:?}", op, iv, rc);
         // Find if there is available expression
         let expr = Expr(op.to_string(), iv.clone(), rc.clone());
         self.expr.get(&expr).cloned().unwrap_or_else(|| {
@@ -228,7 +242,11 @@ impl OsrOpt {
             // Further reduce operands of the cloned vertex
             res.opd.borrow_mut().iter_mut().enumerate().for_each(|(i, opd)| {
                 if self.header.get(opd) == self.header.get(&res) {
-                    *opd = self.reduce(op, opd, rc)
+                    let new_opd = self.reduce(op, opd, rc);
+                    *opd = new_opd.clone();
+                    res.instr.borrow().as_ref().unwrap().1.src()[i].replace(
+                        Self::val_from_vert(&new_opd)
+                    );
                 } else {
                     (match &res.tag {
                         VertTag::Phi(_) => Some(self.apply(op, opd, rc)),
@@ -249,7 +267,7 @@ impl OsrOpt {
     /// Inserts an instruction to apply an operation with name `op` to two operands `fst` and `snd`
     /// and returns the result SSA vertex
     fn apply(&mut self, op: &str, fst: &VertRef, snd: &VertRef) -> VertRef {
-        println!("apply {} {:?} {:?}", op, fst, snd);
+        // println!("apply {} {:?} {:?}", op, fst, snd);
         let expr = Expr(op.to_string(), fst.clone(), snd.clone());
         self.expr.get(&expr).cloned().unwrap_or_else(|| {
             if self.header.get(fst).is_some() && Self::is_rc(snd, &self.header[fst]) {
@@ -266,6 +284,7 @@ impl OsrOpt {
     }
 
     fn create_vert(&mut self, op: &str, fst: &VertRef, snd: &VertRef) -> VertRef {
+        // println!("create {} {:?} {:?}", op, fst, snd);
         // Insert instruction and create vertex
         let op = BinOp::from_str(op).unwrap();
         match (&fst.tag, &snd.tag) {
@@ -283,7 +302,7 @@ impl OsrOpt {
                 [fst, snd].iter().for_each(|v| {
                     if let VertTag::Value(_) = &v.tag {
                         let v_blk = v.instr.borrow().as_ref().unwrap().0.clone();
-                        if blk.dominates(&v_blk) && blk != v_blk {
+                        if blk.strict_dom(&v_blk) {
                             blk = v_blk
                         }
                     }
@@ -317,7 +336,7 @@ impl OsrOpt {
     fn val_from_vert(fst: &VertRef) -> Value {
         match &fst.tag {
             VertTag::Const(c) => Value::Const(*c),
-            VertTag::Value(_) | VertTag::Param(_) =>
+            VertTag::Value(_) | VertTag::Param(_) | VertTag::Phi(_) =>
                 Value::Var(fst.sym.borrow().as_ref().unwrap().clone()),
             _ => panic!("cannot create value from vertex {:?}", fst.tag)
         }
@@ -344,7 +363,7 @@ impl OsrOpt {
             VertTag::Param(_) => true,
             _ => match &vert.instr.borrow().as_ref() {
                 // Whether the block defining this value dominates header of SCC
-                Some((block, _)) => block.dominates(header),
+                Some((block, _)) => block.strict_dom(header),
                 None => false
             }
         }
