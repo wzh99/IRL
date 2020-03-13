@@ -203,16 +203,16 @@ impl SccpOpt {
     fn visit_ssa(&mut self) {
         // Pick one SSA edge from work list.
         let edge = self.ssa_work.pick().unwrap();
-        let (block, instr) = match &edge.us.instr { // extract the instruction that uses this value
+        let (block, instr) = match edge.us.instr.borrow().clone() {
             Some(pair) => pair,
             None => return
         };
         // reject this instruction, if it is not visited in CFG
-        if !self.blk_vis.contains(block) { return; }
+        if !self.blk_vis.contains(&block) { return; }
 
         match instr.deref() {
             Instr::Phi { src, dst } => self.eval_phi(src, dst),
-            Instr::Br { cond, tr, fls } => self.eval_br(cond, tr, fls, block),
+            Instr::Br { cond, tr, fls } => self.eval_br(cond, tr, fls, &block),
             instr if instr.is_assign() => self.eval_assign(instr),
             _ => {}
         }

@@ -1,7 +1,6 @@
 use std::cell::RefCell;
 use std::collections::HashMap;
 use std::fmt::{Debug, Error, Formatter};
-use std::mem::swap;
 use std::ops::Deref;
 
 use crate::lang::func::{BlockListener, BlockRef, Func};
@@ -10,7 +9,7 @@ use crate::lang::ssa::InstrListener;
 use crate::lang::util::ExtRc;
 use crate::lang::value::{Const, Symbol, SymbolRef, Type, Typed, Value};
 
-#[derive(Debug)]
+#[derive(Clone, Debug)]
 pub struct SsaVert {
     /// Identify category of this vertex
     pub tag: VertTag,
@@ -20,13 +19,13 @@ pub struct SsaVert {
     pub uses: RefCell<Vec<VertRef>>,
     /// Instruction that defines this value in the CFG
     /// This field maybe `None` if the this vertex does not have a corresponding instruction.
-    pub instr: Option<(BlockRef, InstrRef)>,
+    pub instr: RefCell<Option<(BlockRef, InstrRef)>>,
     /// Local variable that this vertex corresponds to
-    pub sym: Option<SymbolRef>,
+    pub sym: RefCell<Option<SymbolRef>>,
 }
 
 impl Typed for SsaVert {
-    fn get_type(&self) -> Type { self.sym.as_ref().unwrap().get_type() }
+    fn get_type(&self) -> Type { self.sym.borrow().as_ref().unwrap().get_type() }
 }
 
 impl SsaVert {
@@ -35,11 +34,11 @@ impl SsaVert {
             tag,
             opd: RefCell::new(vec![]),
             uses: RefCell::new(vec![]),
-            instr: instr.clone(),
-            sym: instr.and_then(|(_, instr)| match instr.dst() {
+            instr: RefCell::new(instr.clone()),
+            sym: RefCell::new(instr.and_then(|(_, instr)| match instr.dst() {
                 Some(dst) if dst.borrow().is_local_var() => Some(dst.borrow().clone()),
                 _ => None
-            }),
+            })),
         }
     }
 }
@@ -60,7 +59,7 @@ impl VertRef {
     }
 }
 
-#[derive(PartialOrd, Debug)]
+#[derive(PartialOrd, Clone, Debug)]
 pub enum VertTag {
     /// This value is defined by parameter.
     Param(String),
@@ -168,7 +167,7 @@ impl BlockListener for GraphBuilder {
                     None,
                 );
                 // parameters are not defined by instruction, so its symbol must be added manually
-                vert.sym = Some(param.clone());
+                vert.sym = RefCell::new(Some(param.clone()));
                 self.graph.add(ExtRc::new(vert), Some(param));
             } else { unreachable!() }
         });
@@ -196,10 +195,12 @@ impl InstrListener for GraphBuilder {
         match instr.deref() {
             // Create vertex for phi destination if it has not been created, since it may be used
             // in following instructions.
-            Instr::Phi { src, dst } =>
-                if self.graph.find(dst.borrow().deref()).is_none() {
-                    self.build_phi(src, dst, def);
-                }
+            Instr::Phi { src, dst } => {
+                let vert = self.graph.find(dst.borrow().deref())
+                    .unwrap_or_else(|| self.build_phi(src, dst));
+                vert.instr.replace(Some(def.clone()));
+                vert.sym.replace(Some(dst.clone().borrow().clone()));
+            }
             Instr::Mov { src, dst } => self.build_move(src, dst),
             Instr::Un { op, opd, dst } => {
                 let opd = self.get_src_vert(opd);
@@ -207,12 +208,8 @@ impl InstrListener for GraphBuilder {
                 dst.add_opd(opd);
             }
             Instr::Bin { op, fst, snd, dst } => {
-                let mut fst = self.get_src_vert(fst);
-                let mut snd = self.get_src_vert(snd);
-                // impose order of operands if the operator is commutative
-                if op.is_comm() && fst.tag > snd.tag {
-                    swap(&mut fst, &mut snd)
-                }
+                let fst = self.get_src_vert(fst);
+                let snd = self.get_src_vert(snd);
                 let dst = self.get_dst_vert(dst, op.to_string(), Some(def));
                 dst.add_opd(fst);
                 dst.add_opd(snd);
@@ -299,7 +296,7 @@ impl InstrListener for GraphBuilder {
         let dst = instr.dst().unwrap();
         let dst_vert = self.graph.find(&dst.borrow().deref()).unwrap_or_else(|| {
             if let Instr::Phi { src, dst: _ } = instr.deref() {
-                self.build_phi(src, dst, (self.block.clone().unwrap(), instr.clone()))
+                self.build_phi(src, dst)
             } else { unreachable!() }
         });
 
@@ -317,15 +314,14 @@ impl InstrListener for GraphBuilder {
 
 impl GraphBuilder {
     /// Build incomplete phi vertex.
-    fn build_phi(&mut self, src: &Vec<PhiSrc>, dst: &RefCell<SymbolRef>, def: (BlockRef, InstrRef))
-                 -> VertRef
+    fn build_phi(&mut self, src: &Vec<PhiSrc>, dst: &RefCell<SymbolRef>) -> VertRef
     {
         let dst = dst.borrow().clone();
         let pred: Vec<Option<BlockRef>> = src.iter()
             .map(|(pred, _)| pred.clone()).collect();
         let vert = ExtRc::new(SsaVert::new(
             VertTag::Phi(pred.clone()),
-            Some(def),
+            None,
         ));
         for _ in 0..pred.len() { // occupy operand list with placeholders
             vert.add_opd(ExtRc::new(SsaVert::new(

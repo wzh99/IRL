@@ -396,12 +396,12 @@ impl FnPass for PreOpt {
                                 snd_val
                             } else { return Err(()); };
                             let dst_sym = sym_gen.gen(&ty);
-                            pred.insert_before_ctrl(Instr::Bin {
+                            pred.insert_before_ctrl(ExtRc::new(Instr::Bin {
                                 op,
                                 fst: RefCell::new(fst_val),
                                 snd: RefCell::new(snd_val),
                                 dst: RefCell::new(dst_sym.clone()),
-                            });
+                            }));
                             let expr_num = self.table.find_or_add(Expr::Binary(
                                 BinExpr { op, ty, fst, snd }
                             ));
@@ -423,10 +423,10 @@ impl FnPass for PreOpt {
                         } else { unreachable!() };
                         (block, RefCell::new(Value::Var(sym)))
                     }).collect();
-                    block.push_front(Instr::Phi {
+                    block.push_front(ExtRc::new(Instr::Phi {
                         src: phi_src,
                         dst: RefCell::new(dst_sym.clone()),
-                    });
+                    }));
                     sets.get_mut(block).unwrap().phi.insert(num, dst_sym.clone());
                     new_tmp.get_mut(block).unwrap().insert(num, dst_sym);
                     inserted = true;

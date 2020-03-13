@@ -100,6 +100,13 @@ impl Instr {
         }
     }
 
+    pub fn is_phi(&self) -> bool {
+        match self {
+            Instr::Phi { src: _, dst: _ } => true,
+            _ => false
+        }
+    }
+
     /// Possible return the destination symbol of this instruction. This symbol is defined by
     /// this instruction.
     pub fn dst(&self) -> Option<&RefCell<SymbolRef>> {

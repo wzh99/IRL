@@ -146,13 +146,13 @@ impl BasicBlock {
     }
 
     /// Push instruction to the front of the instruction list.
-    pub fn push_front(&self, ins: Instr) {
-        self.instr.borrow_mut().push_front(ExtRc::new(ins))
+    pub fn push_front(&self, ins: InstrRef) {
+        self.instr.borrow_mut().push_front(ins)
     }
 
     /// Push instruction to the back of the instruction list.
-    pub fn push_back(&self, ins: Instr) {
-        self.instr.borrow_mut().push_back(ExtRc::new(ins))
+    pub fn push_back(&self, ins: InstrRef) {
+        self.instr.borrow_mut().push_back(ins)
     }
 
     /// Get first instruction of this block
@@ -179,12 +179,12 @@ impl BasicBlock {
 
     /// If the tail of the instruction list is a control flow instruction, insert `ins` before
     /// it. Otherwise, push to the back of the list.
-    pub fn insert_before_ctrl(&self, ins: Instr) {
+    pub fn insert_before_ctrl(&self, instr: InstrRef) {
         if self.is_complete() {
             let idx = self.instr.borrow().len() - 1;
-            self.instr.borrow_mut().insert(idx, ExtRc::new(ins))
+            self.instr.borrow_mut().insert(idx, instr)
         } else {
-            self.push_back(ins)
+            self.push_back(instr)
         }
     }
 
@@ -440,7 +440,9 @@ impl Func {
             to_split.iter().for_each(|succ| {
                 // Reconnect edges
                 let mid = blk_gen.gen();
-                mid.push_back(Instr::Jmp { tgt: RefCell::new(succ.clone()) });
+                mid.push_back(ExtRc::new(Instr::Jmp {
+                    tgt: RefCell::new(succ.clone())
+                }));
                 mid.connect(succ.clone());
                 block.disconnect(&succ);
                 block.connect(mid.clone());

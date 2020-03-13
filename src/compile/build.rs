@@ -210,13 +210,13 @@ impl Builder {
             for t in terms {
                 // Build instruction
                 ctx.block.replace(b.clone());
-                let instr = self.build_instr(t, &ctx)?;
+                let instr = ExtRc::new(self.build_instr(t, &ctx)?);
 
                 // Check SSA assumption
                 if !may_ssa { may_ssa = self.assume_ssa(&instr) }
 
                 // Check location of phi instruction
-                match &instr {
+                match instr.as_ref() {
                     Instr::Phi { src: _, dst: _ } => if !in_phis {
                         return Err(CompileErr {
                             loc: loc.clone(),

@@ -253,7 +253,10 @@ impl Func {
                     let src: Vec<PhiSrc> = tgt.phi_pred().into_iter().map(|pred| {
                         (pred, RefCell::new(Value::Var(sym.clone())))
                     }).collect();
-                    tgt.push_front(Instr::Phi { src, dst: RefCell::new(sym.clone()) });
+                    tgt.push_front(ExtRc::new(Instr::Phi {
+                        src,
+                        dst: RefCell::new(sym.clone()),
+                    }));
 
                     // Update records
                     ins_phi.get_mut(tgt).unwrap().insert(sym.clone());
