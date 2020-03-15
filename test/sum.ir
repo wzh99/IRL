@@ -1,6 +1,6 @@
 // Test Operator Strength Reduction
-// This is the example in the original paper
 
+// Sum of 0, 4, 8, ..., 4 * (n - 1)
 fn @sum_four($n: i32) -> i32 {
 %Init:
     $s.0 <- mov i32 0 // s = 0
@@ -20,6 +20,7 @@ fn @sum_four($n: i32) -> i32 {
     ret $s.1
 }
 
+// Sum of a given array
 fn @sum_arr($a: *i32, $n: i64) -> i32 {
 %Init:
     $s.0 <- mov i32 0 // s = 0
@@ -38,4 +39,26 @@ fn @sum_arr($a: *i32, $n: i64) -> i32 {
     jmp %Cond
 %End:
     ret $s.1
+}
+
+@g: i32
+
+fn @main() {
+%Begin:
+    $s <- alloc [10]i32
+    $a <- ptr *i32 $s [0]
+    $i.0 <- mov i64 0
+    jmp %Cond
+%Cond:
+    $i.1 <- phi i64 [%Begin: $i.0] [%Loop: $i.2]
+    $c <- lt i64 $i.1, 10
+    br $c ? %Loop : %Sum
+%Loop:
+    $p <- ptr *i32 $a, $i.1
+    st i32 1 -> $p
+    $i.2 <- add i64 $i.1, 1
+    jmp %Cond
+%Sum:
+    @g <- call i32 @sum_arr($a, 10)
+    ret
 }

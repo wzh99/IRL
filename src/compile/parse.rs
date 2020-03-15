@@ -65,11 +65,8 @@ impl Parser {
                 }
                 Some(val)
             }
-            Token::Semicolon(_) => None,
-            tok => return self.err(vec!["<-", ";"], tok)
+            _ => None,
         };
-        // let semi = self.consume()?;
-        // check_op!(self, semi, ";");
         Ok(Term::VarDef { loc, id, init, ty: Box::new(ty) })
     }
 
@@ -208,14 +205,11 @@ impl Parser {
     }
 
     fn instr_def(&mut self) -> ParseResult {
-        let term = match self.peek(0)? {
+        match self.peek(0)? {
             id if id.is_id() => self.assign_instr(),
             Token::Reserved(_, _) => self.non_assign_instr(),
             tok => return self.err(vec!["{Id}", "{Reserved}"], tok)
-        };
-        // let semi = self.consume()?;
-        // check_op!(self, semi, ";");
-        term
+        }
     }
 
     fn assign_instr(&mut self) -> ParseResult {

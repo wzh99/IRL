@@ -522,6 +522,7 @@ fn test_osr() {
     use crate::compile::parse::Parser;
     use crate::compile::build::Builder;
     use crate::lang::print::Printer;
+    use crate::vm::exec::Machine;
 
     use std::fs::File;
     use std::convert::TryFrom;
@@ -535,8 +536,16 @@ fn test_osr() {
     let tree = parser.parse().unwrap();
     let builder = Builder::new(tree);
     let mut pro = builder.build().unwrap();
+
+    let mut mach = Machine::new();
+    let rcd = mach.run(&pro).unwrap();
+    println!("orig: {:?}", rcd);
+
     let mut opt = OsrOpt::new();
     Pass::opt(&mut opt, &mut pro);
+
+    let rcd = mach.run(&pro).unwrap();
+    println!("opt: {:?}", rcd);
 
     let mut out = stdout();
     let mut printer = Printer::new(out.borrow_mut());
