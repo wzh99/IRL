@@ -8,7 +8,7 @@ use crate::lang::func::{BlockRef, Func};
 use crate::lang::instr::{BinOp, Instr};
 use crate::lang::Program;
 use crate::lang::util::ExtRc;
-use crate::lang::value::{Scope, SymbolGen, Typed, Value};
+use crate::lang::value::{Const, Scope, SymbolGen, Typed, Value};
 use crate::opt::{FnPass, Pass};
 use crate::opt::graph::{GraphBuilder, SsaGraph, SsaVert, VertRef, VertTag};
 
@@ -89,7 +89,9 @@ impl FnPass for OsrOpt {
                     Ok(bin) if bin.is_cmp() => {
                         // Replace IV with last one in the chain
                         let opd = v.opd.borrow().clone();
-                        if !self.red.contains_key(&opd[0]) { return; }
+                        if !self.red.contains_key(&opd[0]) {
+                            return; // no reduction found
+                        }
                         let iv = self.follow_edges(&opd[0]);
                         v.opd.borrow_mut()[0] = iv.clone();
                         v.instr.borrow().as_ref().unwrap().1.src()[0].replace(
@@ -108,6 +110,7 @@ impl FnPass for OsrOpt {
             }
         });
 
+        // Eliminate dead code
         func.elim_dead_code();
 
         // Clear records for this function
@@ -217,7 +220,7 @@ impl OsrOpt {
             match op.as_str() {
                 "add" | "sub" | "mul" if Self::is_iv_update(fst) && Self::is_rc(snd, header) =>
                     { self.replace(v, fst, snd); }
-                "add" | "mul" if Self::is_rc(fst, header) && Self::is_iv_update(snd) =>
+                "add" | "mul" | "ptr" if Self::is_rc(fst, header) && Self::is_iv_update(snd) =>
                     { self.replace(v, snd, fst); }
                 _ => { self.header.remove(v); }
             }
@@ -252,24 +255,41 @@ impl OsrOpt {
         let expr = Expr(op.to_string(), iv.clone(), rc.clone());
         self.expr.get(&expr).cloned().unwrap_or_else(|| {
             // Invent a new symbol to store reduced variable
-            let dst = self.gen.gen(&iv.get_type());
-            let res = ExtRc::new(iv.as_ref().clone());
-            res.instr.replace(None);
-            res.uses.replace(vec![]);
-            res.sym.replace(Some(dst.clone()));
-            self.header.insert(res.clone(), self.header[iv].clone());
-            self.expr.insert(expr, res.clone());
+            let dst = self.gen.gen(&rc.get_type());
 
-            // Insert the cloned instruction
+            // Create or clone the corresponding instruction
             let (blk, instr) = iv.instr.borrow().as_ref().unwrap().clone();
-            let new_instr = ExtRc::new(instr.as_ref().clone());
-            new_instr.dst().unwrap().replace(dst);
+            let new_instr = ExtRc::new(if rc.get_type().is_ptr() && !instr.is_phi() {
+                // Pointer operation should be treated differently
+                Instr::Ptr {
+                    base: RefCell::new(Self::val_from_vert(rc)),
+                    off: Some(RefCell::new(Self::val_from_vert(iv))),
+                    ind: vec![],
+                    dst: RefCell::new(dst.clone()),
+                }
+            } else {
+                let cloned = instr.as_ref().clone();
+                cloned.dst().unwrap().replace(dst.clone());
+                cloned
+            });
+
+            // Insert the instruction
             if instr.is_phi() {
                 blk.push_front(new_instr.clone())
             } else {
                 blk.insert_before_ctrl(new_instr.clone())
             }
-            res.instr.replace(Some((blk, new_instr)));
+
+            // Create the SSA vertex for this operation
+            let res = ExtRc::new(SsaVert {
+                tag: iv.tag.clone(),
+                opd: iv.opd.clone(),
+                uses: RefCell::new(vec![]),
+                instr: RefCell::new(Some((blk, new_instr))),
+                sym: RefCell::new(Some(dst.clone())),
+            });
+            self.header.insert(res.clone(), self.header[iv].clone());
+            self.expr.insert(expr, res.clone());
 
             // Further reduce operands of the cloned vertex
             res.opd.borrow_mut().iter_mut().enumerate().for_each(|(i, opd)| {
@@ -283,6 +303,15 @@ impl OsrOpt {
                     (match &res.tag {
                         VertTag::Phi(_) => Some(self.apply(op, opd, rc)),
                         _ if op == "mul" => Some(self.apply(op, opd, rc)),
+                        // For offset operand of pointer operation, it should start from zero and
+                        // accumulate along the reduction chain.
+                        _ if op == "ptr" && i == 1 => {
+                            let zero = ExtRc::new(SsaVert::new(
+                                VertTag::Const(Const::I64(0)),
+                                None,
+                            ));
+                            Some(self.apply("add", opd, &zero))
+                        },
                         _ => None
                     }).map(|new_opd| {
                         *opd = new_opd.clone();
@@ -347,7 +376,11 @@ impl OsrOpt {
     /// Create a new vertex with given operator and operands. Also insert the corresponding
     /// instruction at proper location.
     fn create_vert(&mut self, op: &str, fst: &VertRef, snd: &VertRef) -> VertRef {
-        // Insert instruction and create vertex
+        // Create pointer vertex if original operation is a pointer
+        if fst.get_type().is_ptr() || snd.get_type().is_ptr() {
+            return self.create_ptr(snd, fst)
+        }
+
         let op = BinOp::from_str(op).unwrap();
         match (&fst.tag, &snd.tag) {
             // Do constant folding if possible
@@ -360,17 +393,9 @@ impl OsrOpt {
             }
             _ => {
                 // Find possible block to insert
-                let mut blk = self.func.as_ref().unwrap().ent.borrow().clone();
-                [fst, snd].iter().for_each(|v| {
-                    if let VertTag::Value(_) = &v.tag {
-                        let v_blk = v.instr.borrow().as_ref().unwrap().0.clone();
-                        if blk.strict_dom(&v_blk) {
-                            blk = v_blk
-                        }
-                    }
-                });
+                let blk = self.block_to_insert(fst, snd);
 
-                // Insert binary operation
+                // Insert binary operation as instruction to block
                 let fst_val = Self::val_from_vert(fst);
                 let snd_val = Self::val_from_vert(snd);
                 let ref dst_ty = op.res_type(&fst_val.get_type()).unwrap();
@@ -382,7 +407,7 @@ impl OsrOpt {
                 });
                 blk.insert_before_ctrl(instr.clone());
 
-                // Create value vertex
+                // Create value vertex for binary operation
                 let vert = ExtRc::new(SsaVert::new(
                     VertTag::Value(op.to_string()),
                     Some((blk, instr)),
@@ -395,13 +420,71 @@ impl OsrOpt {
         }
     }
 
+    /// Create a new pointer operation vertex  with given base and offset. Also insert the
+    /// corresponding instruction at proper location.
+    fn create_ptr(&mut self, base: &VertRef, off: &VertRef) -> VertRef {
+        // Find possible block to insert
+        let blk = self.block_to_insert(base, off);
+
+        // Insert pointer instruction to block
+        let ptr_val = Self::val_from_vert(base);
+        let dst_sym = self.gen.gen(&base.get_type());
+        match &off.tag {
+            // Insert just move instruction if the offset is zero
+            VertTag::Const(Const::I64(0)) => {
+                let instr = ExtRc::new(Instr::Mov {
+                    src: RefCell::new(ptr_val),
+                    dst: RefCell::new(dst_sym),
+                });
+                blk.insert_before_ctrl(instr);
+                // return the original pointer since no new operation is introduced
+                base.clone()
+            }
+            // Create new pointer instruction
+            _ => {
+                let off_val = Self::val_from_vert(off);
+                let instr = ExtRc::new(Instr::Ptr {
+                    base: RefCell::new(ptr_val),
+                    off: Some(RefCell::new(off_val)),
+                    ind: vec![],
+                    dst: RefCell::new(dst_sym),
+                });
+                blk.insert_before_ctrl(instr.clone());
+
+                // Create new value vertex for pointer operation
+                let vert = ExtRc::new(SsaVert::new(
+                    VertTag::Value("ptr".to_string()),
+                    Some((blk, instr)),
+                ));
+                vert.add_opd(base.clone());
+                vert.add_opd(off.clone());
+                self.graph.add(vert.clone(), None);
+                vert
+            }
+        }
+    }
+
+    /// Find the appropriate block to insert an instruction
+    fn block_to_insert(&self, fst: &VertRef, snd: &VertRef) -> BlockRef {
+        let mut blk = self.func.as_ref().unwrap().ent.borrow().clone();
+        [fst, snd].iter().for_each(|v| {
+            if let VertTag::Value(_) = &v.tag {
+                let v_blk = v.instr.borrow().as_ref().unwrap().0.clone();
+                if blk.strict_dom(&v_blk) {
+                    blk = v_blk
+                }
+            }
+        });
+        blk
+    }
+
     /// Create value from SSA vertex
-    fn val_from_vert(fst: &VertRef) -> Value {
-        match &fst.tag {
+    fn val_from_vert(v: &VertRef) -> Value {
+        match &v.tag {
             VertTag::Const(c) => Value::Const(*c),
             VertTag::Value(_) | VertTag::Param(_) | VertTag::Phi(_) =>
-                Value::Var(fst.sym.borrow().as_ref().unwrap().clone()),
-            _ => panic!("cannot create value from vertex {:?}", fst.tag)
+                Value::Var(v.sym.borrow().as_ref().unwrap().clone()),
+            _ => panic!("cannot create value from vertex {:?}", v.tag)
         }
     }
 
@@ -412,7 +495,7 @@ impl OsrOpt {
             VertTag::Phi(_) => true,
             // For other values, they must be updated by a region constant in each operation.
             // Only `add`, `sub` and `ptr` meet this requirement.
-            VertTag::Value(op) if ["add", "sub"].contains(&op.as_str()) => true,
+            VertTag::Value(op) if ["add", "sub", "ptr"].contains(&op.as_str()) => true,
             _ => false
         }
     }

@@ -25,7 +25,12 @@ pub struct SsaVert {
 }
 
 impl Typed for SsaVert {
-    fn get_type(&self) -> Type { self.sym.borrow().as_ref().unwrap().get_type() }
+    fn get_type(&self) -> Type {
+        match &self.tag {
+            VertTag::Const(c) => c.get_type(),
+            _ => self.sym.borrow().as_ref().unwrap().get_type()
+        }
+    }
 }
 
 impl SsaVert {
