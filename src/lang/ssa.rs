@@ -552,43 +552,63 @@ impl Func {
         let mut def_use = self.def_use();
 
         // Use work list algorithm to create target set
-        let mut target = HashSet::new();
+        let mut marked = HashSet::new();
         let mut work: WorkList<SymbolRef> = WorkList::from_iter(def_use.keys().cloned());
 
         while !work.is_empty() {
-            // Pick one variable.
-            let sym = work.pick().unwrap();
-            // Cannot decide if it is still in use.
-            if !def_use.get(&sym).unwrap().uses.is_empty() { continue; }
-            // Find the instruction where it is defined.
-            match def_use.get(&sym).unwrap().def.clone() {
-                DefPos::Instr(_, instr) if !instr.has_side_effect() => {
-                    // Mark this instruction, if it has no other effects
-                    target.insert(instr.clone());
-                    for opd in instr.src() {
-                        match opd.borrow().deref() {
-                            // Also remove this instruction from the use list of the symbols it
-                            // uses.
-                            Value::Var(opd) if opd.is_local_var() => {
-                                let pos = def_use.get(opd).unwrap().uses.iter().position(|elem| {
-                                    *elem == instr
-                                }).unwrap();
-                                def_use.get_mut(opd).unwrap().uses.remove(pos);
-                                // Add these symbols to work list, as they may be dead this time.
-                                work.add(opd.clone())
+            // Search for instruction that can be removed
+            let ref sym = work.pick().unwrap();
+            let mut remove = vec![];
+            match def_use.get(sym).unwrap().def.clone() {
+                // Remove circular reference
+                // A circular reference is a pair of symbols that for each symbol, its only use
+                // point is the definition of the other symbol, and the only use point of that
+                // symbol is the one of this symbol.
+                DefPos::Instr(_, instr) if instr.is_phi() && def_use[sym].uses.len() == 1 => {
+                    let phi_dst = sym;
+                    let other_instr = def_use[phi_dst].uses[0].clone();
+                    match other_instr.dst() {
+                        Some(dst) if dst.borrow().is_local_var() => {
+                            let ref other_dst = dst.borrow().clone();
+                            if def_use[other_dst].uses.len() == 1
+                                && def_use[other_dst].uses[0] == instr {
+                                remove.push(instr.clone());
+                                remove.push(other_instr.clone());
                             }
-                            _ => ()
                         }
+                        _ => {}
                     }
                 }
-                _ => continue
+                // For any other instruction, remove if it has no uses and it has no side effects.
+                DefPos::Instr(_, instr) if def_use[sym].uses.is_empty()
+                    && !instr.has_side_effect() => remove.push(instr),
+                _ => {}
             }
+
+            // Mark the instructions that can be removed
+            remove.into_iter().for_each(|instr| {
+                marked.insert(instr.clone());
+                for opd in instr.src() {
+                    match opd.borrow().deref() {
+                        // Also remove this instruction from the use list of the symbols it
+                        // uses.
+                        Value::Var(opd) if opd.is_local_var() => {
+                            def_use[opd].uses.iter().position(|elem| *elem == instr)
+                                .map(|pos| {
+                                    def_use.get_mut(opd).unwrap().uses.remove(pos);
+                                    work.add(opd.clone());
+                                });
+                        }
+                        _ => {}
+                    }
+                }
+            })
         }
 
-        // Actually remove these instructions
-        self.dfs().for_each(|block| {
+        // Remove instruction if it is not marked before
+        self.iter_dom(|block| {
             block.instr.borrow_mut().retain(|instr| {
-                if target.contains(instr) {
+                if marked.contains(instr) {
                     instr.dst().map(|dst| self.scope.remove(&dst.borrow().name()));
                     false
                 } else { true }

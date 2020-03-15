@@ -108,6 +108,8 @@ impl FnPass for OsrOpt {
             }
         });
 
+        func.elim_dead_code();
+
         // Clear records for this function
         self.low.clear();
         self.df_num.clear();

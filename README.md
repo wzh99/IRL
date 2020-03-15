@@ -6,7 +6,7 @@ This project aims to build a complete intermediate representation language. It i
 
 ## Language
 
-The language is a CFG-based register-transfer IR. Phi instruction is provided to build SSA form. The following is an example to show the structure of a simple program. The program is not very practical, but should suffice to show some characteristics of this language. This example can also be seen in [example.ir](test/example.ir)
+The language is a CFG-based register-transfer IR. Phi instruction is provided to build SSA form. The following is an example to show the structure of a simple program. The program is not very practical, but should suffice to show some characteristics of this language. This example can also be seen in [example.ir](test/example.ir).
 
 ```
 type @Foo = { i16, { [2][4]i8 }, *@Bar }
@@ -46,7 +46,7 @@ fn @max($a: i64, $b: i64) -> i64 {
 }
 ```
 
-It could be seen from the example that the syntax is a bit similar to [LLVM IR](https://www.llvm.org/docs/LangRef.html), but adopts some syntax features commonly seen in higher level programming languages. It tries to reduce type annotation required in the language, as long as it can be inferred from context or expressions. Also, it tries to make some of the instructions more informative, such as `st`, `br`, `phi` and `ptr`.
+It could be seen from the example that the syntax is a bit similar to [LLVM IR](https://www.llvm.org/docs/LangRef.html), but adopts some syntax features commonly seen in higher level programming languages. Programmers are saved from typing some type annotations, as long as they can be easily read from context. Also, some of the instructions are more informative, such as `st`, `br`, `phi` and `ptr`.
 
 The type system and instruction set are all quite simple, but they are fairly enough support most of the following work. For type definition, see [`lang::val::Type`](src/lang/value.rs). For instruction set, see [`lang::instr`](src/lang/instr.rs).
 
