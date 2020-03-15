@@ -9,7 +9,7 @@ use crate::lang::util::MutRc;
 use crate::lang::value::{Const, SymbolRef, Type};
 
 /// Represent base address of memory space
-#[derive(Clone, Debug)]
+#[derive(Ord, PartialOrd, Eq, PartialEq, Clone, Debug)]
 pub enum MemSpace {
     Stack(usize),
     Heap(HeapSpace),
@@ -98,7 +98,7 @@ pub struct Frame {
 pub type FrameRef = MutRc<Frame>;
 
 /// Register that holds a primitive or pointer value
-#[derive(Clone, Debug)]
+#[derive(Ord, PartialOrd, Eq, PartialEq, Clone, Debug)]
 pub enum Reg {
     Val(Const),
     Ptr { base: Option<MemSpace>, off: usize },

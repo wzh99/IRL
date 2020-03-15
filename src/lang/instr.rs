@@ -391,6 +391,7 @@ impl BinOp {
             (op, Type::I(_)) if op.is_eq() => Some(Type::I(1)),
             (op, Type::I(b)) if (op.is_arith() | op.is_shift()) && *b != 1 => Some(Type::I(*b)),
             (op, Type::I(b)) if op.is_ord() && *b != 1 => Some(Type::I(*b)),
+            (op, Type::Ptr(_)) if op.is_cmp() => Some(Type::I(1)),
             _ => None
         }
     }

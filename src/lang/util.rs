@@ -1,4 +1,5 @@
 use std::cell::{Ref, RefCell, RefMut};
+use std::cmp::Ordering;
 use std::hash::{Hash, Hasher};
 use std::iter::FromIterator;
 use std::ops::Deref;
@@ -17,6 +18,18 @@ impl<T> PartialEq for ExtRc<T> {
 }
 
 impl<T> Eq for ExtRc<T> {}
+
+impl<T> PartialOrd for ExtRc<T> {
+    fn partial_cmp(&self, other: &Self) -> Option<Ordering> {
+        (self.0.as_ref() as *const T).partial_cmp(&(other.as_ref() as *const T))
+    }
+}
+
+impl<T> Ord for ExtRc<T> {
+    fn cmp(&self, other: &Self) -> Ordering {
+        (self.0.as_ref() as *const T).cmp(&(other.as_ref() as *const T))
+    }
+}
 
 impl<T> Hash for ExtRc<T> {
     fn hash<H: Hasher>(&self, state: &mut H) {
@@ -38,7 +51,6 @@ impl<T> Clone for ExtRc<T> {
 }
 
 /// Extended reference counting with interior mutability
-#[derive(Eq)]
 pub struct MutRc<T>(pub Rc<RefCell<T>>);
 
 impl<T> MutRc<T> {
@@ -47,6 +59,20 @@ impl<T> MutRc<T> {
 
 impl<T> PartialEq for MutRc<T> {
     fn eq(&self, other: &Self) -> bool { Rc::ptr_eq(&self.0, &other.0) }
+}
+
+impl<T> Eq for MutRc<T> {}
+
+impl<T> PartialOrd for MutRc<T> {
+    fn partial_cmp(&self, other: &Self) -> Option<Ordering> {
+        (self.borrow().deref() as *const T).partial_cmp(&(other.borrow().deref() as *const T))
+    }
+}
+
+impl<T> Ord for MutRc<T> {
+    fn cmp(&self, other: &Self) -> Ordering {
+        (self.borrow().deref() as *const T).cmp(&(other.borrow().deref() as *const T))
+    }
 }
 
 impl<T> Hash for MutRc<T> {

@@ -66,6 +66,7 @@ impl Func {
     }
 }
 
+#[derive(Eq)]
 pub struct BasicBlock {
     /// Name of this basic block
     pub name: String,
@@ -87,7 +88,6 @@ pub struct BasicBlock {
     child: RefCell<Vec<BlockRef>>,
 }
 
-
 pub type BlockRef = ExtRc<BasicBlock>;
 
 impl Debug for BlockRef {
@@ -96,11 +96,15 @@ impl Debug for BlockRef {
     }
 }
 
-impl Ord for BlockRef {
+impl PartialEq for BasicBlock {
+    fn eq(&self, other: &Self) -> bool { self.name == other.name }
+}
+
+impl Ord for BasicBlock {
     fn cmp(&self, other: &Self) -> Ordering { self.name.cmp(&other.name) }
 }
 
-impl PartialOrd for BlockRef {
+impl PartialOrd for BasicBlock {
     fn partial_cmp(&self, other: &Self) -> Option<Ordering> {
         self.name.partial_cmp(&other.name)
     }

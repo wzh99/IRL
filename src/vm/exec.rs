@@ -5,7 +5,7 @@ use std::ops::{Add, Deref, DerefMut};
 use std::rc::Rc;
 
 use crate::lang::func::Func;
-use crate::lang::instr::Instr;
+use crate::lang::instr::{BinOp, Instr};
 use crate::lang::Program;
 use crate::lang::util::MutRc;
 use crate::lang::value::{Const, GlobalVarRef, Symbol, SymbolRef, Type, Typed, Value};
@@ -101,12 +101,7 @@ impl Machine {
                         let res = Reg::Val(op.eval(opd));
                         self.reg_to_dst(res, dst, file);
                     }
-                    Instr::Bin { op, fst, snd, dst } => {
-                        let fst = self.reg_from_src(fst, file).get_const();
-                        let snd = self.reg_from_src(snd, file).get_const();
-                        let res = Reg::Val(op.eval(fst, snd));
-                        self.reg_to_dst(res, dst, file);
-                    }
+                    Instr::Bin { op, fst, snd, dst } => self.exec_bin(*op, fst, snd, dst, file),
                     Instr::Call { func, arg, dst } => {
                         let arg: Vec<_> = arg.iter().map(|a| self.reg_from_src(a, file)).collect();
                         let res = self.call(func, arg)?;
@@ -241,6 +236,27 @@ impl Machine {
         unsafe { (*ptr).clone() }
     }
 
+    fn exec_bin(&mut self, op: BinOp, fst: &RefCell<Value>, snd: &RefCell<Value>,
+                dst: &RefCell<SymbolRef>, file: &mut RegFile)
+    {
+        let fst = self.reg_from_src(fst, file);
+        let snd = self.reg_from_src(snd, file);
+        let res = if fst.is_val() { // use built-in constant evaluation function
+            Reg::Val(op.eval(fst.get_const(), snd.get_const()))
+        } else {
+            match op {
+                BinOp::Eq => Reg::Val(Const::I1(fst == snd)),
+                BinOp::Ne => Reg::Val(Const::I1(fst != snd)),
+                BinOp::Lt => Reg::Val(Const::I1(fst < snd)),
+                BinOp::Le => Reg::Val(Const::I1(fst <= snd)),
+                BinOp::Gt => Reg::Val(Const::I1(fst > snd)),
+                BinOp::Ge => Reg::Val(Const::I1(fst >= snd)),
+                _ => unreachable!()
+            }
+        };
+        self.reg_to_dst(res, dst, file);
+    }
+
     fn exec_new(&mut self, dst: &RefCell<SymbolRef>, len: &Option<RefCell<Value>>,
                 file: &mut RegFile)
     {
@@ -305,7 +321,7 @@ impl Machine {
         Ok(())
     }
 
-    fn reg_from_src(&mut self, src: &RefCell<Value>, file: &RegFile) -> Reg {
+    fn reg_from_src(&self, src: &RefCell<Value>, file: &RegFile) -> Reg {
         match src.borrow().deref() {
             Value::Var(sym) if sym.is_local_var() => match file.get(sym) {
                 Some(reg) => reg.clone(),

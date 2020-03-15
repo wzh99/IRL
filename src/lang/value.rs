@@ -112,6 +112,14 @@ impl Type {
         }
     }
 
+    /// Whether this type is pointer type
+    pub fn is_ptr(&self) -> bool {
+        match self.orig() {
+            Type::Ptr(_) => true,
+            _ => false
+        }
+    }
+
     /// Whether values of this type could be stored in virtual registers
     pub fn is_reg(&self) -> bool {
         match self.orig() {
@@ -192,7 +200,7 @@ impl Value {
     }
 }
 
-#[derive(Clone)]
+#[derive(Eq, Clone)]
 pub enum Symbol {
     Local {
         name: String,
@@ -226,6 +234,10 @@ impl ToString for Symbol {
             _ => format!("@{}", self.name())
         }
     }
+}
+
+impl PartialEq for Symbol {
+    fn eq(&self, other: &Self) -> bool { self.name() == other.name() }
 }
 
 impl Debug for Symbol {
@@ -267,7 +279,7 @@ impl Symbol {
     }
 }
 
-#[derive(Clone, Debug)]
+#[derive(Eq, Clone, Debug)]
 pub struct GlobalVar {
     pub name: String,
     pub ty: Type,
@@ -276,6 +288,10 @@ pub struct GlobalVar {
 
 impl Typed for GlobalVar {
     fn get_type(&self) -> Type { return self.ty.clone(); }
+}
+
+impl PartialEq for GlobalVar {
+    fn eq(&self, other: &Self) -> bool { self.name == other.name }
 }
 
 pub type GlobalVarRef = ExtRc<GlobalVar>;
