@@ -37,10 +37,19 @@ pub struct OsrOpt {
     expr: HashMap<Expr, VertRef>,
     /// Symbol generator
     gen: SymbolGen,
+    /// Record each reduction performed by the algorithm
+    red: HashMap<VertRef, Reduction>,
 }
 
 #[derive(Eq, PartialEq, Hash, Clone, Debug)]
 struct Expr(String, VertRef, VertRef);
+
+#[derive(Clone, Debug)]
+struct Reduction {
+    op: String,
+    rc: VertRef,
+    res: VertRef,
+}
 
 impl Pass for OsrOpt {
     fn opt(&mut self, pro: &mut Program) { FnPass::opt(self, pro) }
@@ -72,13 +81,39 @@ impl FnPass for OsrOpt {
             self.dfs(&vert.unwrap())
         }
 
-        // self.expr.iter().for_each(|e| println!("{:?}", e));
+        // Perform linear function test replacement
+        let vert = self.graph.vert.clone();
+        vert.iter().for_each(|v| {
+            if let VertTag::Value(op) = &v.tag {
+                match BinOp::from_str(op) {
+                    Ok(bin) if bin.is_cmp() => {
+                        // Replace IV with last one in the chain
+                        let opd = v.opd.borrow().clone();
+                        if !self.red.contains_key(&opd[0]) { return; }
+                        let iv = self.follow_edges(&opd[0]);
+                        v.opd.borrow_mut()[0] = iv.clone();
+                        v.instr.borrow().as_ref().unwrap().1.src()[0].replace(
+                            Self::val_from_vert(&iv)
+                        );
+
+                        // Replace RC with result of operations in the chain
+                        let rc = self.apply_edges(&opd[0], &opd[1]);
+                        v.opd.borrow_mut()[0] = rc.clone();
+                        v.instr.borrow().as_ref().unwrap().1.src()[1].replace(
+                            Self::val_from_vert(&rc)
+                        );
+                    }
+                    _ => {}
+                }
+            }
+        });
 
         // Clear records for this function
         self.low.clear();
         self.df_num.clear();
         self.header.clear();
         self.expr.clear();
+        self.red.clear();
     }
 }
 
@@ -96,6 +131,7 @@ impl OsrOpt {
             header: Default::default(),
             expr: Default::default(),
             gen: SymbolGen::new("", Rc::new(Scope::new())),
+            red: Default::default(),
         }
     }
 
@@ -135,7 +171,6 @@ impl OsrOpt {
 
     fn proc_scc(&mut self, scc: Vec<VertRef>) {
         // Process SCC with only one vertex
-        // println!("scc {:?}", scc);
         if scc.len() == 1 {
             let v = &scc[0];
             if let Some((blk, _)) = &v.instr.borrow().clone().as_ref() {
@@ -157,7 +192,6 @@ impl OsrOpt {
         });
 
         // Process values according to classification result
-        // println!("iv {}", is_iv);
         if is_iv {
             scc.into_iter().for_each(|v| {
                 self.header.insert(v, header.clone());
@@ -176,7 +210,6 @@ impl OsrOpt {
         }
 
         // Figure out IV and RC through pattern matching
-        // println!("vert {:?} {:?}", v.as_ref(), header);
         let (fst, snd) = (&v.opd.borrow()[0], &v.opd.borrow()[1]);
         if let VertTag::Value(op) = &v.tag {
             match op.as_str() {
@@ -193,12 +226,10 @@ impl OsrOpt {
 
     fn replace(&mut self, v: &VertRef, iv: &VertRef, rc: &VertRef) {
         // Get result of strength reduction
-        // println!("replace {:?} {:?} {:?}", v, iv, rc);
         let op = if let VertTag::Value(op) = &v.tag { op.as_str() } else {
             panic!("vertex {:?} is not a binary operation", v)
         };
         let res = self.reduce(op, iv, rc);
-        // println!("replace {:?}", res.as_ref());
         self.header.insert(res.clone(), self.header[iv].clone());
         self.unvisited.insert(res.clone());
 
@@ -215,7 +246,6 @@ impl OsrOpt {
     /// Inserts operation to strength reduce an induction variable and returns the result SSA
     /// vertex
     fn reduce(&mut self, op: &str, iv: &VertRef, rc: &VertRef) -> VertRef {
-        // println!("reduce {} {:?} {:?}", op, iv, rc);
         // Find if there is available expression
         let expr = Expr(op.to_string(), iv.clone(), rc.clone());
         self.expr.get(&expr).cloned().unwrap_or_else(|| {
@@ -260,6 +290,13 @@ impl OsrOpt {
                     });
                 }
             });
+
+            // Record this reduction
+            self.red.insert(iv.clone(), Reduction {
+                op: op.to_string(),
+                rc: rc.clone(),
+                res: res.clone(),
+            });
             res.clone()
         })
     }
@@ -267,7 +304,6 @@ impl OsrOpt {
     /// Inserts an instruction to apply an operation with name `op` to two operands `fst` and `snd`
     /// and returns the result SSA vertex
     fn apply(&mut self, op: &str, fst: &VertRef, snd: &VertRef) -> VertRef {
-        // println!("apply {} {:?} {:?}", op, fst, snd);
         let expr = Expr(op.to_string(), fst.clone(), snd.clone());
         self.expr.get(&expr).cloned().unwrap_or_else(|| {
             if self.header.get(fst).is_some() && Self::is_rc(snd, &self.header[fst]) {
@@ -283,8 +319,32 @@ impl OsrOpt {
         })
     }
 
+    /// Follow the LFTR edges and return the SSA vertex of the last one in the chain
+    fn follow_edges(&self, iv: &VertRef) -> VertRef {
+        let mut last = self.red[iv].res.clone();
+        loop {
+            match self.red.get(&last) {
+                Some(red) => last = red.res.clone(),
+                None => return last
+            }
+        }
+    }
+
+    /// Apply the operations represented by the LFTR edges to a region constant and returns the
+    /// SSA vertex of the result.
+    fn apply_edges(&mut self, iv: &VertRef, rc: &VertRef) -> VertRef {
+        match self.red.get(iv).cloned() {
+            Some(red) => {
+                let new_rc = self.apply(red.op.as_str(), rc, &red.rc);
+                self.apply_edges(&red.res, &new_rc)
+            }
+            None => rc.clone()
+        }
+    }
+
+    /// Create a new vertex with given operator and operands. Also insert the corresponding
+    /// instruction at proper location.
     fn create_vert(&mut self, op: &str, fst: &VertRef, snd: &VertRef) -> VertRef {
-        // println!("create {} {:?} {:?}", op, fst, snd);
         // Insert instruction and create vertex
         let op = BinOp::from_str(op).unwrap();
         match (&fst.tag, &snd.tag) {
@@ -333,6 +393,7 @@ impl OsrOpt {
         }
     }
 
+    /// Create value from SSA vertex
     fn val_from_vert(fst: &VertRef) -> Value {
         match &fst.tag {
             VertTag::Const(c) => Value::Const(*c),

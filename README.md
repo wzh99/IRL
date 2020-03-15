@@ -2,7 +2,7 @@
 
 ## Introduction
 
-This project aims to building a complete intermediate representation language and covers several technical aspects of a programming language, including compilation, optimization, execution, etc. It is designed so that IR can be directly and easily constructed by hand, without translation from higher level languages. The functionality is quite similar to [LLVM](https://www.llvm.org), but simplified and adjusted to suit the need of study and research. This project is written in pure and safe Rust, except for the interpreter, where some `unsafe` code appears, but safe indeed. 
+This project aims to build a complete intermediate representation language. It is designed so that IR can be directly and easily constructed by hand, without translation from higher level languages. The functionality is quite similar to [LLVM](https://www.llvm.org), but simplified and adjusted to meet the need of learning and research. This project is written in pure and safe Rust, except for the interpreter, where some `unsafe` code appears, but safe indeed. 
 
 ## Language
 
@@ -84,7 +84,11 @@ Replace later uses of compile-time constants with their corresponding values. It
 
 ### Partial Redundancy Elimination
 
-Place each (binary) computation at its optimal position. GVN-PRE algorithm is adopted, which utilizes GVN as a subroutine to better handle expressions that may not be lexically equivalent. Algebraic simplification is also applied during optimization. Implementation at [`opt::pre::PreOpt`](src/opt/pre.rs).
+Place each computation at its optimal position that avoids redundant computation on any path. [GVN-PRE](https://www.cs.purdue.edu/homes/hosking/papers/cc04.pdf) algorithm is adopted, which utilizes GVN as a subroutine to better handle expressions that may not be lexically equivalent. Algebraic simplification is also applied during optimization. Implementation at [`opt::pre::PreOpt`](src/opt/pre.rs).
+
+### Strength Reduction
+
+Reformulate certain costly computations with less costly ones. [OSR](https://www.cs.rice.edu/~keith/EMBED/OSR.pdf) algorithm is adopted. Implementation at [`opt::osr::OsrOpt`](src/opt/osr.rs).
 
 ### Dead Code Elimination
 
