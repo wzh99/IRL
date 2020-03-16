@@ -69,7 +69,7 @@ impl Printer<'_> {
         writeln!(self.writer, "{}", s)?;
 
         // Print blocks
-        for ref b in func.bfs() {
+        for ref b in func.rpo() {
             self.print_block(b)?;
         }
 
