@@ -19,7 +19,8 @@ enum Expr {
     /// Compile time constants
     Const(Const),
     /// Binary operations
-    Binary(BinExpr),
+    Bin(BinExpr),
+    Ptr(PtrExpr),
     /// Temporaries that store values
     Temp(SymbolRef),
 }
@@ -28,7 +29,8 @@ impl Typed for Expr {
     fn get_type(&self) -> Type {
         match self {
             Expr::Const(c) => c.get_type(),
-            Expr::Binary(bin) => bin.get_type(),
+            Expr::Bin(bin) => bin.get_type(),
+            Expr::Ptr(ptr) => ptr.get_type(),
             Expr::Temp(sym) => sym.get_type()
         }
     }
@@ -36,9 +38,11 @@ impl Typed for Expr {
 
 #[derive(Eq, Clone, Debug)]
 struct BinExpr {
+    /// Binary operator
     op: BinOp,
+    /// Type of operands, not result
     ty: Type,
-    // type of operands, not of result
+    /// Value number of both operands
     fst: usize,
     snd: usize,
 }
@@ -58,6 +62,35 @@ impl Hash for BinExpr {
         self.op.hash(state);
         self.fst.hash(state);
         self.snd.hash(state);
+    }
+}
+
+/// Represent pointer operation that in form of base and offset. Indices into aggregate is not
+/// considered.
+#[derive(Eq, Clone, Debug)]
+struct PtrExpr {
+    /// Type of the pointer
+    ty: Type,
+    /// Base pointer
+    base: usize,
+    /// Pointer offset
+    off: usize,
+}
+
+impl Typed for PtrExpr {
+    fn get_type(&self) -> Type { self.ty.clone() }
+}
+
+impl PartialEq for PtrExpr {
+    fn eq(&self, other: &Self) -> bool {
+        self.base == other.base && self.off == other.off
+    }
+}
+
+impl Hash for PtrExpr {
+    fn hash<H: Hasher>(&self, state: &mut H) {
+        self.base.hash(state);
+        self.off.hash(state);
     }
 }
 
@@ -107,28 +140,28 @@ impl ValueTable {
     fn find(&mut self, expr: &Expr) -> Option<usize> {
         self.get_num(expr).or_else(|| match expr.clone() {
             // Use operator commutativity to have another try
-            Expr::Binary(BinExpr { op, ty, fst, snd }) if op.is_comm() => self.get_num(
-                &Expr::Binary(BinExpr { op, ty, fst: snd, snd: fst })
+            Expr::Bin(BinExpr { op, ty, fst, snd }) if op.is_comm() => self.get_num(
+                &Expr::Bin(BinExpr { op, ty, fst: snd, snd: fst })
             ),
             _ => None
         }).or_else(|| match expr {
             // Try to re-associate binary operations
-            Expr::Binary(BinExpr { op, ty: _, fst: _, snd: _ }) if op.is_assoc() =>
+            Expr::Bin(BinExpr { op, ty: _, fst: _, snd: _ }) if op.is_assoc() =>
                 match expr.clone() {
                     // Try processing first value
-                    Expr::Binary(BinExpr { op, ty: _, fst, snd })
+                    Expr::Bin(BinExpr { op, ty: _, fst, snd })
                     if self.find_bin(fst).is_some() =>
                         self.find_bin(fst).and_then(|fst| {
                             match fst {
                                 BinExpr { op: opl, ty, fst: l_fst, snd: l_snd }
                                 if opl.assoc_with(&op) =>
-                                    self.get_num(&Expr::Binary(BinExpr {
+                                    self.get_num(&Expr::Bin(BinExpr {
                                         op,
                                         ty: ty.clone(),
                                         fst: l_snd,
                                         snd,
                                     })).and_then(
-                                        |snd| self.get_num(&Expr::Binary(BinExpr {
+                                        |snd| self.get_num(&Expr::Bin(BinExpr {
                                             op: opl,
                                             ty,
                                             fst: l_fst,
@@ -141,19 +174,19 @@ impl ValueTable {
                     _ => None
                 }.or_else(|| match expr.clone() {
                     // Try processing second value
-                    Expr::Binary(BinExpr { op, ty: _, fst, snd })
+                    Expr::Bin(BinExpr { op, ty: _, fst, snd })
                     if self.find_bin(snd).is_some() =>
                         self.find_bin(snd).and_then(|snd| {
                             match snd {
                                 BinExpr { op: opr, ty, fst: r_fst, snd: r_snd }
                                 if op.assoc_with(&opr) =>
-                                    self.get_num(&Expr::Binary(BinExpr {
+                                    self.get_num(&Expr::Bin(BinExpr {
                                         op,
                                         ty: ty.clone(),
                                         fst,
                                         snd: r_fst,
                                     })).and_then(
-                                        |fst| self.get_num(&Expr::Binary(BinExpr {
+                                        |fst| self.get_num(&Expr::Bin(BinExpr {
                                             op: opr,
                                             ty,
                                             fst,
@@ -174,11 +207,11 @@ impl ValueTable {
     /// fundamental and does not dive into the structure of operand values.
     fn get_num(&mut self, expr: &Expr) -> Option<usize> {
         self.num.get(expr).copied().or_else(|| match expr.clone() {
-            Expr::Binary(BinExpr { op, ref ty, fst, snd }) => {
+            Expr::Bin(BinExpr { op, ref ty, fst, snd }) => {
                 let fst_cn = self.find_const(fst);
                 let snd_cn = self.find_const(snd);
                 if let (Some(l), Some(r)) = (fst_cn, snd_cn) {
-                    return Some(self.find_or_add(Expr::Const(op.eval(l, r))))
+                    return Some(self.find_or_add(Expr::Const(op.eval(l, r))));
                 }
                 let zero = Const::zero(ty);
                 let one = Const::one(ty);
@@ -213,6 +246,12 @@ impl ValueTable {
                     _ => None
                 }
             }
+            Expr::Ptr(PtrExpr { ty: _, base, off }) => {
+                let off_cn = self.find_const(off);
+                if let Some(Const::I64(0)) = off_cn {
+                    return Some(base);
+                } else { None }
+            }
             _ => None
         })
     }
@@ -231,10 +270,10 @@ impl ValueTable {
     /// Find binary expression in the value list of given value number
     fn find_bin(&self, num: usize) -> Option<BinExpr> {
         self.tab.get(num).and_then(|list| list.iter().find(|expr| match expr {
-            Expr::Binary(_) => true,
+            Expr::Bin(_) => true,
             _ => false
         }).and_then(|expr| match expr {
-            Expr::Binary(bin) => Some(bin.clone()),
+            Expr::Bin(bin) => Some(bin.clone()),
             _ => unreachable!()
         }))
     }
@@ -330,7 +369,7 @@ impl FnPass for PreOpt {
 
         // Hoist expressions to earlier points
         let mut new_tmp: HashMap<BlockRef, HashMap<usize, SymbolRef>> = HashMap::new();
-        let mut sym_gen = SymbolGen::new("t", func.scope.clone());
+        let mut gen = SymbolGen::new("t", func.scope.clone());
         let mut inserted = true;
         while inserted {
             inserted = false;
@@ -352,7 +391,7 @@ impl FnPass for PreOpt {
                 while !work.is_empty() {
                     // Find insertion point
                     let (num, expr) = work.pick().unwrap();
-                    let expr = if let Expr::Binary(bin) = expr { bin } else { continue; };
+                    let expr = if let Expr::Bin(bin) = expr { bin } else { continue; };
                     if Self::find_leader(&sets[dom].avail_out, num).is_some() { continue; }
                     let mut avail: HashMap<BlockRef, Expr> = HashMap::new();
                     let mut by_some = false;
@@ -361,7 +400,7 @@ impl FnPass for PreOpt {
 
                     block.pred.borrow().iter().for_each(|pred| {
                         let (trans_num, trans_expr) =
-                            self.phi_trans_one(num, Expr::Binary(expr.clone()), pred.clone(),
+                            self.phi_trans_one(num, Expr::Bin(expr.clone()), pred.clone(),
                                                block.clone());
                         match Self::find_leader(&sets[pred].avail_out, trans_num) {
                             Some(leader) => {
@@ -385,42 +424,19 @@ impl FnPass for PreOpt {
                     // Operands in inserted expressions may depend on temporaries that has not yet
                     // been created. In this case, we just skip inserting phi instruction and wait
                     // for the next iteration.
-                    let success = block.pred.borrow().iter().try_for_each(|pred| {
-                        if let Expr::Binary(BinExpr { op, ty, fst, snd }) = avail[pred].clone() {
-                            let fst_val = if let Some(fst_val) =
-                            self.create_opd(&sets[pred].avail_out, fst) {
-                                fst_val
-                            } else { return Err(()); };
-                            let snd_val = if let Some(snd_val) =
-                            self.create_opd(&sets[pred].avail_out, snd) {
-                                snd_val
-                            } else { return Err(()); };
-                            let dst_sym = sym_gen.gen(&ty);
-                            pred.insert_before_ctrl(ExtRc::new(Instr::Bin {
-                                op,
-                                fst: RefCell::new(fst_val),
-                                snd: RefCell::new(snd_val),
-                                dst: RefCell::new(dst_sym.clone()),
-                            }));
-                            let expr_num = self.table.find_or_add(Expr::Binary(
-                                BinExpr { op, ty, fst, snd }
-                            ));
-                            self.table.add_num(expr_num, Expr::Temp(dst_sym.clone()));
-                            sets.get_mut(pred).unwrap().avail_out
-                                .insert(expr_num, Expr::Temp(dst_sym.clone()));
-                            avail.insert(pred.clone(), Expr::Temp(dst_sym));
-                        }
-                        Ok(())
-                    }).is_ok();
+                    let success = block.pred.borrow().iter().all(|pred| {
+                        self.insert_expr(pred, &mut avail, &mut sets, &mut gen)
+                    });
                     if !success || sets[block].phi.contains_key(&num) { continue; }
-                    let dst_sym = sym_gen.gen(&expr.get_type());
+                    let dst_sym = gen.gen(&expr.get_type());
                     self.table.add_num(num, Expr::Temp(dst_sym.clone()));
                     sets.get_mut(block).unwrap().avail_out
                         .insert(num, Expr::Temp(dst_sym.clone()));
                     let phi_src = block.phi_pred().into_iter().map(|block| {
-                        let sym = if let Expr::Temp(sym) = avail[block.as_ref().unwrap()].clone() {
-                            sym
-                        } else { unreachable!() };
+                        let sym =
+                            if let Expr::Temp(sym) = avail[block.as_ref().unwrap()].clone() {
+                                sym
+                            } else { unreachable!() };
                         (block, RefCell::new(Value::Var(sym)))
                     }).collect();
                     block.push_front(ExtRc::new(Instr::Phi {
@@ -455,13 +471,63 @@ impl FnPass for PreOpt {
         });
 
         // Propagate copy
-        CopyProp {}.opt_fn(func)
+        CopyProp::new().opt_fn(func)
     }
 }
 
 impl PreOpt {
     pub fn new() -> PreOpt {
         PreOpt { table: ValueTable::new(0) }
+    }
+
+    fn insert_expr(&mut self, pred: &BlockRef, avail: &mut HashMap<BlockRef, Expr>,
+                   sets: &mut HashMap<BlockRef, LeaderSet>, gen: &mut SymbolGen) -> bool
+    {
+        match avail[pred].clone() {
+            Expr::Bin(BinExpr { op, ty, fst, snd }) => {
+                let fst_val = if let Some(fst_val) =
+                self.create_opd(&sets[pred].avail_out, fst) { fst_val } else { return false; };
+                let snd_val = if let Some(snd_val) =
+                self.create_opd(&sets[pred].avail_out, snd) { snd_val } else { return false; };
+                let dst_sym = gen.gen(&op.res_type(&ty).unwrap());
+                pred.insert_before_ctrl(ExtRc::new(Instr::Bin {
+                    op,
+                    fst: RefCell::new(fst_val),
+                    snd: RefCell::new(snd_val),
+                    dst: RefCell::new(dst_sym.clone()),
+                }));
+                let expr_num = self.table.find_or_add(Expr::Bin(
+                    BinExpr { op, ty, fst, snd }
+                ));
+                self.table.add_num(expr_num, Expr::Temp(dst_sym.clone()));
+                sets.get_mut(pred).unwrap().avail_out
+                    .insert(expr_num, Expr::Temp(dst_sym.clone()));
+                avail.insert(pred.clone(), Expr::Temp(dst_sym));
+                true
+            }
+            Expr::Ptr(PtrExpr { ty, base, off }) => {
+                let base_val = if let Some(base_val) =
+                self.create_opd(&sets[pred].avail_out, base) { base_val } else { return false; };
+                let off_val = if let Some(off_val) =
+                self.create_opd(&sets[pred].avail_out, off) { off_val } else { return false; };
+                let dst_sym = gen.gen(&ty);
+                pred.insert_before_ctrl(ExtRc::new(Instr::Ptr {
+                    base: RefCell::new(base_val),
+                    off: Some(RefCell::new(off_val)),
+                    ind: vec![],
+                    dst: RefCell::new(dst_sym.clone()),
+                }));
+                let expr_num = self.table.find_or_add(Expr::Ptr(
+                    PtrExpr { ty, base, off }
+                ));
+                self.table.add_num(expr_num, Expr::Temp(dst_sym.clone()));
+                sets.get_mut(pred).unwrap().avail_out
+                    .insert(expr_num, Expr::Temp(dst_sym.clone()));
+                avail.insert(pred.clone(), Expr::Temp(dst_sym));
+                true
+            }
+            _ => true
+        }
     }
 
     fn phi_trans_one(&mut self, num: usize, expr: Expr, pred: BlockRef, succ: BlockRef)
@@ -495,10 +561,16 @@ impl PreOpt {
             num_map.get(&num).cloned().unwrap_or_else(|| {
                 match expr {
                     // Replace operand values in binary expressions
-                    Expr::Binary(BinExpr { op, ty, fst, snd }) => {
-                        let fst = num_map.get(&fst).map(|pair| pair.0).unwrap_or(fst);
-                        let snd = num_map.get(&snd).map(|pair| pair.0).unwrap_or(snd);
-                        let new_expr = Expr::Binary(BinExpr { op, ty, fst, snd });
+                    Expr::Bin(BinExpr { op, ty, fst, snd }) => {
+                        let fst = num_map.get(&fst).map(|(num, _)| *num).unwrap_or(fst);
+                        let snd = num_map.get(&snd).map(|(num, _)| *num).unwrap_or(snd);
+                        let new_expr = Expr::Bin(BinExpr { op, ty, fst, snd });
+                        (self.table.find_or_add(new_expr.clone()), new_expr)
+                    }
+                    Expr::Ptr(PtrExpr { ty, base, off }) => {
+                        let base = num_map.get(&base).map(|(num, _)| *num).unwrap_or(base);
+                        let off = num_map.get(&off).map(|(num, _)| *num).unwrap_or(off);
+                        let new_expr = Expr::Ptr(PtrExpr { ty, base, off });
                         (self.table.find_or_add(new_expr.clone()), new_expr)
                     }
                     // For other expressions that cannot be translated, just return them
@@ -555,13 +627,17 @@ impl PreOpt {
         // Build dependency graph
         let mut dep: HashMap<usize, Vec<usize>> = HashMap::new();
         set.iter().for_each(|(num, expr)| {
-            if let Expr::Binary(BinExpr { op: _, ty: _, fst, snd }) = expr {
-                for opd in vec![*fst, *snd] {
-                    match dep.get_mut(&opd) {
-                        Some(list) => list.push(*num),
-                        None => { dep.insert(opd, vec![*num]); }
+            match expr {
+                Expr::Bin(BinExpr { op: _, ty: _, fst, snd })
+                | Expr::Ptr(PtrExpr { ty: _, base: fst, off: snd }) => {
+                    for opd in vec![*fst, *snd] {
+                        match dep.get_mut(&opd) {
+                            Some(list) => list.push(*num),
+                            None => { dep.insert(opd, vec![*num]); }
+                        }
                     }
                 }
+                _ => {}
             }
         });
 
@@ -571,7 +647,8 @@ impl PreOpt {
             let ref num = work.pick().unwrap();
             let ref expr = set[num].clone();
             match expr {
-                Expr::Binary(BinExpr { op: _, ty: _, fst, snd })
+                Expr::Bin(BinExpr { op: _, ty: _, fst, snd })
+                | Expr::Ptr(PtrExpr { ty: _, base: fst, off: snd })
                 if !(set.contains_key(fst) && set.contains_key(snd)) => {
                     set.remove(num);
                     dep.get(num).map(|list| list.iter().for_each(|val| work.add(*val)));
@@ -674,14 +751,14 @@ impl BlockListener for SetBuilder<'_> {
                     Self::try_insert(&mut set!(avail_out), dst_num, dst_expr);
                 }
                 Instr::Bin { op, fst, snd, dst: _ } => {
-                    // Once global variable appears in either operand, this expression will not be
+                    // once global variable appears in either operand, this expression will not be
                     // considered.
                     if !fst.borrow().is_global_var() || !snd.borrow().is_global_var() {
                         let (fst_num, fst_expr) = self.find_src(fst);
                         Self::try_insert(&mut set!(expr), fst_num, fst_expr);
                         let (snd_num, snd_expr) = self.find_src(snd);
                         Self::try_insert(&mut set!(expr), snd_num, snd_expr);
-                        let bin_expr = Expr::Binary(BinExpr {
+                        let bin_expr = Expr::Bin(BinExpr {
                             op: *op,
                             ty: fst.borrow().get_type(),
                             fst: fst_num,
@@ -690,6 +767,27 @@ impl BlockListener for SetBuilder<'_> {
                         dst_num = self.table.find(&bin_expr).unwrap_or(dst_num);
                         self.table.add_num(dst_num, bin_expr.clone());
                         Self::try_insert(&mut set!(expr), dst_num, bin_expr);
+                    }
+                    self.table.add_num(dst_num, dst_expr.clone());
+                    Self::try_insert(&mut set!(tmp), dst_num, dst);
+                    Self::try_insert(&mut set!(avail_out), dst_num, dst_expr);
+                }
+                // Only pointer operation with offset and without indices are considered
+                Instr::Ptr { base, off, ind, dst: _ } if off.is_some() && ind.is_empty() => {
+                    if !base.borrow().is_global_var()
+                        && !off.as_ref().unwrap().borrow().is_global_var() {
+                        let (base_num, base_expr) = self.find_src(base);
+                        Self::try_insert(&mut set!(expr), base_num, base_expr);
+                        let (off_num, off_expr) = self.find_src(off.as_ref().unwrap());
+                        Self::try_insert(&mut set!(expr), off_num, off_expr);
+                        let ptr_expr = Expr::Ptr(PtrExpr {
+                            ty: base.borrow().get_type(),
+                            base: base_num,
+                            off: off_num,
+                        });
+                        dst_num = self.table.find(&ptr_expr).unwrap_or(dst_num);
+                        self.table.add_num(dst_num, ptr_expr.clone());
+                        Self::try_insert(&mut set!(expr), dst_num, ptr_expr);
                     }
                     self.table.add_num(dst_num, dst_expr.clone());
                     Self::try_insert(&mut set!(tmp), dst_num, dst);
@@ -720,7 +818,7 @@ impl SetBuilder<'_> {
                 let sym_expr = Expr::Temp(sym.clone());
                 self.table.find(&sym_expr).map(|num| (num, sym_expr.clone()))
                     .unwrap_or((self.sym_num[sym], sym_expr))
-            },
+            }
             // Must allocate new number for each use of global variable
             Value::Var(sym) => {
                 let expr = Expr::Temp(sym.clone());
