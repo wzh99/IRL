@@ -36,6 +36,17 @@ impl Typed for Expr {
     }
 }
 
+impl Expr {
+    fn opd(&self) -> Vec<usize> {
+        match self {
+            Expr::Bin(BinExpr { op: _, ty: _, fst, snd }) => vec![*fst, *snd],
+            Expr::Ptr(PtrExpr { ty: _, base, off, idx }) =>
+                vec![*base, *off, *idx].into_iter().filter(|o| *o != NONE).collect(),
+            _ => vec![]
+        }
+    }
+}
+
 #[derive(Eq, Clone, Debug)]
 struct BinExpr {
     /// Binary operator
@@ -65,6 +76,8 @@ impl Hash for BinExpr {
     }
 }
 
+const NONE: usize = usize::max_value();
+
 /// Represent pointer operation that in form of base and offset. Indices into aggregate is not
 /// considered.
 #[derive(Eq, Clone, Debug)]
@@ -75,6 +88,8 @@ struct PtrExpr {
     base: usize,
     /// Pointer offset
     off: usize,
+    /// Single index
+    idx: usize,
 }
 
 impl Typed for PtrExpr {
@@ -91,6 +106,7 @@ impl Hash for PtrExpr {
     fn hash<H: Hasher>(&self, state: &mut H) {
         self.base.hash(state);
         self.off.hash(state);
+        self.idx.hash(state);
     }
 }
 
@@ -246,11 +262,12 @@ impl ValueTable {
                     _ => None
                 }
             }
-            Expr::Ptr(PtrExpr { ty: _, base, off }) => {
-                let off_cn = self.find_const(off);
-                if let Some(Const::I64(0)) = off_cn {
-                    return Some(base);
-                } else { None }
+            Expr::Ptr(PtrExpr { ty: _, base, off, idx }) => match idx {
+                NONE => match self.find_const(off) {
+                    Some(Const::I64(0)) => Some(base),
+                    _ => None,
+                }
+                _ => None
             }
             _ => None
         })
@@ -365,7 +382,8 @@ impl FnPass for PreOpt {
                 }
             })
         }
-        // self.table.tab.iter().enumerate().for_each(|(i, list)| println!("{}: {:?}", i, list));
+
+        sets.iter().for_each(|(blk, set)| println!("{:?} {:?}", blk, set.antic_in));
 
         // Hoist expressions to earlier points
         let mut new_tmp: HashMap<BlockRef, HashMap<usize, SymbolRef>> = HashMap::new();
@@ -480,15 +498,27 @@ impl PreOpt {
         PreOpt { table: ValueTable::new(0) }
     }
 
+    /// Insert corresponding instruction at given predecessor. Return whether this instruction
+    /// has been successfully inserted.
+    /// Insertion may fail because some operands are not available at this time.
     fn insert_expr(&mut self, pred: &BlockRef, avail: &mut HashMap<BlockRef, Expr>,
                    sets: &mut HashMap<BlockRef, LeaderSet>, gen: &mut SymbolGen) -> bool
     {
         match avail[pred].clone() {
             Expr::Bin(BinExpr { op, ty, fst, snd }) => {
-                let fst_val = if let Some(fst_val) =
-                self.create_opd(&sets[pred].avail_out, fst) { fst_val } else { return false; };
-                let snd_val = if let Some(snd_val) =
-                self.create_opd(&sets[pred].avail_out, snd) { snd_val } else { return false; };
+                // First operand
+                let fst_val =
+                    if let Some(fst_val) = self.create_opd(&sets[pred].avail_out, fst) {
+                        fst_val
+                    } else { return false; };
+
+                // Second operand
+                let snd_val =
+                    if let Some(snd_val) = self.create_opd(&sets[pred].avail_out, snd) {
+                        snd_val
+                    } else { return false; };
+
+                // Insert instruction
                 let dst_sym = gen.gen(&op.res_type(&ty).unwrap());
                 pred.insert_before_ctrl(ExtRc::new(Instr::Bin {
                     op,
@@ -496,6 +526,8 @@ impl PreOpt {
                     snd: RefCell::new(snd_val),
                     dst: RefCell::new(dst_sym.clone()),
                 }));
+
+                // Add to value table and leader sets
                 let expr_num = self.table.find_or_add(Expr::Bin(
                     BinExpr { op, ty, fst, snd }
                 ));
@@ -503,29 +535,53 @@ impl PreOpt {
                 sets.get_mut(pred).unwrap().avail_out
                     .insert(expr_num, Expr::Temp(dst_sym.clone()));
                 avail.insert(pred.clone(), Expr::Temp(dst_sym));
+
                 true
             }
-            Expr::Ptr(PtrExpr { ty, base, off }) => {
-                let base_val = if let Some(base_val) =
-                self.create_opd(&sets[pred].avail_out, base) { base_val } else { return false; };
-                let off_val = if let Some(off_val) =
-                self.create_opd(&sets[pred].avail_out, off) { off_val } else { return false; };
+            Expr::Ptr(PtrExpr { ty, base, off, idx }) => {
+                // Base pointer
+                let base_val =
+                    if let Some(base_val) = self.create_opd(&sets[pred].avail_out, base) {
+                        base_val
+                    } else { return false; };
+
+                // Pointer offset
+                let off_val = match self.create_opd(&sets[pred].avail_out, off) {
+                    // zero pointer offset can be ignored
+                    Some(Value::Const(Const::I64(0))) => None,
+                    Some(val) => Some(RefCell::new(val)),
+                    None => return false,
+                };
+
+                // Aggregate index
+                let idx_val = match idx {
+                    NONE => vec![],
+                    idx => if let Some(idx_val) = self.create_opd(&sets[pred].avail_out, idx) {
+                        vec![RefCell::new(idx_val)]
+                    } else { return false; }
+                };
+
+                // Insert instruction
                 let dst_sym = gen.gen(&ty);
                 pred.insert_before_ctrl(ExtRc::new(Instr::Ptr {
                     base: RefCell::new(base_val),
-                    off: Some(RefCell::new(off_val)),
-                    ind: vec![],
+                    off: off_val,
+                    ind: idx_val,
                     dst: RefCell::new(dst_sym.clone()),
                 }));
+
+                // Add to value table and leader sets
                 let expr_num = self.table.find_or_add(Expr::Ptr(
-                    PtrExpr { ty, base, off }
+                    PtrExpr { ty, base, off, idx }
                 ));
                 self.table.add_num(expr_num, Expr::Temp(dst_sym.clone()));
                 sets.get_mut(pred).unwrap().avail_out
                     .insert(expr_num, Expr::Temp(dst_sym.clone()));
                 avail.insert(pred.clone(), Expr::Temp(dst_sym));
+
                 true
             }
+            // Other instructions will not be inserted
             _ => true
         }
     }
@@ -567,10 +623,11 @@ impl PreOpt {
                         let new_expr = Expr::Bin(BinExpr { op, ty, fst, snd });
                         (self.table.find_or_add(new_expr.clone()), new_expr)
                     }
-                    Expr::Ptr(PtrExpr { ty, base, off }) => {
+                    Expr::Ptr(PtrExpr { ty, base, off, idx }) => {
                         let base = num_map.get(&base).map(|(num, _)| *num).unwrap_or(base);
                         let off = num_map.get(&off).map(|(num, _)| *num).unwrap_or(off);
-                        let new_expr = Expr::Ptr(PtrExpr { ty, base, off });
+                        let idx = num_map.get(&idx).map(|(num, _)| *num).unwrap_or(idx);
+                        let new_expr = Expr::Ptr(PtrExpr { ty, base, off, idx });
                         (self.table.find_or_add(new_expr.clone()), new_expr)
                     }
                     // For other expressions that cannot be translated, just return them
@@ -627,18 +684,12 @@ impl PreOpt {
         // Build dependency graph
         let mut dep: HashMap<usize, Vec<usize>> = HashMap::new();
         set.iter().for_each(|(num, expr)| {
-            match expr {
-                Expr::Bin(BinExpr { op: _, ty: _, fst, snd })
-                | Expr::Ptr(PtrExpr { ty: _, base: fst, off: snd }) => {
-                    for opd in vec![*fst, *snd] {
-                        match dep.get_mut(&opd) {
-                            Some(list) => list.push(*num),
-                            None => { dep.insert(opd, vec![*num]); }
-                        }
-                    }
+            expr.opd().into_iter().for_each(|o| {
+                match dep.get_mut(&o) {
+                    Some(list) => list.push(*num),
+                    None => { dep.insert(o, vec![*num]); }
                 }
-                _ => {}
-            }
+            });
         });
 
         // Eliminate killed values using work list algorithm
@@ -646,14 +697,9 @@ impl PreOpt {
         while !work.is_empty() {
             let ref num = work.pick().unwrap();
             let ref expr = set[num].clone();
-            match expr {
-                Expr::Bin(BinExpr { op: _, ty: _, fst, snd })
-                | Expr::Ptr(PtrExpr { ty: _, base: fst, off: snd })
-                if !(set.contains_key(fst) && set.contains_key(snd)) => {
-                    set.remove(num);
-                    dep.get(num).map(|list| list.iter().for_each(|val| work.add(*val)));
-                }
-                _ => continue
+            if !expr.opd().iter().all(|o| set.contains_key(o)) {
+                set.remove(num);
+                dep.get(num).map(|list| list.iter().for_each(|val| work.add(*val)));
             }
         }
     }
@@ -751,13 +797,16 @@ impl BlockListener for SetBuilder<'_> {
                     Self::try_insert(&mut set!(avail_out), dst_num, dst_expr);
                 }
                 Instr::Bin { op, fst, snd, dst: _ } => {
-                    // once global variable appears in either operand, this expression will not be
+                    // Once global variable appears in either operand, this expression will not be
                     // considered.
-                    if !fst.borrow().is_global_var() || !snd.borrow().is_global_var() {
+                    if !fst.borrow().is_global_var() && !snd.borrow().is_global_var() {
+                        // First operand
                         let (fst_num, fst_expr) = self.find_src(fst);
                         Self::try_insert(&mut set!(expr), fst_num, fst_expr);
+                        // Second operand
                         let (snd_num, snd_expr) = self.find_src(snd);
                         Self::try_insert(&mut set!(expr), snd_num, snd_expr);
+                        // Create expression
                         let bin_expr = Expr::Bin(BinExpr {
                             op: *op,
                             ty: fst.borrow().get_type(),
@@ -773,17 +822,38 @@ impl BlockListener for SetBuilder<'_> {
                     Self::try_insert(&mut set!(avail_out), dst_num, dst_expr);
                 }
                 // Only pointer operation with offset and without indices are considered
-                Instr::Ptr { base, off, ind, dst: _ } if off.is_some() && ind.is_empty() => {
-                    if !base.borrow().is_global_var()
-                        && !off.as_ref().unwrap().borrow().is_global_var() {
+                Instr::Ptr { base, off, ind, dst: _ } if ind.len() <= 1 => {
+                    if base.borrow().is_local_var()
+                        && (off.is_none() || !off.as_ref().unwrap().borrow().is_global_var())
+                        && (ind.is_empty() || !ind[0].borrow().is_global_var()) {
+                        // Base pointer
                         let (base_num, base_expr) = self.find_src(base);
                         Self::try_insert(&mut set!(expr), base_num, base_expr);
-                        let (off_num, off_expr) = self.find_src(off.as_ref().unwrap());
+                        // Pointer offset
+                        let (off_num, off_expr) = match off {
+                            Some(off) => self.find_src(off),
+                            None => {
+                                let zero = Expr::Const(Const::I64(0));
+                                (self.table.find_or_add(zero.clone()), zero)
+                            }
+                        };
                         Self::try_insert(&mut set!(expr), off_num, off_expr);
+                        // Single index
+                        let idx_num = match ind.len() {
+                            0 => NONE,
+                            1 => {
+                                let (idx_num, idx_expr) = self.find_src(&ind[0]);
+                                Self::try_insert(&mut set!(expr), idx_num, idx_expr);
+                                idx_num
+                            }
+                            _ => unreachable!()
+                        };
+                        // Create expression
                         let ptr_expr = Expr::Ptr(PtrExpr {
                             ty: base.borrow().get_type(),
                             base: base_num,
                             off: off_num,
+                            idx: idx_num,
                         });
                         dst_num = self.table.find(&ptr_expr).unwrap_or(dst_num);
                         self.table.add_num(dst_num, ptr_expr.clone());

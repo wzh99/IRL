@@ -71,7 +71,9 @@ impl InstrListener for CopyListener {
             }
             match src.borrow().deref() {
                 Value::Const(_) => self.map.insert(dst.borrow().clone(), src.borrow().clone()),
-                Value::Var(sym) => self.map.insert(dst.borrow().clone(), self.map[sym].clone())
+                Value::Var(sym) =>
+                    self.map.insert(dst.borrow().clone(), self.map.get(sym).cloned()
+                        .unwrap_or(Value::Var(sym.clone())))
             };
             self.def.last_mut().unwrap().push(dst.borrow().clone());
             self.rm.insert(instr);
@@ -209,6 +211,7 @@ fn test_ptr_exp() {
     use crate::compile::parse::Parser;
     use crate::compile::build::Builder;
     use crate::lang::print::Printer;
+    use crate::opt::osr::OsrOpt;
     use crate::opt::pre::PreOpt;
 
     use std::fs::File;
@@ -224,8 +227,9 @@ fn test_ptr_exp() {
     let builder = Builder::new(tree);
     let mut pro = builder.build().unwrap();
 
-    Pass::opt(&mut PtrExp::new(), &mut pro);
-    Pass::opt(&mut PreOpt::new(), &mut pro);
+    FnPass::opt(&mut PtrExp::new(), &mut pro);
+    FnPass::opt(&mut PreOpt::new(), &mut pro);
+    // FnPass::opt(&mut OsrOpt::new(), &mut pro);
 
     let mut out = stdout();
     let mut printer = Printer::new(out.borrow_mut());
