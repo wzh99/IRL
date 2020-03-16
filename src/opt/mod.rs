@@ -9,6 +9,7 @@ pub mod gvn;
 pub mod pre;
 pub mod sccp;
 pub mod osr;
+pub mod adce;
 
 /// Program optimization pass trait
 pub trait Pass {

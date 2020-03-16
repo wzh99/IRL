@@ -96,7 +96,7 @@ Conventional mark-sweep algorithm to find instructions that define unused variab
 
 ### Aggressive DCE
 
-Take an aggressive approach to Dead Code Elimination. It only keep instructions that contribute to the returned result, and remove the rest. Note that this may alter the runtime behavior of a function. Implementation at [`opt::simple::AdceOpt`](src/opt/simple.rs).
+Take an aggressive approach to Dead Code Elimination. It only keep instructions that contribute to the returned result, and remove the rest. Note that this may alter the runtime behavior of a function. Implementation at [`opt::adce::AdceOpt`](src/opt/adce.rs).
 
 ### Copy Propagation
 
