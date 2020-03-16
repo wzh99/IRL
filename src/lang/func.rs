@@ -218,17 +218,6 @@ impl BlockRef {
         if self.succ.borrow().iter().find(|b| *b == &to).is_none() {
             self.succ.borrow_mut().push(to.clone())
         }
-        // Modify target in control flow instructions
-        for instr in self.instr.borrow_mut().iter_mut().rev() {
-            match instr.as_ref() {
-                Instr::Jmp { tgt } => { tgt.replace(to.clone()); }
-                Instr::Br { cond: _, tr, fls } => {
-                    if tr.borrow().deref() == &to { tr.replace(to.clone()); }
-                    if fls.borrow().deref() == &to { fls.replace(to.clone()); }
-                }
-                _ => break
-            }
-        }
     }
 
     /// Remove a directed edge from this block to another.
@@ -239,6 +228,25 @@ impl BlockRef {
         pos.map(|i| to.pred.borrow_mut().remove(i));
         let pos = self.succ.borrow().iter().position(|b| b == to);
         pos.map(|i| self.succ.borrow_mut().remove(i));
+    }
+
+    /// Switch an edge from a block to another
+    /// This method modifies the predecessor and successors list, and alters target in control flow
+    /// instructions.
+    pub fn switch_to(&self, from: &BlockRef, to: BlockRef) {
+        // Modify edges
+        self.disconnect(from);
+        self.connect(to.clone());
+
+        // Modify target in control flow instructions
+        match self.instr.borrow().back().unwrap().as_ref() {
+            Instr::Jmp { tgt } => { tgt.replace(to.clone()); }
+            Instr::Br { cond: _, tr, fls } => {
+                if tr.borrow().deref() == from { tr.replace(to.clone()); }
+                if fls.borrow().deref() == from { fls.replace(to.clone()); }
+            }
+            _ => {}
+        }
     }
 
     /// Decide if this block dominates the given block.
@@ -453,8 +461,7 @@ impl Func {
                     tgt: RefCell::new(succ.clone())
                 }));
                 mid.connect(succ.clone());
-                block.disconnect(&succ);
-                block.connect(mid.clone());
+                block.switch_to(&succ, mid.clone());
                 // Replace phi source in the split successor
                 succ.instr.borrow_mut().iter_mut().for_each(|instr| {
                     if let Instr::Phi { src, dst } = instr.as_ref().clone() {

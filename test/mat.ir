@@ -1,0 +1,32 @@
+fn @main() {
+%Begin:
+    $a <- alloc [4][4]i32
+    $b <- alloc [4][4]i32
+    $c <- alloc [4][4]i32
+    $i.0 <- mov i64 0
+    jmp %Mat
+%Mat:
+    $i.1 <- phi i64 [%Begin: $i.0] [%RowEnd: $i.2]
+    $j.0 <- mov i64 0
+    $d <- lt i64 $i.1, 4
+    br $d ? %Row : %End
+%Row:
+    $j.1 <- phi i64 [%Mat: $j.0] [%Elem: $j.2]
+    $e <- lt i64 $j.1, 4
+    br $e ? %Elem : %RowEnd
+%Elem:
+    $p <- ptr *i32 $a [$i.1, $j.1]
+    $x <- ld i32 $p
+    $q <- ptr *i32 $b [$i.1, $j.1]
+    $y <- ld i32 $q
+    $z <- add i32 $x, $y
+    $r <- ptr *i32 $c [$i.1, $j.1]
+    st i32 $z -> $r
+    $j.2 <- add i64 $j.1, 1
+    jmp %Row
+%RowEnd:
+    $i.2 <- add i64 $i.1, 1
+    jmp %Mat
+%End:
+    ret
+}
