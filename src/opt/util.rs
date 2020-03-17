@@ -1,108 +1,131 @@
 use std::cell::RefCell;
-use std::collections::{HashMap, HashSet};
+use std::collections::HashSet;
+use std::fmt::{Debug, Error, Formatter};
 use std::ops::Deref;
 use std::rc::Rc;
 
-use crate::lang::func::{BlockListener, BlockRef, Func};
+use crate::lang::func::{BlockRef, Func};
 use crate::lang::instr::{Instr, InstrRef};
 use crate::lang::Program;
-use crate::lang::ssa::{InstrListener, ValueListener};
-use crate::lang::util::ExtRc;
-use crate::lang::value::{Const, SymbolGen, SymbolRef, Type, Typed, Value};
+use crate::lang::util::{ExtRc, MutRc};
+use crate::lang::value::{Const, SymbolGen, Type, Typed, Value};
 use crate::opt::{FnPass, Pass};
 
-/// Copy Propagation
-pub struct CopyProp {}
-
-impl CopyProp {
-    pub fn new() -> CopyProp { CopyProp {} }
+#[derive(Clone, Debug)]
+pub struct LoopNode {
+    /// Header of this loop
+    pub header: BlockRef,
+    /// Blocks in first level of this loop, excluding header and ones in nested loops
+    pub level: Vec<BlockRef>,
+    /// Nested loops of this loop
+    pub nested: Vec<LoopNodeRef>,
 }
 
-impl Pass for CopyProp {
-    fn opt(&mut self, pro: &mut Program) { FnPass::opt(self, pro) }
-}
+impl LoopNode {
+    /// Return blocks in first level of this loop, including header.
+    pub fn level_blocks(&self) -> Vec<BlockRef> {
+        let mut blk = self.level.clone();
+        blk.push(self.header.clone());
+        blk
+    }
 
-impl FnPass for CopyProp {
-    fn opt_fn(&mut self, func: &Rc<Func>) {
-        let mut listener = CopyListener {
-            map: Default::default(),
-            def: vec![],
-            rm: Default::default(),
-        };
-        func.walk_dom(&mut listener)
+    /// Return blocks in all levels of this loop, including ones in nested loops.
+    pub fn all_blocks(&self) -> Vec<BlockRef> {
+        let mut blk = self.level_blocks();
+        self.nested.iter().for_each(|c| blk.append(&mut c.borrow().all_blocks()));
+        blk
     }
 }
 
-struct CopyListener {
-    map: HashMap<SymbolRef, Value>,
-    def: Vec<Vec<SymbolRef>>,
-    rm: HashSet<InstrRef>,
+pub type LoopNodeRef = MutRc<LoopNode>;
+
+impl Debug for LoopNodeRef {
+    fn fmt(&self, f: &mut Formatter<'_>) -> Result<(), Error> { self.borrow().header.fmt(f) }
 }
 
-impl BlockListener for CopyListener {
-    fn on_begin(&mut self, _func: &Func) {}
-
-    fn on_end(&mut self, _func: &Func) {}
-
-    fn on_enter(&mut self, block: BlockRef) {
-        self.def.push(vec![]);
-        InstrListener::on_enter(self, block.clone());
-        block.instr.borrow_mut().retain(|instr| {
-            !self.rm.contains(instr)
-        })
-    }
-
-    fn on_exit(&mut self, _block: BlockRef) {
-        self.def.pop().unwrap().into_iter().for_each(|sym| {
-            self.map.remove(&sym);
-        })
-    }
-
-    fn on_enter_child(&mut self, _this: BlockRef, _child: BlockRef) {}
-
-    fn on_exit_child(&mut self, _this: BlockRef, _child: BlockRef) {}
-}
-
-impl InstrListener for CopyListener {
-    fn on_instr(&mut self, instr: InstrRef) {
-        if let Instr::Mov { src, dst } = instr.as_ref() {
-            if src.borrow().is_global_var() || dst.borrow().is_global_var() {
-                return; // don't propagate global variable
-            }
-            match src.borrow().deref() {
-                Value::Const(_) => self.map.insert(dst.borrow().clone(), src.borrow().clone()),
-                Value::Var(sym) =>
-                    self.map.insert(dst.borrow().clone(), self.map.get(sym).cloned()
-                        .unwrap_or(Value::Var(sym.clone())))
-            };
-            self.def.last_mut().unwrap().push(dst.borrow().clone());
-            self.rm.insert(instr);
-        } else {
-            ValueListener::on_instr(self, instr)
-        }
-    }
-
-    fn on_succ_phi(&mut self, this: Option<BlockRef>, instr: InstrRef) {
-        ValueListener::on_succ_phi(self, this, instr)
-    }
-}
-
-impl ValueListener for CopyListener {
-    fn on_use(&mut self, _instr: InstrRef, opd: &RefCell<Value>) {
-        opd.replace_with(|opd| {
-            match opd {
-                Value::Var(ref sym) if self.map.contains_key(sym) => self.map[sym].clone(),
-                _ => opd.clone()
-            }
+impl Func {
+    /// Detect all loops in the function and return as loop-nest forest
+    pub fn analyze_loop(&self) -> Vec<LoopNodeRef> {
+        // Find all natural loops
+        let mut trees = vec![];
+        self.iter_dom(|ref blk| {
+            blk.succ.borrow().iter()
+                .filter(|succ| succ.dominates(blk))
+                .for_each(|header| trees.push(Self::create_natural(blk, header)));
         });
+
+        // Combine natural loops to create loop-nest tree
+        let mut i = 0;
+        while i < trees.len() {
+            // Look for node with the same header
+            let node = trees[i].clone();
+            trees.iter()
+                .position(|n| *n != node && n.borrow().header == node.borrow().header)
+                .map(|pos| {
+                    // Merge two nodes
+                    let other = trees.remove(pos);
+                    node.borrow_mut().level.append(&mut other.borrow_mut().level);
+                    node.borrow_mut().nested.append(&mut other.borrow_mut().nested);
+                });
+
+            // Look for node that could be parent of this node
+            trees.iter()
+                .position(|n| n.borrow().level.contains(&node.borrow().header))
+                .map(|pos| {
+                    // Add this to nested list of that node
+                    let parent = trees[pos].clone();
+                    parent.borrow_mut().nested.push(node.clone());
+                    let all_blk = node.borrow().all_blocks();
+                    parent.borrow_mut().level.retain(|b| !all_blk.contains(b));
+
+                    // Modify tree list according to relative position of nodes in the list
+                    if i < pos { // child is in front of parent
+                        trees.remove(pos);
+                        trees[i] = parent; // move parent to position of child
+                        i += 1; // move to next node
+                    } else { // child is at back of parent
+                        trees.remove(i); // clear this child
+                        // no need to increment i because it already points to next node
+                    }
+                }).or_else(|| {
+                i += 1; // no parent found, move to next node
+                Some(())
+            });
+        }
+
+        // trees.iter().for_each(|n| println!("{:?}", n.borrow().deref()));
+        trees
     }
 
-    fn on_def(&mut self, _instr: InstrRef, _def: &RefCell<SymbolRef>) {}
+    /// Create natural loop of a back edge
+    fn create_natural(blk: &BlockRef, header: &BlockRef) -> LoopNodeRef {
+        // Perform DFS on reversed CFG with header block as boundary
+        let mut visited = HashSet::new();
+        let mut stack = vec![blk.clone()];
+        visited.insert(header.clone());
+        loop {
+            match stack.pop() {
+                Some(v) => {
+                    visited.insert(v.clone());
+                    stack.append(&mut v.pred.borrow().iter()
+                        .filter(|blk| !visited.contains(blk)).cloned().collect()
+                    )
+                }
+                None => break,
+            }
+        }
+
+        // Collect all visited blocks, except header
+        MutRc::new(LoopNode {
+            header: header.clone(),
+            level: visited.iter().cloned().filter(|blk| blk != header).collect(),
+            nested: vec![],
+        })
+    }
 }
 
 /// Pointer operation expansion
-/// Note that this transformation does not directly improve runtime efficiency, but provide
-/// opportunities for later optimizations.
+/// This transformation could provide opportunities for later optimizations.
 pub struct PtrExp {}
 
 impl PtrExp {
@@ -204,35 +227,3 @@ impl FnPass for PtrExp {
         })
     }
 }
-
-#[test]
-fn test_ptr_exp() {
-    use crate::compile::lex::Lexer;
-    use crate::compile::parse::Parser;
-    use crate::compile::build::Builder;
-    use crate::lang::print::Printer;
-    use crate::opt::osr::OsrOpt;
-    use crate::opt::pre::PreOpt;
-
-    use std::fs::File;
-    use std::convert::TryFrom;
-    use std::io::Read;
-    use std::io::stdout;
-    use std::borrow::BorrowMut;
-
-    let mut file = File::open("test/mat.ir").unwrap();
-    let lexer = Lexer::try_from(&mut file as &mut dyn Read).unwrap();
-    let parser = Parser::new(lexer);
-    let tree = parser.parse().unwrap();
-    let builder = Builder::new(tree);
-    let mut pro = builder.build().unwrap();
-
-    FnPass::opt(&mut PtrExp::new(), &mut pro);
-    FnPass::opt(&mut PreOpt::new(), &mut pro);
-    // FnPass::opt(&mut OsrOpt::new(), &mut pro);
-
-    let mut out = stdout();
-    let mut printer = Printer::new(out.borrow_mut());
-    printer.print(&pro).unwrap();
-}
-

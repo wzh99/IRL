@@ -11,8 +11,8 @@ use crate::lang::Program;
 use crate::lang::util::{ExtRc, WorkList};
 use crate::lang::value::{Const, SymbolGen, SymbolRef, Type, Typed, Value};
 use crate::opt::{FnPass, Pass};
+use crate::opt::copy::CopyProp;
 use crate::opt::gvn::Gvn;
-use crate::opt::simple::CopyProp;
 
 #[derive(Eq, PartialEq, Hash, Clone, Debug)]
 enum Expr {
@@ -20,6 +20,7 @@ enum Expr {
     Const(Const),
     /// Binary operations
     Bin(BinExpr),
+    /// Pointer operations
     Ptr(PtrExpr),
     /// Temporaries that store values
     Temp(SymbolRef),
@@ -383,8 +384,6 @@ impl FnPass for PreOpt {
             })
         }
 
-        sets.iter().for_each(|(blk, set)| println!("{:?} {:?}", blk, set.antic_in));
-
         // Hoist expressions to earlier points
         let mut new_tmp: HashMap<BlockRef, HashMap<usize, SymbolRef>> = HashMap::new();
         let mut gen = SymbolGen::new("t", func.scope.clone());
@@ -699,7 +698,7 @@ impl PreOpt {
             let ref expr = set[num].clone();
             if !expr.opd().iter().all(|o| set.contains_key(o)) {
                 set.remove(num);
-                dep.get(num).map(|list| list.iter().for_each(|val| work.add(*val)));
+                dep.get(num).map(|list| list.iter().for_each(|val| work.insert(*val)));
             }
         }
     }

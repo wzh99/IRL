@@ -41,7 +41,7 @@ struct CfgEdge {
 
 /// Represent an edge in SSA value graph.
 /// The data flow from definition point (where a value is defined) to one of its use point.
-#[derive(Eq, PartialEq, Hash, Debug)]
+#[derive(Eq, PartialEq, Hash, Clone, Debug)]
 struct SsaEdge {
     def: VertRef,
     us: VertRef, // `use` is a keyword in Rust
@@ -102,7 +102,7 @@ impl FnPass for SccpOpt {
         }).collect();
 
         // Perform symbolic execution of CFG and SSA.
-        self.cfg_work.add(CfgEdge {
+        self.cfg_work.insert(CfgEdge {
             from: None,
             to: func.ent.borrow().clone(),
         });
@@ -188,7 +188,7 @@ impl SccpOpt {
         for instr in block.instr.borrow().iter() {
             match instr.deref() {
                 Instr::Phi { src, dst } => self.eval_phi(src, dst),
-                Instr::Jmp { tgt } => self.cfg_work.add(CfgEdge {
+                Instr::Jmp { tgt } => self.cfg_work.insert(CfgEdge {
                     from: Some(block.clone()),
                     to: tgt.borrow().clone(),
                 }),
@@ -237,10 +237,10 @@ impl SccpOpt {
         let fls_edge = CfgEdge { from: Some(blk.clone()), to: fls.borrow().clone() };
         match self.lat_from_val(cond) {
             LatVal::Const(Const::I1(cond)) =>
-                self.cfg_work.add(if cond { tr_edge } else { fls_edge }),
+                self.cfg_work.insert(if cond { tr_edge } else { fls_edge }),
             _ => {
-                self.cfg_work.add(tr_edge);
-                self.cfg_work.add(fls_edge);
+                self.cfg_work.insert(tr_edge);
+                self.cfg_work.insert(fls_edge);
             }
         }
     }
@@ -272,7 +272,7 @@ impl SccpOpt {
         *self.lat.get_mut(sym.borrow().deref()).unwrap() = lat;
         let vert = self.graph.find(sym.borrow().deref()).unwrap();
         vert.uses.borrow().iter().for_each(
-            |u| self.ssa_work.add(SsaEdge { def: vert.clone(), us: u.clone() })
+            |u| self.ssa_work.insert(SsaEdge { def: vert.clone(), us: u.clone() })
         );
     }
 

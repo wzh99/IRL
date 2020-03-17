@@ -45,7 +45,7 @@ impl Gvn {
                 Some(num) => {
                     part.get_mut(num).unwrap().push(v.clone());
                     if !v.opd.borrow().is_empty() { // congruence rely on operands
-                        work.add(num);
+                        work.insert(num);
                     }
                     num
                 }
@@ -76,13 +76,13 @@ impl Gvn {
                 // Add uses of vertices in the new set to the work list
                 // The numbers of their uses depend on the ones of them. Since the numbers of
                 // themselves have already changed, their uses may also change.
-                v.uses.borrow().iter().for_each(|u| work.add(*self.vert_num.get(u).unwrap()))
+                v.uses.borrow().iter().for_each(|u| work.insert(*self.vert_num.get(u).unwrap()))
             });
             if part[idx].len() > 1 {
-                work.add(idx)
+                work.insert(idx)
             }
             if new_set.len() > 1 {
-                work.add(new_num)
+                work.insert(new_num)
             }
             part.push(new_set);
         }

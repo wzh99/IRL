@@ -76,19 +76,23 @@ Optimizations are implemented as passes of transformations on the program, which
 
 ### Global Value Numbering
 
-Detect fully redundant computations by finding congruent variables. Implementation at [`opt::gvn::GvnOpt`](src/opt/gvn.rs).
+Detect fully redundant computations by finding congruent variables. See [`opt::gvn::GvnOpt`](src/opt/gvn.rs).
 
 ### Sparse Conditional Constant Propagation
 
-Replace later uses of compile-time constants with their corresponding values. It applies this transformation by symbolic execution of the function using both control flow graph and SSA value graph. Implementation at [`opt::sccp:SccpOpt`](src/opt/sccp.rs).
+Replace later uses of compile-time constants with their corresponding values. It applies this transformation by symbolic execution of the function using both control flow graph and SSA value graph. See [`opt::sccp:SccpOpt`](src/opt/sccp.rs).
 
 ### Partial Redundancy Elimination
 
-Place each computation at its optimal position that avoids redundant computation on any path. [GVN-PRE](https://www.cs.purdue.edu/homes/hosking/papers/cc04.pdf) algorithm is adopted, which utilizes GVN as a subroutine to better handle expressions that may not be lexically equivalent. Algebraic simplification is also applied during optimization. Implementation at [`opt::pre::PreOpt`](src/opt/pre.rs).
+Place each computation at its optimal position that avoids redundant computation on any path. [GVN-PRE](https://www.cs.purdue.edu/homes/hosking/papers/cc04.pdf) algorithm is adopted, which utilizes GVN as a subroutine to better handle expressions that may not be lexically equivalent. Algebraic simplification is also applied during optimization. See [`opt::pre::PreOpt`](src/opt/pre.rs).
+
+### Loop-Invariant Code Motion
+
+Recognize computations that produce the same value on every iteration of the loop and move them out of loop. See [`opt::licm::LicmOpt`](src/opt/licm.rs).
 
 ### Strength Reduction
 
-Reformulate certain costly computations with less costly ones. [OSR](https://www.cs.rice.edu/~keith/EMBED/OSR.pdf) algorithm is adopted. Implementation at [`opt::osr::OsrOpt`](src/opt/osr.rs).
+Reformulate certain costly computations with less costly ones. [OSR](https://www.cs.rice.edu/~keith/EMBED/OSR.pdf) algorithm is adopted. See [`opt::osr::OsrOpt`](src/opt/osr.rs).
 
 ### Dead Code Elimination
 
@@ -96,11 +100,11 @@ Conventional mark-sweep algorithm to find instructions that define unused variab
 
 ### Aggressive DCE
 
-Take an aggressive approach to Dead Code Elimination. It only keep instructions that contribute to the returned result, and remove the rest. Note that this may alter the runtime behavior of a function. Implementation at [`opt::adce::AdceOpt`](src/opt/adce.rs).
+Take an aggressive approach to Dead Code Elimination. It only keep instructions that contribute to the returned result, and remove the rest. Note that this may alter the runtime behavior of a function. See [`opt::adce::AdceOpt`](src/opt/adce.rs).
 
 ### Copy Propagation
 
-Replace later uses of copied values with their original ones. Can serve as a subroutine for other optimizations. Implementation at [`opt::simple::CopyProp`](src/opt/simple.rs).
+Replace later uses of copied values with their original ones. Can serve as a subroutine for other optimizations. See [`opt::copy::CopyProp`](src/opt/copy.rs).
 
 Other optimizations will be added to this project successively.
 

@@ -261,7 +261,7 @@ impl Func {
                     // Update records
                     ins_phi.get_mut(tgt).unwrap().insert(sym.clone());
                     if !orig.get(&tgt).unwrap().contains(&sym) {
-                        work.add(tgt.clone());
+                        work.insert(tgt.clone());
                     }
                 }
             }
@@ -442,6 +442,7 @@ pub enum DefPos {
     Param,
     /// Defined in instruction
     Instr(BlockRef, InstrRef),
+    /// Serve as placeholder for the symbol whose definition point has not yet been determined
     None,
 }
 
@@ -534,9 +535,11 @@ impl Func {
     }
 }
 
+pub type DefUseMap = HashMap<SymbolRef, DefUse>;
+
 impl Func {
     /// Compute define-use information for symbols
-    pub fn def_use(&self) -> HashMap<SymbolRef, DefUse> {
+    pub fn def_use(&self) -> DefUseMap {
         let mut listener = DefUseBuilder {
             info: HashMap::new(),
             blk: vec![],
@@ -596,7 +599,7 @@ impl Func {
                             def_use[opd].uses.iter().position(|elem| *elem == instr)
                                 .map(|pos| {
                                     def_use.get_mut(opd).unwrap().uses.remove(pos);
-                                    work.add(opd.clone());
+                                    work.insert(opd.clone());
                                 });
                         }
                         _ => {}

@@ -1,31 +1,33 @@
 fn @main() {
 %Begin:
-    $a <- alloc [4][4]i32
-    $b <- alloc [4][4]i32
-    $c <- alloc [4][4]i32
-    $i.0 <- mov i64 0
+    $a <- alloc [4][4]i32 // int a[4][4]
+    $b <- alloc [4][4]i32 // int b[4][4]
+    $c <- alloc [4][4]i32 // int c[4][4]
+    $i.0 <- mov i64 0 // i = 0
     jmp %Mat
 %Mat:
     $i.1 <- phi i64 [%Begin: $i.0] [%RowEnd: $i.2]
-    $j.0 <- mov i64 0
-    $d <- lt i64 $i.1, 4
-    br $d ? %Row : %End
+    $d <- lt i64 $i.1, 4 // i < 4
+    br $d ? %InitJ : %End
+%InitJ:
+    $j.0 <- mov i64 0 // j = 0
+    jmp %Row
 %Row:
-    $j.1 <- phi i64 [%Mat: $j.0] [%Elem: $j.2]
-    $e <- lt i64 $j.1, 4
+    $j.1 <- phi i64 [%InitJ: $j.0] [%Elem: $j.2]
+    $e <- lt i64 $j.1, 4 // j < 4
     br $e ? %Elem : %RowEnd
 %Elem:
-    $p <- ptr *i32 $a [$i.1, $j.1]
+    $p <- ptr *i32 $a [$i.1, $j.1] // a[i][j]
     $x <- ld i32 $p
-    $q <- ptr *i32 $b [$i.1, $j.1]
+    $q <- ptr *i32 $b [$i.1, $j.1] // b[i][j]
     $y <- ld i32 $q
-    $z <- add i32 $x, $y
+    $z <- add i32 $x, $y // c[i][j] = a[i][j] + b[i][j]
     $r <- ptr *i32 $c [$i.1, $j.1]
     st i32 $z -> $r
-    $j.2 <- add i64 $j.1, 1
+    $j.2 <- add i64 $j.1, 1 // j++
     jmp %Row
 %RowEnd:
-    $i.2 <- add i64 $i.1, 1
+    $i.2 <- add i64 $i.1, 1 // i++
     jmp %Mat
 %End:
     ret

@@ -114,7 +114,7 @@ impl AdceOpt {
             list.iter().for_each(|dep| {
                 let tail = dep.tail();
                 if let Instr::Br { cond: _, tr: _, fls: _ } = tail.deref() {
-                    self.work.add((dep.clone(), tail))
+                    self.work.insert((dep.clone(), tail))
                 }
             })
         });
@@ -125,7 +125,7 @@ impl AdceOpt {
             match src {
                 Value::Var(sym) if sym.is_local_var() => {
                     if let DefPos::Instr(blk, instr) = &self.def_use[&sym].def {
-                        self.work.add((blk.clone(), instr.clone()))
+                        self.work.insert((blk.clone(), instr.clone()))
                     }
                 }
                 _ => {}

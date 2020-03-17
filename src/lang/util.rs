@@ -1,5 +1,6 @@
 use std::cell::{Ref, RefCell, RefMut};
 use std::cmp::Ordering;
+use std::collections::HashSet;
 use std::hash::{Hash, Hasher};
 use std::iter::FromIterator;
 use std::ops::Deref;
@@ -95,28 +96,38 @@ impl<T> MutRc<T> {
 /// A work list must allow quick testing of membership and quick extraction of an element,
 /// regardless of which element is moved.
 #[derive(Debug)]
-pub struct WorkList<T> where T: PartialEq {
-    list: Vec<T>
+pub struct WorkList<T> where T: Eq + Hash + Clone {
+    set: HashSet<T>
 }
 
-impl<T> FromIterator<T> for WorkList<T> where T: PartialEq {
+impl<T> FromIterator<T> for WorkList<T> where T: Eq + Hash + Clone {
     fn from_iter<I>(iter: I) -> Self where I: IntoIterator<Item=T> {
-        WorkList { list: Vec::from_iter(iter) }
+        WorkList { set: HashSet::from_iter(iter) }
     }
 }
 
-impl<T> WorkList<T> where T: PartialEq {
+impl<T> WorkList<T> where T: Eq + Hash + Clone {
     pub fn new() -> WorkList<T> {
-        WorkList { list: vec![] }
+        WorkList { set: Default::default() }
     }
 
-    pub fn add(&mut self, item: T) {
-        if !self.list.contains(&item) {
-            self.list.push(item)
+    pub fn insert(&mut self, item: T) { self.set.insert(item); }
+
+    pub fn append<I>(&mut self, iter: I) where I: Iterator<Item=T> {
+        iter.for_each(|e| self.insert(e))
+    }
+
+    pub fn pick(&mut self) -> Option<T> {
+        let mut elem = None;
+        for x in self.set.iter() {
+            elem = Some(x.clone());
+            break
         }
+        elem.map(|e| {
+            self.set.remove(&e);
+            e
+        })
     }
 
-    pub fn pick(&mut self) -> Option<T> { self.list.pop() }
-
-    pub fn is_empty(&self) -> bool { self.list.is_empty() }
+    pub fn is_empty(&self) -> bool { self.set.is_empty() }
 }

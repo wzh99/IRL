@@ -3,13 +3,15 @@ use std::rc::Rc;
 use crate::lang::func::Func;
 use crate::lang::Program;
 
-pub mod simple;
+pub mod util;
 pub mod graph;
 pub mod gvn;
 pub mod pre;
 pub mod sccp;
+pub mod licm;
 pub mod osr;
 pub mod adce;
+pub mod copy;
 
 /// Program optimization pass trait
 pub trait Pass {
