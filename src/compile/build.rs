@@ -659,6 +659,12 @@ impl Builder {
                 match ctx.labels.get(tgt) {
                     Some(tgt) => {
                         ctx.block.borrow().connect(tgt.clone());
+                        if tgt == ctx.func.ent.borrow().deref() {
+                            Err(CompileErr {
+                                loc: loc.clone(),
+                                msg: format!("cannot jump to function entry {:?}", tgt.name),
+                            })?
+                        }
                         Ok(Instr::Jmp { tgt: RefCell::new(tgt.clone()) })
                     }
                     None => Err(CompileErr {

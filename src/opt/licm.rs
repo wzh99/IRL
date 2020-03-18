@@ -89,9 +89,9 @@ impl LicmOpt {
                     removed.insert(instr);
 
                     // Add uses of destination symbol to worklist
-                    def_use[dst].uses.iter().for_each(|u| {
-                        if instr_list.contains(u) { work.insert(u.clone()) }
-                    })
+                    def_use[dst].uses.iter()
+                        .filter(|u| instr_list.contains(u))
+                        .for_each(|u| work.insert(u.clone()))
                 }
                 None => break
             }
