@@ -114,10 +114,14 @@ Other optimizations will be added to this project successively.
 
 The interpreter also counts the number of executed instructions and hypothetical execution time. The time is counted by computing weight of each instruction and summing all the weights up. The weights are based on the number of clock cycles required to do the corresponding computation in real-world processors. This could serve as a metric for evaluating the efficiency of certain optimizations.
 
-If we execute the example program, we get the following feedback:
+If we run the example program, we can get the following feedback:
 
 ```
-VmRcd { global: [(@g, Val(I64(4)))], count: Counter { num: 18, time: 39 } }
+program terminated
+instructions: 18 time: 39
+
+global variables: 
+@g: Val(I64(4))
 ``` 
 
 Here we know that the final value of global variable `@g` is four. 18 instructions were executed, and it took 39 clock cycles to run this program.

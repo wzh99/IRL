@@ -348,10 +348,23 @@ impl Machine {
 }
 
 /// Record of VM when executing this program
-#[derive(Debug)]
 pub struct VmRcd {
     pub global: Vec<(GlobalVarRef, Reg)>,
     pub count: Counter,
+}
+
+impl Debug for VmRcd {
+    fn fmt(&self, f: &mut Formatter<'_>) -> Result<(), Error> {
+        writeln!(f, "program terminated")?;
+        writeln!(f, "instructions: {}  time: {}", self.count.num, self.count.time)?;
+        if !self.global.is_empty() {
+            writeln!(f, "\nglobal variables: ")?;
+            for (g, r) in self.global.iter() {
+                writeln!(f, "@{}: {:?}", g.name, r)?;
+            }
+        }
+        Ok(())
+    }
 }
 
 pub struct RuntimeErr {

@@ -22,11 +22,15 @@ impl Printer<'_> {
     pub fn print(&mut self, pro: &Program) -> Result<(), Error> {
         // Print type aliases
         self.print_type_alias(pro)?;
+
         // Print global variables
-        for g in &pro.vars {
-            self.print_global_var(g)?;
+        if !pro.vars.is_empty() {
+            for g in &pro.vars {
+                self.print_global_var(g)?;
+            }
+            writeln!(self.writer, "")?;
         }
-        writeln!(self.writer, "")?;
+
         // Print functions
         for f in &pro.func {
             self.print_fn(f.deref())?;
@@ -36,15 +40,17 @@ impl Printer<'_> {
     }
 
     fn print_type_alias(&mut self, pro: &Program) -> Result<(), Error> {
-        for sym in pro.global.collect() {
-            match sym.deref() {
-                Symbol::Type { name, ty } => {
+        let alias: Vec<_> = pro.global.collect().into_iter().filter(|s|
+            if let Symbol::Type { name: _, ty: _ } = s.as_ref() { true } else { false }
+        ).collect();
+        if !alias.is_empty() {
+            for a in alias.iter() {
+                if let Symbol::Type { name, ty } = a.as_ref() {
                     writeln!(self.writer, "type @{} = {}", name, ty.borrow().to_string())?;
                 }
-                _ => continue,
             }
+            writeln!(self.writer, "")?;
         }
-        writeln!(self.writer, "")?;
         Ok(())
     }
 
