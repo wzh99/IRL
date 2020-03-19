@@ -360,7 +360,11 @@ impl Debug for VmRcd {
         if !self.global.is_empty() {
             writeln!(f, "\nglobal variables: ")?;
             for (g, r) in self.global.iter() {
-                writeln!(f, "@{}: {:?}", g.name, r)?;
+                write!(f, "@{} = ", g.name)?;
+                match r {
+                    Reg::Val(v) => writeln!(f, "{}", v.to_string())?,
+                    Reg::Ptr { base: _, off: _ } => writeln!(f, "{}", g.ty.to_string())?
+                }
             }
         }
         Ok(())
