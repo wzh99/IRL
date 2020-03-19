@@ -121,7 +121,7 @@ program terminated
 instructions: 18 time: 39
 
 global variables: 
-@g: Val(I64(4))
+@g = 4
 ``` 
 
 Here we know that the final value of global variable `@g` is four. 18 instructions were executed, and it took 39 clock cycles to run this program.
