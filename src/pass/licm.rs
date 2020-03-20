@@ -9,17 +9,17 @@ use crate::lang::Program;
 use crate::lang::ssa::{DefPos, DefUseMap};
 use crate::lang::util::WorkList;
 use crate::lang::value::{SymbolRef, Value};
-use crate::opt::{FnPass, Pass};
-use crate::opt::util::LoopNodeRef;
+use crate::pass::{FnPass, Pass};
+use crate::pass::util::LoopNodeRef;
 
 pub struct LicmOpt {}
 
 impl Pass for LicmOpt {
-    fn opt(&mut self, pro: &mut Program) { FnPass::opt(self, pro) }
+    fn run(&mut self, pro: &mut Program) { FnPass::run(self, pro) }
 }
 
 impl FnPass for LicmOpt {
-    fn opt_fn(&mut self, func: &Rc<Func>) {
+    fn run_on_fn(&mut self, func: &Rc<Func>) {
         // Build loop-nest trees
         let trees = func.analyze_loop();
 
@@ -141,9 +141,9 @@ fn test_licm() {
     use crate::compile::parse::Parser;
     use crate::compile::build::Builder;
     use crate::lang::print::Printer;
-    use crate::opt::osr::OsrOpt;
-    use crate::opt::pre::PreOpt;
-    use crate::opt::util::PtrExp;
+    use crate::pass::osr::OsrOpt;
+    use crate::pass::pre::PreOpt;
+    use crate::pass::util::PtrExp;
     use crate::vm::exec::Machine;
 
     use std::fs::File;
@@ -161,13 +161,13 @@ fn test_licm() {
 
     let mut mach = Machine::new();
     println!("orig: {:?}", mach.run(&pro).unwrap());
-    FnPass::opt(&mut PtrExp::new(), &mut pro);
+    FnPass::run(&mut PtrExp::new(), &mut pro);
     // println!("ptr: {:?}", mach.run(&pro).unwrap());
-    FnPass::opt(&mut PreOpt::new(), &mut pro);
+    FnPass::run(&mut PreOpt::new(), &mut pro);
     // println!("pre: {:?}", mach.run(&pro).unwrap());
-    FnPass::opt(&mut LicmOpt::new(), &mut pro);
+    FnPass::run(&mut LicmOpt::new(), &mut pro);
     // println!("licm: {:?}", mach.run(&pro).unwrap());
-    FnPass::opt(&mut OsrOpt::new(), &mut pro);
+    FnPass::run(&mut OsrOpt::new(), &mut pro);
     println!("osr: {:?}", mach.run(&pro).unwrap());
 
     let mut out = stdout();

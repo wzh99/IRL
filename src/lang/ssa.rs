@@ -549,7 +549,7 @@ impl Func {
     }
 
     /// Dead code elimination
-    /// This is placed here, not in `opt` module, because SSA transformation need this procedure.
+    /// This is placed here, not in `pass` module, because SSA transformation need this procedure.
     pub fn elim_dead_code(&self) {
         // Compute define-use information
         let mut def_use = self.def_use();

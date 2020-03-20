@@ -72,27 +72,27 @@ If a function contains one or more phi instructions, it is assumed to be in SSA 
 
 ## Optimization
 
-Optimizations are implemented as passes of transformations on the program, which is usually the case in modern compilers. Most of the optimizations are based on the SSA form, so transformation to that form is mandatory. At present, the following optimizations are supported:
+Optimizations are implemented as different passes on the program. Most of the optimizations are based on the SSA form, so transformation to that form is mandatory. At present, the following optimizations are supported:
 
 ### Global Value Numbering
 
-Detect fully redundant computations by finding congruent variables. See [`opt::gvn::GvnOpt`](src/opt/gvn.rs).
+Detect fully redundant computations by finding congruent variables. See [`pass::gvn::GvnOpt`](src/pass/gvn.rs).
 
 ### Sparse Conditional Constant Propagation
 
-Replace later uses of compile-time constants with their corresponding values. It applies this transformation by symbolic execution of the function using both control flow graph and SSA value graph. See [`opt::sccp:SccpOpt`](src/opt/sccp.rs).
+Replace later uses of compile-time constants with their corresponding values. It applies this transformation by symbolic execution of the function using both control flow graph and SSA value graph. See [`pass::sccp:SccpOpt`](src/pass/sccp.rs).
 
 ### Partial Redundancy Elimination
 
-Place each computation at its optimal position that avoids redundant computation on any path. [GVN-PRE](https://www.cs.purdue.edu/homes/hosking/papers/cc04.pdf) algorithm is adopted, which utilizes GVN as a subroutine to better handle expressions that may not be lexically equivalent. Algebraic simplification is also applied during optimization. See [`opt::pre::PreOpt`](src/opt/pre.rs).
+Place each computation at its optimal position that avoids redundant computation on any path. [GVN-PRE](https://www.cs.purdue.edu/homes/hosking/papers/cc04.pdf) algorithm is adopted, which utilizes GVN as a subroutine to better handle expressions that may not be lexically equivalent. Algebraic simplification is also applied during optimization. See [`pass::pre::PreOpt`](src/pass/pre.rs).
 
 ### Loop-Invariant Code Motion
 
-Recognize computations that produce the same value on every iteration of the loop and move them out of loop. See [`opt::licm::LicmOpt`](src/opt/licm.rs).
+Recognize computations that produce the same value on every iteration of the loop and move them out of loop. See [`pass::licm::LicmOpt`](src/pass/licm.rs).
 
 ### Strength Reduction
 
-Reformulate certain costly computations with less costly ones. [OSR](https://www.cs.rice.edu/~keith/EMBED/OSR.pdf) algorithm is adopted. See [`opt::osr::OsrOpt`](src/opt/osr.rs).
+Reformulate certain costly computations with less costly ones. [OSR](https://www.cs.rice.edu/~keith/EMBED/OSR.pdf) algorithm is adopted. See [`pass::osr::OsrOpt`](src/pass/osr.rs).
 
 ### Dead Code Elimination
 
@@ -100,11 +100,11 @@ Conventional mark-sweep algorithm to find instructions that define unused variab
 
 ### Aggressive DCE
 
-Take an aggressive approach to Dead Code Elimination. It only keep instructions that contribute to the returned result, and remove the rest. Note that this may alter the runtime behavior of a function. See [`opt::adce::AdceOpt`](src/opt/adce.rs).
+Take an aggressive approach to Dead Code Elimination. It only keep instructions that contribute to the returned result, and remove the rest. Note that this may alter the runtime behavior of a function. See [`pass::adce::AdceOpt`](src/pass/adce.rs).
 
 ### Copy Propagation
 
-Replace later uses of copied values with their original ones. Can serve as a subroutine for other optimizations. See [`opt::copy::CopyProp`](src/opt/copy.rs).
+Replace later uses of copied values with their original ones. Can serve as a subroutine for other optimizations. See [`pass::copy::CopyProp`](src/pass/copy.rs).
 
 Other optimizations will be added to this project successively.
 
@@ -118,7 +118,7 @@ If we run the example program, we can get the following feedback:
 
 ```
 program terminated
-instructions: 18 time: 39
+instructions: 18  time: 39
 
 global variables: 
 @g = 4

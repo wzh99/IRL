@@ -8,7 +8,7 @@ use crate::lang::instr::{Instr, InstrRef};
 use crate::lang::Program;
 use crate::lang::ssa::{InstrListener, ValueListener};
 use crate::lang::value::{SymbolRef, Value};
-use crate::opt::{FnPass, Pass};
+use crate::pass::{FnPass, Pass};
 
 /// Copy Propagation
 pub struct CopyProp {}
@@ -18,11 +18,11 @@ impl CopyProp {
 }
 
 impl Pass for CopyProp {
-    fn opt(&mut self, pro: &mut Program) { FnPass::opt(self, pro) }
+    fn run(&mut self, pro: &mut Program) { FnPass::run(self, pro) }
 }
 
 impl FnPass for CopyProp {
-    fn opt_fn(&mut self, func: &Rc<Func>) {
+    fn run_on_fn(&mut self, func: &Rc<Func>) {
         let mut listener = CopyListener {
             map: Default::default(),
             def: vec![],

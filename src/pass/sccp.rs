@@ -9,8 +9,8 @@ use crate::lang::instr::Instr;
 use crate::lang::Program;
 use crate::lang::util::{ExtRc, WorkList};
 use crate::lang::value::{Const, Symbol, SymbolRef, Value};
-use crate::opt::{FnPass, Pass};
-use crate::opt::graph::{GraphBuilder, SsaGraph, VertRef, VertTag};
+use crate::pass::{FnPass, Pass};
+use crate::pass::graph::{GraphBuilder, SsaGraph, VertRef, VertTag};
 
 /// Sparse Conditional Constant Propagation
 pub struct SccpOpt {
@@ -78,11 +78,11 @@ impl LatVal {
 }
 
 impl Pass for SccpOpt {
-    fn opt(&mut self, pro: &mut Program) { FnPass::opt(self, pro) }
+    fn run(&mut self, pro: &mut Program) { FnPass::run(self, pro) }
 }
 
 impl FnPass for SccpOpt {
-    fn opt_fn(&mut self, func: &Rc<Func>) {
+    fn run_on_fn(&mut self, func: &Rc<Func>) {
         // Create value graph.
         let mut builder = GraphBuilder::new();
         func.walk_dom(&mut builder);
@@ -360,7 +360,7 @@ fn test_sccp() {
     let builder = Builder::new(tree);
     let mut pro = builder.build().unwrap();
     let mut opt = SccpOpt::new();
-    Pass::opt(&mut opt, &mut pro);
+    Pass::run(&mut opt, &mut pro);
 
     let mut out = stdout();
     let mut printer = Printer::new(out.borrow_mut());

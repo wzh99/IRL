@@ -9,7 +9,7 @@ use crate::lang::Program;
 use crate::lang::ssa::{DefPos, DefUse};
 use crate::lang::util::{ExtRc, WorkList};
 use crate::lang::value::{SymbolRef, Value};
-use crate::opt::{FnPass, Pass};
+use crate::pass::{FnPass, Pass};
 
 pub struct AdceOpt {
     rev_df: HashMap<BlockRef, Vec<BlockRef>>,
@@ -20,11 +20,11 @@ pub struct AdceOpt {
 }
 
 impl Pass for AdceOpt {
-    fn opt(&mut self, pro: &mut Program) { FnPass::opt(self, pro) }
+    fn run(&mut self, pro: &mut Program) { FnPass::run(self, pro) }
 }
 
 impl FnPass for AdceOpt {
-    fn opt_fn(&mut self, func: &Rc<Func>) {
+    fn run_on_fn(&mut self, func: &Rc<Func>) {
         // Build control dependence graph
         self.rev_df = func.rev_df();
 
@@ -152,7 +152,7 @@ fn test_adce() {
     let tree = parser.parse().unwrap();
     let builder = Builder::new(tree);
     let mut pro = builder.build().unwrap();
-    FnPass::opt(&mut AdceOpt::new(), &mut pro);
+    FnPass::run(&mut AdceOpt::new(), &mut pro);
 
     let mut out = stdout();
     let mut printer = Printer::new(out.borrow_mut());

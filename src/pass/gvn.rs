@@ -8,8 +8,8 @@ use crate::lang::Program;
 use crate::lang::ssa::{InstrListener, ValueListener};
 use crate::lang::util::WorkList;
 use crate::lang::value::{SymbolRef, Value};
-use crate::opt::{FnPass, Pass};
-use crate::opt::graph::{GraphBuilder, VertRef};
+use crate::pass::{FnPass, Pass};
+use crate::pass::graph::{GraphBuilder, VertRef};
 
 pub struct Gvn {
     vert_num: HashMap<VertRef, usize>
@@ -103,11 +103,11 @@ impl Gvn {
 pub struct GvnOpt {}
 
 impl Pass for GvnOpt {
-    fn opt(&mut self, pro: &mut Program) { FnPass::opt(self, pro) }
+    fn run(&mut self, pro: &mut Program) { FnPass::run(self, pro) }
 }
 
 impl FnPass for GvnOpt {
-    fn opt_fn(&mut self, func: &Rc<Func>) {
+    fn run_on_fn(&mut self, func: &Rc<Func>) {
         // Number values
         let sym_num = Gvn::new().number(func);
 
@@ -238,7 +238,7 @@ fn test_gvn() {
     let builder = Builder::new(tree);
     let mut pro = builder.build().unwrap();
     let mut opt = GvnOpt {};
-    Pass::opt(&mut opt, &mut pro);
+    Pass::run(&mut opt, &mut pro);
 
     let mut out = stdout();
     let mut printer = Printer::new(out.borrow_mut());

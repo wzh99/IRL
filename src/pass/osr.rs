@@ -9,8 +9,8 @@ use crate::lang::instr::{BinOp, Instr};
 use crate::lang::Program;
 use crate::lang::util::ExtRc;
 use crate::lang::value::{Const, Scope, SymbolGen, Typed, Value};
-use crate::opt::{FnPass, Pass};
-use crate::opt::graph::{GraphBuilder, SsaGraph, SsaVert, VertRef, VertTag};
+use crate::pass::{FnPass, Pass};
+use crate::pass::graph::{GraphBuilder, SsaGraph, SsaVert, VertRef, VertTag};
 
 pub struct OsrOpt {
     /// Reference to current function
@@ -52,11 +52,11 @@ struct Reduction {
 }
 
 impl Pass for OsrOpt {
-    fn opt(&mut self, pro: &mut Program) { FnPass::opt(self, pro) }
+    fn run(&mut self, pro: &mut Program) { FnPass::run(self, pro) }
 }
 
 impl FnPass for OsrOpt {
-    fn opt_fn(&mut self, func: &Rc<Func>) {
+    fn run_on_fn(&mut self, func: &Rc<Func>) {
         // Set function-related members
         self.func = Some(func.clone());
         self.gen = SymbolGen::new("t", func.scope.clone());
@@ -542,10 +542,10 @@ fn test_osr() {
     println!("orig: {:?}", rcd);
 
     let mut opt = OsrOpt::new();
-    Pass::opt(&mut opt, &mut pro);
+    Pass::run(&mut opt, &mut pro);
 
     let rcd = mach.run(&pro).unwrap();
-    println!("opt: {:?}", rcd);
+    println!("pass: {:?}", rcd);
 
     let mut out = stdout();
     let mut printer = Printer::new(out.borrow_mut());

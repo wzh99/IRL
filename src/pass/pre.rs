@@ -10,9 +10,9 @@ use crate::lang::instr::{BinOp, Instr};
 use crate::lang::Program;
 use crate::lang::util::{ExtRc, WorkList};
 use crate::lang::value::{Const, SymbolGen, SymbolRef, Type, Typed, Value};
-use crate::opt::{FnPass, Pass};
-use crate::opt::copy::CopyProp;
-use crate::opt::gvn::Gvn;
+use crate::pass::{FnPass, Pass};
+use crate::pass::copy::CopyProp;
+use crate::pass::gvn::Gvn;
 
 #[derive(Eq, PartialEq, Hash, Clone, Debug)]
 enum Expr {
@@ -309,11 +309,11 @@ pub struct PreOpt {
 }
 
 impl Pass for PreOpt {
-    fn opt(&mut self, pro: &mut Program) { FnPass::opt(self, pro) }
+    fn run(&mut self, pro: &mut Program) { FnPass::run(self, pro) }
 }
 
 impl FnPass for PreOpt {
-    fn opt_fn(&mut self, func: &Rc<Func>) {
+    fn run_on_fn(&mut self, func: &Rc<Func>) {
         // Make sure the CFG is edge split
         func.split_edge();
 
@@ -488,7 +488,7 @@ impl FnPass for PreOpt {
         });
 
         // Propagate copy
-        CopyProp::new().opt_fn(func)
+        CopyProp::new().run_on_fn(func)
     }
 }
 
@@ -926,7 +926,7 @@ fn test_pre() {
     let builder = Builder::new(tree);
     let mut pro = builder.build().unwrap();
     let mut opt = PreOpt::new();
-    Pass::opt(&mut opt, &mut pro);
+    Pass::run(&mut opt, &mut pro);
 
     let mut out = stdout();
     let mut printer = Printer::new(out.borrow_mut());

@@ -9,7 +9,7 @@ use crate::lang::instr::{Instr, InstrRef};
 use crate::lang::Program;
 use crate::lang::util::{ExtRc, MutRc};
 use crate::lang::value::{Const, SymbolGen, Type, Typed, Value};
-use crate::opt::{FnPass, Pass};
+use crate::pass::{FnPass, Pass};
 
 #[derive(Clone, Debug)]
 pub struct LoopNode {
@@ -133,11 +133,11 @@ impl PtrExp {
 }
 
 impl Pass for PtrExp {
-    fn opt(&mut self, pro: &mut Program) { FnPass::opt(self, pro) }
+    fn run(&mut self, pro: &mut Program) { FnPass::run(self, pro) }
 }
 
 impl FnPass for PtrExp {
-    fn opt_fn(&mut self, func: &Rc<Func>) {
+    fn run_on_fn(&mut self, func: &Rc<Func>) {
         func.iter_dom(|block| {
             // Find pointer instruction with indices
             let ptr_list: Vec<InstrRef> = block.instr.borrow().iter().filter(|instr| {
