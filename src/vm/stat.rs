@@ -1,6 +1,6 @@
 use std::ops::{Add, Deref};
 
-use crate::lang::instr::{BinOp, Inst};
+use crate::lang::inst::{BinOp, Inst};
 use crate::lang::value::{Type, Typed, Value};
 
 #[derive(Copy, Clone, Debug)]

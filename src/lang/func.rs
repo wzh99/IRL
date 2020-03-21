@@ -9,7 +9,7 @@ use std::rc::Rc;
 
 use crate::lang::graph::{BfsIter, DfsIter, RevPostOrd, Vertex};
 use crate::lang::graph::dom;
-use crate::lang::instr::{Inst, InstRef};
+use crate::lang::inst::{Inst, InstRef};
 use crate::lang::ssa::SsaFlag;
 use crate::lang::util::ExtRc;
 use crate::lang::value::{Scope, SymbolRef, Type, Typed};

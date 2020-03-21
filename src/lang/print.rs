@@ -3,7 +3,7 @@ use std::io::{Error, Write};
 use std::ops::Deref;
 
 use crate::lang::func::{BlockRef, Fn};
-use crate::lang::instr::{Inst, InstRef};
+use crate::lang::inst::{Inst, InstRef};
 use crate::lang::Program;
 use crate::lang::value::{GlobalVar, Symbol, Type, Typed, Value};
 

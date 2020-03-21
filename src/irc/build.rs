@@ -7,7 +7,7 @@ use std::str::FromStr;
 use crate::irc::{CompileErr, Loc};
 use crate::irc::syntax::{Term, Token};
 use crate::lang::func::{BasicBlock, BlockRef, Fn, FnRef};
-use crate::lang::instr::{BinOp, Inst, UnOp};
+use crate::lang::inst::{BinOp, Inst, UnOp};
 use crate::lang::Program;
 use crate::lang::ssa::Verifier;
 use crate::lang::util::ExtRc;

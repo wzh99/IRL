@@ -5,7 +5,7 @@ use crate::lang::value::{GlobalVarRef, Scope};
 
 pub mod util;
 pub mod value;
-pub mod instr;
+pub mod inst;
 pub mod func;
 pub mod ssa;
 pub mod print;

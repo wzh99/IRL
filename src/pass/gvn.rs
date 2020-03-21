@@ -2,7 +2,7 @@ use std::cell::RefCell;
 use std::collections::{HashMap, HashSet};
 
 use crate::lang::func::{BlockListener, BlockRef, Fn, FnRef};
-use crate::lang::instr::InstRef;
+use crate::lang::inst::InstRef;
 use crate::lang::Program;
 use crate::lang::ssa::{InstrListener, ValueListener};
 use crate::lang::util::WorkList;

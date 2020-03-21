@@ -5,7 +5,7 @@ use std::ops::Deref;
 use std::rc::Rc;
 
 use crate::lang::func::{BlockListener, BlockRef, Fn};
-use crate::lang::instr::{Inst, InstRef, PhiSrc};
+use crate::lang::inst::{Inst, InstRef, PhiSrc};
 use crate::lang::util::{ExtRc, WorkList};
 use crate::lang::value::{Scope, Symbol, SymbolRef, Typed, Value};
 

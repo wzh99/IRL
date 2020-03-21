@@ -5,7 +5,7 @@ use std::iter::FromIterator;
 use std::ops::Deref;
 
 use crate::lang::func::{BlockListener, BlockRef, Fn, FnRef};
-use crate::lang::instr::{BinOp, Inst};
+use crate::lang::inst::{BinOp, Inst};
 use crate::lang::Program;
 use crate::lang::util::{ExtRc, WorkList};
 use crate::lang::value::{Const, SymbolGen, SymbolRef, Type, Typed, Value};

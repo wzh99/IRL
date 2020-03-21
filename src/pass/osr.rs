@@ -5,7 +5,7 @@ use std::rc::Rc;
 use std::str::FromStr;
 
 use crate::lang::func::{BlockRef, FnRef};
-use crate::lang::instr::{BinOp, Inst};
+use crate::lang::inst::{BinOp, Inst};
 use crate::lang::Program;
 use crate::lang::util::ExtRc;
 use crate::lang::value::{Const, Scope, SymbolGen, Typed, Value};

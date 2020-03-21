@@ -4,7 +4,7 @@ use std::fmt::{Debug, Error, Formatter};
 use std::ops::{Add, Deref, DerefMut};
 
 use crate::lang::func::FnRef;
-use crate::lang::instr::{BinOp, Inst};
+use crate::lang::inst::{BinOp, Inst};
 use crate::lang::Program;
 use crate::lang::util::MutRc;
 use crate::lang::value::{Const, GlobalVarRef, Symbol, SymbolRef, Type, Typed, Value};

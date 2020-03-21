@@ -3,8 +3,8 @@ use std::collections::{HashMap, HashSet};
 use std::ops::Deref;
 
 use crate::lang::func::{BlockRef, FnRef};
-use crate::lang::instr::{BinOp, PhiSrc, UnOp};
-use crate::lang::instr::Inst;
+use crate::lang::inst::{BinOp, PhiSrc, UnOp};
+use crate::lang::inst::Inst;
 use crate::lang::Program;
 use crate::lang::util::{ExtRc, WorkList};
 use crate::lang::value::{Const, Symbol, SymbolRef, Value};

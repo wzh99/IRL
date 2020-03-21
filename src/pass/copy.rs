@@ -3,7 +3,7 @@ use std::collections::{HashMap, HashSet};
 use std::ops::Deref;
 
 use crate::lang::func::{BlockListener, BlockRef, Fn, FnRef};
-use crate::lang::instr::{Inst, InstRef};
+use crate::lang::inst::{Inst, InstRef};
 use crate::lang::Program;
 use crate::lang::ssa::{InstrListener, ValueListener};
 use crate::lang::value::{SymbolRef, Value};

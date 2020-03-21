@@ -3,7 +3,7 @@ use std::collections::{HashMap, HashSet};
 use std::ops::Deref;
 
 use crate::lang::func::{BlockRef, FnRef};
-use crate::lang::instr::InstRef;
+use crate::lang::inst::InstRef;
 use crate::lang::Program;
 use crate::lang::ssa::{DefPos, DefUseMap};
 use crate::lang::util::WorkList;

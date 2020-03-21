@@ -2,7 +2,7 @@
 
 ## Introduction
 
-This project aims to build a complete intermediate representation language. It is designed so that IR can be directly and easily constructed by hand, without translation from higher level languages. The functionality is quite similar to [LLVM](https://www.llvm.org), but simplified and adjusted to meet the need of learning and research. This project is written in pure and safe Rust, except for the interpreter, where some `unsafe` code appears, but safe indeed. 
+This project aims to build a complete intermediate representation language. It is designed so that IR can be directly and easily constructed by hand, without translation from higher level languages. The functionality is similar to [LLVM](https://www.llvm.org), but simplified and adjusted to meet the need of learning and research. This project is written in pure and safe Rust, except for the interpreter, where some `unsafe` code appears, but safe indeed. 
 
 ## Language
 
@@ -48,7 +48,7 @@ fn @max($a: i64, $b: i64) -> i64 {
 
 It could be seen from the example that the syntax is a bit similar to [LLVM IR](https://www.llvm.org/docs/LangRef.html), but adopts some syntax features commonly seen in higher level programming languages. Programmers are saved from typing some type annotations, as long as they can be easily read from context. Also, some of the instructions are more informative, such as `st`, `br`, `phi` and `ptr`.
 
-The type system and instruction set are all quite simple, but they are fairly enough support most of the following work. For type definition, see [`lang::val::Type`](src/lang/value.rs). For instruction set, see [`lang::instr`](src/lang/instr.rs).
+The type system and instruction set are all quite simple, but they are fairly enough support most of the following work. For type definition, see [`lang::value::Type`](src/lang/value.rs). For instruction set, see [`lang::inst`](src/lang/inst.rs).
 
 ## Compilation
 
@@ -96,7 +96,7 @@ Reformulate certain costly computations with less costly ones. [OSR](https://www
 
 ### Dead Code Elimination
 
-Conventional mark-sweep algorithm to find instructions that define unused variables. Can serve as a subroutine for other optimizations. It is implemented as a method of [`lang::func::Func`](src/lang/ssa.rs).
+Conventional mark-sweep algorithm to find instructions that define unused variables. Can serve as a subroutine for other optimizations. It is implemented as a method of [`lang::func::Fn`](src/lang/ssa.rs).
 
 ### Aggressive DCE
 
