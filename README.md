@@ -56,7 +56,7 @@ This project supports reading a text source of the language and convert it to me
 
 ### Parsing
 
-The lexer and parser are all written by hand. The lexical and syntactical rules can be seen in [`compile::syntax`](src/compile/syntax.rs). The grammar is LL(2). The lexer creates a token one at a time. The recursive-descent parser keeps a buffer for the incoming token stream, either peeks to see which rule to use, or consumes token in the buffer to progress. The parsing is rather efficient.
+The lexer and parser are all written by hand. The lexical and syntactical rules can be seen in [`irc::syntax`](src/irc/syntax.rs). The grammar is LL(2). The lexer creates a token one at a time. The recursive-descent parser keeps a buffer for the incoming token stream, either peeks to see which rule to use, or consumes token in the buffer to progress. The parsing is rather efficient.
 
 ### Construction
 

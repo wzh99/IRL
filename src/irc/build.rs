@@ -4,10 +4,10 @@ use std::ops::Deref;
 use std::rc::Rc;
 use std::str::FromStr;
 
-use crate::compile::{CompileErr, Loc};
-use crate::compile::syntax::{Term, Token};
-use crate::lang::func::{BasicBlock, BlockRef, Func};
-use crate::lang::instr::{BinOp, Instr, UnOp};
+use crate::irc::{CompileErr, Loc};
+use crate::irc::syntax::{Term, Token};
+use crate::lang::func::{BasicBlock, BlockRef, Fn, FnRef};
+use crate::lang::instr::{BinOp, Inst, UnOp};
 use crate::lang::Program;
 use crate::lang::ssa::Verifier;
 use crate::lang::util::ExtRc;
@@ -19,7 +19,7 @@ pub struct Builder {
 
 struct Context {
     global: Rc<Scope>,
-    func: Rc<Func>,
+    func: FnRef,
     labels: HashMap<String, BlockRef>,
     block: RefCell<BlockRef>,
 }
@@ -100,7 +100,7 @@ impl Builder {
                 // Create signature part for function, while its body are left empty for a later
                 // pass.
                 Term::FnDef { loc, sig, body } => {
-                    let func = Rc::new(self.build_fn_sig(sig, &pro.global)?);
+                    let func = ExtRc::new(self.build_fn_sig(sig, &pro.global)?);
                     pro.func.push(func.clone());
                     let sym = ExtRc::new(Symbol::Func(func));
                     let added = pro.global.insert(sym.clone());
@@ -138,7 +138,7 @@ impl Builder {
         Ok(GlobalVar { name: name.to_string(), ty, init })
     }
 
-    fn build_fn_sig(&self, term: &Term, global: &Rc<Scope>) -> Result<Func, CompileErr> {
+    fn build_fn_sig(&self, term: &Term, global: &Rc<Scope>) -> Result<Fn, CompileErr> {
         if let Term::FnSig { loc: _, id, param, ret } = term {
             // Extract function name
             let name = if let Token::GlobalId(_, s) = id {
@@ -175,11 +175,11 @@ impl Builder {
             };
 
             // Return incomplete function object
-            Ok(Func::new(name.to_string(), scope, plist, ret, BasicBlock::default()))
+            Ok(Fn::new(name.to_string(), scope, plist, ret, BasicBlock::default()))
         } else { unreachable!() }
     }
 
-    fn build_body(&self, terms: &Vec<Term>, func: Rc<Func>, global: Rc<Scope>)
+    fn build_body(&self, terms: &Vec<Term>, func: FnRef, global: Rc<Scope>)
                   -> Result<(), CompileErr>
     {
         // Build block labels
@@ -217,7 +217,7 @@ impl Builder {
 
                 // Check location of phi instruction
                 match instr.as_ref() {
-                    Instr::Phi { src: _, dst: _ } => if !in_phis {
+                    Inst::Phi { src: _, dst: _ } => if !in_phis {
                         return Err(CompileErr {
                             loc: loc.clone(),
                             msg: format!(
@@ -256,13 +256,13 @@ impl Builder {
 
     /// Make assumption about whether the instruction is in SSA form.
     /// Whether the function is really in SSA form remained to be verified.
-    fn assume_ssa(&self, instr: &Instr) -> bool {
+    fn assume_ssa(&self, instr: &Inst) -> bool {
         // Criteria 1: Phi instruction
-        if let Instr::Phi { src: _, dst: _ } = instr { return true; }
+        if let Inst::Phi { src: _, dst: _ } = instr { return true; }
         false
     }
 
-    fn build_instr(&self, term: &Term, ctx: &Context) -> Result<Instr, CompileErr> {
+    fn build_instr(&self, term: &Term, ctx: &Context) -> Result<Inst, CompileErr> {
         match term {
             Term::AssignInstr { loc: _, id, rhs } => self.build_assign(id, rhs, ctx),
             Term::NonAssignInstr { loc: _, instr } => self.build_non_assign(instr, ctx),
@@ -270,7 +270,7 @@ impl Builder {
         }
     }
 
-    fn build_assign(&self, dst: &Token, rhs: &Term, ctx: &Context) -> Result<Instr, CompileErr> {
+    fn build_assign(&self, dst: &Token, rhs: &Term, ctx: &Context) -> Result<Inst, CompileErr> {
         let dst_loc = dst.loc();
         match rhs {
             Term::CommonRhs { loc, name: Token::Reserved(_, op), ty, opd } => {
@@ -304,7 +304,7 @@ impl Builder {
             Term::AllocRhs { loc: _, ty } => {
                 let ty = self.create_type(ty, &ctx.global)?;
                 let dst = self.create_symbol(dst, &Type::Ptr(Box::new(ty)), ctx)?;
-                Ok(Instr::Alloc { dst: RefCell::new(dst) })
+                Ok(Inst::Alloc { dst: RefCell::new(dst) })
             }
             Term::NewRhs { loc: _, ty, len } => {
                 let ty = self.create_type(ty, &ctx.global)?;
@@ -313,14 +313,14 @@ impl Builder {
                     Some(len) => Some(RefCell::new(Value::Var(self.find_symbol(len, ctx)?))),
                     None => None
                 };
-                Ok(Instr::New { dst: RefCell::new(dst), len })
+                Ok(Inst::New { dst: RefCell::new(dst), len })
             }
             _ => unreachable!()
         }
     }
 
     fn build_ptr(&self, dst: SymbolRef, opd: &Term, idx: Option<Term>, ctx: &Context, loc: &Loc)
-                 -> Result<Instr, CompileErr>
+        -> Result<Inst, CompileErr>
     {
         // Check operands
         let base: SymbolRef;
@@ -378,7 +378,7 @@ impl Builder {
             });
         }
 
-        Ok(Instr::Ptr {
+        Ok(Inst::Ptr {
             base: RefCell::new(Value::Var(base)),
             off: off.map(|off| RefCell::new(off)),
             ind: idx.into_iter().map(|i| RefCell::new(i)).collect(),
@@ -423,7 +423,7 @@ impl Builder {
     }
 
     fn build_op(&self, dst: &Token, ty: &Type, op: &str, opd: &Term, ctx: &Context, loc: &Loc)
-                -> Result<Instr, CompileErr>
+        -> Result<Inst, CompileErr>
     {
         match op {
             "mov" => {
@@ -435,7 +435,7 @@ impl Builder {
                 }
                 let dst = self.create_symbol(dst, ty, ctx)?;
                 let src = self.build_opd_list(vec![ty.clone()], opd, ctx)?[0].clone();
-                Ok(Instr::Mov { src: RefCell::new(src), dst: RefCell::new(dst) })
+                Ok(Inst::Mov { src: RefCell::new(src), dst: RefCell::new(dst) })
             }
             "ld" => {
                 if !ty.is_reg() {
@@ -446,7 +446,7 @@ impl Builder {
                 }
                 let dst = self.create_symbol(dst, ty, ctx)?;
                 let src = self.build_opd_list(vec![Type::Ptr(Box::new(ty.clone()))], opd, ctx)?;
-                Ok(Instr::Ld {
+                Ok(Inst::Ld {
                     ptr: RefCell::new(src[0].clone()),
                     dst: RefCell::new(dst),
                 })
@@ -462,7 +462,7 @@ impl Builder {
                     });
                 }
                 let opd = self.build_opd_list(vec![ty.clone()], opd, ctx)?;
-                Ok(Instr::Un {
+                Ok(Inst::Un {
                     op,
                     opd: RefCell::new(opd[0].clone()),
                     dst: RefCell::new(dst),
@@ -483,7 +483,7 @@ impl Builder {
                     self.create_symbol(dst, ty, ctx)?
                 };
                 let opd = self.build_opd_list(vec![ty.clone(), ty.clone()], opd, ctx)?;
-                Ok(Instr::Bin {
+                Ok(Inst::Bin {
                     op,
                     fst: RefCell::new(opd[0].clone()),
                     snd: RefCell::new(opd[1].clone()),
@@ -498,7 +498,7 @@ impl Builder {
     }
 
     fn build_fn_call(&self, call: &Term, dst: Option<SymbolRef>, ctx: &Context)
-                     -> Result<Instr, CompileErr>
+        -> Result<Inst, CompileErr>
     {
         if let Term::FnCall { loc, func: Token::GlobalId(_, id), arg } = call {
             // Find function definition from context
@@ -538,12 +538,12 @@ impl Builder {
             };
 
             // Build instruction
-            Ok(Instr::Call { func: func.clone(), arg, dst })
+            Ok(Inst::Call { func: func.clone(), arg, dst })
         } else { unreachable!() }
     }
 
     fn build_phi_instr(&self, ty: &Type, dst: SymbolRef, list: &Vec<Term>, ctx: &Context)
-                       -> Result<Instr, CompileErr>
+        -> Result<Inst, CompileErr>
     {
         let mut pairs: Vec<(Option<BlockRef>, RefCell<Value>)> = Vec::new();
         for t in list {
@@ -585,7 +585,7 @@ impl Builder {
             } else { unreachable!() }
         }
         pairs.sort_by_cached_key(|(blk, _)| blk.as_ref().map(|blk| blk.name.to_string()));
-        Ok(Instr::Phi { src: pairs, dst: RefCell::new(dst) })
+        Ok(Inst::Phi { src: pairs, dst: RefCell::new(dst) })
     }
 
     fn build_opd_list(&self, ty: Vec<Type>, opd: &Term, ctx: &Context)
@@ -629,13 +629,13 @@ impl Builder {
         }
     }
 
-    fn build_non_assign(&self, term: &Term, ctx: &Context) -> Result<Instr, CompileErr> {
+    fn build_non_assign(&self, term: &Term, ctx: &Context) -> Result<Inst, CompileErr> {
         match term {
             Term::RetInstr { loc, opd } => {
                 ctx.func.exit.borrow_mut().insert(ctx.block.borrow().clone());
                 match &ctx.func.ret {
                     Type::Void => if opd.is_none() {
-                        Ok(Instr::Ret { val: None })
+                        Ok(Inst::Ret { val: None })
                     } else {
                         Err(CompileErr {
                             loc: loc.clone(),
@@ -644,7 +644,7 @@ impl Builder {
                     }
                     ty => if opd.is_some() {
                         let ret = self.create_def_val(ty, opd.as_ref().unwrap(), ctx)?;
-                        Ok(Instr::Ret { val: Some(RefCell::new(ret)) })
+                        Ok(Inst::Ret { val: Some(RefCell::new(ret)) })
                     } else {
                         Err(CompileErr {
                             loc: loc.clone(),
@@ -665,7 +665,7 @@ impl Builder {
                                 msg: format!("cannot jump to function entry {:?}", tgt.name),
                             })?
                         }
-                        Ok(Instr::Jmp { tgt: RefCell::new(tgt.clone()) })
+                        Ok(Inst::Jmp { tgt: RefCell::new(tgt.clone()) })
                     }
                     None => Err(CompileErr {
                         loc: loc.clone(),
@@ -694,7 +694,7 @@ impl Builder {
                 )?;
                 ctx.block.borrow().connect(tr.clone());
                 ctx.block.borrow().connect(fls.clone());
-                Ok(Instr::Br {
+                Ok(Inst::Br {
                     cond: RefCell::new(cond),
                     tr: RefCell::new(tr.clone()),
                     fls: RefCell::new(fls.clone()),
@@ -710,7 +710,7 @@ impl Builder {
                 }
                 let src = self.create_def_val(&ty, src, ctx)?;
                 let dst = self.create_value(&Type::Ptr(Box::new(ty.clone())), dst, ctx)?;
-                Ok(Instr::St {
+                Ok(Inst::St {
                     src: RefCell::new(src),
                     ptr: RefCell::new(dst),
                 })

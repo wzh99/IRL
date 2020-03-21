@@ -1,4 +1,4 @@
-use crate::compile::Loc;
+use crate::irc::Loc;
 
 /// Syntactical rules for the language.
 /// Technically speaking, this is an LL(2) grammar.

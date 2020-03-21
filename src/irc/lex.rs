@@ -3,8 +3,8 @@ use std::io::{self, Read};
 use std::iter::FromIterator;
 use std::str::FromStr;
 
-use crate::compile::{CompileErr, Loc};
-use crate::compile::syntax::Token;
+use crate::irc::{CompileErr, Loc};
+use crate::irc::syntax::Token;
 
 pub struct Lexer {
     /// Characters from source

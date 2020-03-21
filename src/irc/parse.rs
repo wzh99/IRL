@@ -1,8 +1,8 @@
 use std::collections::VecDeque;
 
-use crate::compile::{CompileErr, Loc};
-use crate::compile::lex::Lexer;
-use crate::compile::syntax::{Term, Token};
+use crate::irc::{CompileErr, Loc};
+use crate::irc::lex::Lexer;
+use crate::irc::syntax::{Term, Token};
 
 pub struct Parser {
     lexer: Lexer,
