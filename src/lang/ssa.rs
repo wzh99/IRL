@@ -21,15 +21,7 @@ impl SsaFlag {
 
 /// Visitor of instructions in SSA program.
 pub trait InstListener: DomTreeListener {
-    fn on_begin(&mut self, func: &Fn) {
-        // Visit phi instructions in the entrance block
-        for instr in func.ent.borrow().instr.borrow().iter().cloned() {
-            match instr.deref() {
-                Inst::Phi { src: _, dst: _ } => self.on_succ_phi(None, instr),
-                _ => break
-            }
-        }
-    }
+    fn on_begin(&mut self, _func: &Fn) {}
 
     fn on_enter(&mut self, block: BlockRef) {
         // Visit instructions
@@ -42,7 +34,7 @@ pub trait InstListener: DomTreeListener {
             for instr in succ.instr.borrow().iter() {
                 match instr.deref() {
                     Inst::Phi { src: _, dst: _ } =>
-                        self.on_succ_phi(Some(block.clone()), instr.clone()),
+                        self.on_succ_phi(block.clone(), instr.clone()),
                     _ => break // phi instructions must be at front of each block
                 }
             }
@@ -53,7 +45,7 @@ pub trait InstListener: DomTreeListener {
     fn on_instr(&mut self, instr: InstRef);
 
     /// Called when visiting phi instructions in successor blocks.
-    fn on_succ_phi(&mut self, this: Option<BlockRef>, instr: InstRef);
+    fn on_succ_phi(&mut self, this: BlockRef, instr: InstRef);
 }
 
 /// Visitor of variables in SSA program.
@@ -74,16 +66,10 @@ pub trait ValueListener: InstListener {
         }
     }
 
-    fn on_succ_phi(&mut self, this: Option<BlockRef>, instr: InstRef) {
+    fn on_succ_phi(&mut self, this: BlockRef, instr: InstRef) {
         if let Inst::Phi { src, dst: _ } = instr.deref() {
-            for (pred, opd) in src {
-                match (&this, pred, opd) {
-                    (Some(this), Some(pred), opd) if this == pred =>
-                        self.on_use(instr.clone(), opd),
-                    (None, None, opd) => self.on_use(instr.clone(), opd),
-                    _ => ()
-                }
-            }
+            src.iter().filter(|(pred, _)| *pred == this)
+                .for_each(|(_, opd)| self.on_use(instr.clone(), opd))
         }
     }
 
@@ -125,22 +111,17 @@ impl DomTreeListener for Verifier {
         self.avail.push(vec![]);
 
         // Build predecessor list
-        let req_pred = block.phi_pred();
+        let req_pred = block.pred.borrow().clone();
 
         // Check correspondence of phi operands to predecessors
         for instr in block.instr.borrow().iter() {
             match instr.deref() {
                 Inst::Phi { src, dst: _ } => {
-                    let phi_pred: Vec<Option<BlockRef>> = src.iter()
-                        .map(|(pred, _)| pred.clone()).collect();
+                    let phi_pred: Vec<_> = src.iter().map(|(pred, _)| pred.clone()).collect();
                     for pred in &req_pred {
                         if !phi_pred.contains(pred) {
                             self.err.push(format!(
-                                "phi operand not found for {}",
-                                match pred {
-                                    Some(p) => format!("predecessor {}", p.name),
-                                    None => "function parameter".to_string()
-                                }
+                                "phi operand not found for {}", pred.name
                             ));
                         }
                     }
@@ -166,7 +147,7 @@ impl InstListener for Verifier {
         ValueListener::on_instr(self, instr)
     }
 
-    fn on_succ_phi(&mut self, this: Option<BlockRef>, instr: InstRef) {
+    fn on_succ_phi(&mut self, this: BlockRef, instr: InstRef) {
         ValueListener::on_succ_phi(self, this, instr)
     }
 }
@@ -250,7 +231,7 @@ impl Fn {
                 for tgt in df.get(&block).unwrap() {
                     // Insert phi instruction for this symbol
                     if ins_phi.get(tgt).unwrap().contains(&sym) { continue; }
-                    let src: Vec<PhiSrc> = tgt.phi_pred().into_iter().map(|pred| {
+                    let src: Vec<PhiSrc> = tgt.pred.borrow().clone().into_iter().map(|pred| {
                         (pred, RefCell::new(Value::Var(sym.clone())))
                     }).collect();
                     tgt.push_front(ExtRc::new(Inst::Phi {
@@ -390,7 +371,7 @@ impl InstListener for Renamer {
         ValueListener::on_instr(self, instr)
     }
 
-    fn on_succ_phi(&mut self, this: Option<BlockRef>, instr: InstRef) {
+    fn on_succ_phi(&mut self, this: BlockRef, instr: InstRef) {
         ValueListener::on_succ_phi(self, this, instr)
     }
 }
@@ -482,7 +463,7 @@ impl InstListener for DefUseBuilder {
         ValueListener::on_instr(self, instr)
     }
 
-    fn on_succ_phi(&mut self, this: Option<BlockRef>, instr: InstRef) {
+    fn on_succ_phi(&mut self, this: BlockRef, instr: InstRef) {
         ValueListener::on_succ_phi(self, this, instr)
     }
 }

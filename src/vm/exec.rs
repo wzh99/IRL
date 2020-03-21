@@ -86,7 +86,7 @@ impl Machine {
 
             // Transfer to the new block and execute the remaining instructions
             let cur_blk = next_blk.clone();
-            frame.borrow_mut().block = Some(cur_blk.clone());
+            frame.borrow_mut().block = cur_blk.clone();
             for instr in cur_blk.instr.borrow().iter() {
                 self.count.count(instr.as_ref());
                 match instr.as_ref() {
@@ -381,7 +381,7 @@ impl Debug for RuntimeErr {
         writeln!(f, "call stack: ")?;
         for (i, frame) in self.frame.iter().rev().enumerate() {
             writeln!(f, "{} @{}, %{:?}, #{}", i, frame.borrow().func.name,
-                     frame.borrow().block.as_ref().unwrap(), frame.borrow().instr)?;
+                     frame.borrow().block.name, frame.borrow().instr)?;
         }
         Ok(())
     }

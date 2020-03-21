@@ -197,19 +197,6 @@ impl BasicBlock {
             self.push_back(instr)
         }
     }
-
-    /// Generate predecessor list from for phi instructions.
-    /// The difference is that this allows one predecessor to be `None` if it is the entrance
-    /// block. This method rely on the dominator tree. If it is not built, the result could always
-    /// contain a `None`.
-    pub fn phi_pred(&self) -> Vec<Option<BlockRef>> {
-        let mut pred: Vec<Option<BlockRef>> = self.pred.borrow().iter().cloned()
-            .map(|p| Some(p)).collect();
-        if self.is_entrance() { // entrance block
-            pred.push(None)
-        }
-        pred
-    }
 }
 
 impl BlockRef {
@@ -330,7 +317,7 @@ impl Fn {
             block.instr.borrow_mut().iter_mut().for_each(|instr| {
                 if let Inst::Phi { src, dst } = instr.as_ref() {
                     let prev_src = src.clone();
-                    let new_src: Vec<_> = block.phi_pred().iter().map(|pred| {
+                    let new_src: Vec<_> = block.pred.borrow().iter().map(|pred| {
                         prev_src.iter().find(|(p, _)| p == pred).unwrap().clone()
                     }).collect();
                     match new_src.len() {
@@ -435,7 +422,7 @@ impl Fn {
     /// several successors, and whose successor has several predecessors.
     pub fn split_edge(&self) {
         let mut blk_gen = BlockGen::new(self, "B");
-        self.iter_dom(|block| {
+        self.iter_dom(|ref block| {
             // Decide whether there are any critical edges
             if block.succ.borrow().len() <= 1 { return; }
             let to_split: Vec<_> = block.succ.borrow().iter().cloned().filter(|succ| {
@@ -455,11 +442,8 @@ impl Fn {
                 succ.instr.borrow_mut().iter_mut().for_each(|instr| {
                     if let Inst::Phi { src, dst } = instr.as_ref().clone() {
                         let mut src = src.clone();
-                        src.iter_mut().for_each(|(pred, _)| {
-                            if pred == &Some(block.clone()) {
-                                *pred = Some(mid.clone())
-                            }
-                        });
+                        src.iter_mut().filter(|(pred, _)| pred == block)
+                            .for_each(|(pred, _)| *pred = mid.clone());
                         *instr = ExtRc::new(Inst::Phi { src, dst })
                     }
                 })

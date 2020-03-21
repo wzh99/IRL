@@ -312,6 +312,7 @@ impl Pass for PreOpt {
 }
 
 impl FnPass for PreOpt {
+    //noinspection RsTypeCheck
     fn run_on_fn(&mut self, func: &FnRef) {
         // Make sure the CFG is edge split
         func.split_edge();
@@ -448,11 +449,10 @@ impl FnPass for PreOpt {
                     self.table.add_num(num, Expr::Temp(dst_sym.clone()));
                     sets.get_mut(block).unwrap().avail_out
                         .insert(num, Expr::Temp(dst_sym.clone()));
-                    let phi_src = block.phi_pred().into_iter().map(|block| {
-                        let sym =
-                            if let Expr::Temp(sym) = avail[block.as_ref().unwrap()].clone() {
-                                sym
-                            } else { unreachable!() };
+                    let phi_src = block.pred.borrow().clone().into_iter().map(|block| {
+                        let sym = if let Expr::Temp(sym) = avail[&block].clone() {
+                            sym
+                        } else { unreachable!() };
                         (block, RefCell::new(Value::Var(sym)))
                     }).collect();
                     block.push_front(ExtRc::new(Inst::Phi {
@@ -602,7 +602,7 @@ impl PreOpt {
                 Inst::Phi { src, dst } => {
                     let dst_num = self.table.find(&Expr::Temp(dst.borrow().clone())).unwrap();
                     if num_map.contains_key(&dst_num) { continue; }
-                    let src_opd = &src.iter().find(|(block, _)| block.as_ref() == Some(&pred))
+                    let src_opd = &src.iter().find(|(block, _)| *block == pred)
                         .unwrap().1;
                     num_map.insert(dst_num, self.find_value(src_opd));
                 }

@@ -7,7 +7,7 @@ use std::str::FromStr;
 use crate::irc::{CompileErr, Loc};
 use crate::irc::syntax::{Term, Token};
 use crate::lang::func::{BasicBlock, BlockRef, Fn, FnRef};
-use crate::lang::inst::{BinOp, Inst, UnOp};
+use crate::lang::inst::{BinOp, Inst, PhiSrc, UnOp};
 use crate::lang::Program;
 use crate::lang::ssa::Verifier;
 use crate::lang::util::ExtRc;
@@ -545,46 +545,24 @@ impl Builder {
     fn build_phi_instr(&self, ty: &Type, dst: SymbolRef, list: &Vec<Term>, ctx: &Context)
         -> Result<Inst, CompileErr>
     {
-        let mut pairs: Vec<(Option<BlockRef>, RefCell<Value>)> = Vec::new();
+        let mut pairs: Vec<PhiSrc> = Vec::new();
         for t in list {
-            if let Term::PhiOpd { loc, bb, opd } = t {
+            if let Term::PhiOpd { loc: _, lab, opd } = t {
                 // the operand may not be defined when reading this instruction
                 let val = self.create_value(ty, opd, ctx)?;
-                let block = match bb {
-                    Some(Token::Label(loc, s)) => {
-                        let s = self.trim_tag(s);
-                        Some(ctx.labels.get(self.trim_tag(s)).cloned().ok_or(
-                            CompileErr {
-                                loc: loc.clone(),
-                                msg: format!("label {} not found", s),
-                            }
-                        )?)
-                    }
-                    None => match &val { // ensure this operand is from parameter
-                        Value::Var(sym) => match sym.deref() {
-                            Symbol::Local { name: _, ty: _ } =>
-                                if ctx.func.param.iter().find(|s| *s.borrow() == *sym).is_some() {
-                                    None
-                                } else {
-                                    return Err(CompileErr {
-                                        loc: loc.clone(),
-                                        msg: format!("operand {} is not in parameter list",
-                                                     sym.name()),
-                                    });
-                                }
-                            _ => unreachable!()
-                        }
-                        Value::Const(_) => return Err(CompileErr {
+                let block = if let Token::Label(loc, s) = lab {
+                    let s = self.trim_tag(s);
+                    ctx.labels.get(self.trim_tag(s)).cloned().ok_or(
+                        CompileErr {
                             loc: loc.clone(),
-                            msg: "parameter is not constant".to_string(),
-                        })
-                    },
-                    _ => { unreachable!() }
-                };
+                            msg: format!("label {} not found", s),
+                        }
+                    )?
+                } else { unreachable!() };
                 pairs.push((block, RefCell::new(val)));
             } else { unreachable!() }
         }
-        pairs.sort_by_cached_key(|(blk, _)| blk.as_ref().map(|blk| blk.name.to_string()));
+        pairs.sort_by_cached_key(|(blk, _)| blk.name.clone());
         Ok(Inst::Phi { src: pairs, dst: RefCell::new(dst) })
     }
 

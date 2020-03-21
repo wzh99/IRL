@@ -339,23 +339,19 @@ impl Parser {
         let loc = self.loc.clone();
         let left = self.consume()?;
         check_op!(self, left, "[");
-        let bb = match self.peek(0)? {
-            Token::Label(l, s) => {
-                self.consume()?; // Label
-                let col = self.consume()?;
-                check_op!(self, col, ":");
-                Some(Token::Label(l, s))
-            }
-            opd if opd.is_local_opd() => None,
-            tok => return self.err(vec!["{Label}", "{LocalOperand}"], tok)
+        let lab = self.consume()?;
+        if let Token::Label(_, _) = lab {} else {
+            self.err(vec!["{Label}"], lab.clone())?;
         };
+        let col = self.consume()?;
+        check_op!(self, col, ":");
         let opd = self.consume()?;
         if !opd.is_local_opd() { // LocalOpd
             return self.err(vec!["{LocalOperand}"], opd);
         }
         let right = self.consume()?;
         check_op!(self, right, "]");
-        Ok(Term::PhiOpd { loc, bb, opd })
+        Ok(Term::PhiOpd { loc, lab, opd })
     }
 
     fn fn_call(&mut self) -> ParseResult {

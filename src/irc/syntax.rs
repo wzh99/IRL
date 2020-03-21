@@ -102,8 +102,8 @@ pub enum Term {
     /// FOLLOW = { `[`, `;` }
     PhiList { loc: Loc, list: Vec<Term> },
 
-    /// PhiOpd : `[` ( Label `:` )? LocalOpd `]`
-    PhiOpd { loc: Loc, bb: Option<Token>, opd: Token },
+    /// PhiOpd : `[` Label `:` LocalOpd `]`
+    PhiOpd { loc: Loc, lab: Token, opd: Token },
 
     /// NonAssignInstr : RetInstr | JmpInstr | NoRetCall | BrInstr | StInstr;
     /// FIRST = { `ret` -> RetInstr, `jmp` -> JmpInstr, `call` -> NoRetCall, `br` -> BrInstr,

@@ -3,7 +3,7 @@ use std::io::{Error, Write};
 use std::ops::Deref;
 
 use crate::lang::func::{BlockRef, Fn};
-use crate::lang::inst::{Inst, InstRef};
+use crate::lang::inst::{Inst, InstRef, PhiSrc};
 use crate::lang::Program;
 use crate::lang::value::{GlobalVar, Symbol, Type, Typed, Value};
 
@@ -161,12 +161,9 @@ impl Printer<'_> {
         vec.join(", ")
     }
 
-    fn fmt_phi_list(&self, list: &Vec<(Option<BlockRef>, RefCell<Value>)>) -> String {
-        let vec: Vec<String> = list.iter().map(|(b, v)| {
-            let mut s = fmt_val!(v);
-            b.as_ref().map(|b| s = format!("%{}: ", b.name) + &s);
-            format!("[{}]", s)
-        }).collect();
+    fn fmt_phi_list(&self, list: &Vec<PhiSrc>) -> String {
+        let vec: Vec<String> = list.iter()
+            .map(|(b, v)| format!("[%{}: {}]", b.name, v.borrow().to_string())).collect();
         vec.join(" ")
     }
 }

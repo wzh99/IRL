@@ -43,7 +43,7 @@ impl Stack {
     pub fn push_frame(&mut self, func: &FnRef) {
         let frame = Frame {
             func: func.clone(),
-            block: None,
+            block: func.ent.borrow().clone(),
             instr: 0,
             count: 0,
         };
@@ -86,7 +86,7 @@ pub struct Frame {
     /// The function called on this frame
     pub func: FnRef,
     /// The block being executed
-    pub block: Option<BlockRef>,
+    pub block: BlockRef,
     /// The index of instruction in this block being executed
     pub instr: usize,
     /// Count of allocated memory spaces

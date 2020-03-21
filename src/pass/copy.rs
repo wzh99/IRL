@@ -80,7 +80,7 @@ impl InstListener for CopyListener {
         }
     }
 
-    fn on_succ_phi(&mut self, this: Option<BlockRef>, instr: InstRef) {
+    fn on_succ_phi(&mut self, this: BlockRef, instr: InstRef) {
         ValueListener::on_succ_phi(self, this, instr)
     }
 }

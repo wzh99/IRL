@@ -79,7 +79,7 @@ pub enum VertTag {
     /// Variable produced by phi instruction.
     /// This should be list separately from other instructions, because the incoming blocks of a
     /// phi instruction also contribute to its identity.
-    Phi(Vec<Option<BlockRef>>),
+    Phi(Vec<BlockRef>),
     /// Variables that cannot be considered as SSA values. The associated datum is the identifier
     /// of the symbol that refer to this value.
     Cell(String),
@@ -296,7 +296,7 @@ impl InstListener for GraphBuilder {
         }
     }
 
-    fn on_succ_phi(&mut self, this: Option<BlockRef>, instr: InstRef) {
+    fn on_succ_phi(&mut self, this: BlockRef, instr: InstRef) {
         // Create vertex for destination, if not created before.
         let dst = instr.dst().unwrap();
         let dst_vert = self.graph.find(&dst.borrow().deref()).unwrap_or_else(|| {
@@ -322,8 +322,7 @@ impl GraphBuilder {
     fn build_phi(&mut self, src: &Vec<PhiSrc>, dst: &RefCell<SymbolRef>) -> VertRef
     {
         let dst = dst.borrow().clone();
-        let pred: Vec<Option<BlockRef>> = src.iter()
-            .map(|(pred, _)| pred.clone()).collect();
+        let pred: Vec<_> = src.iter().map(|(pred, _)| pred.clone()).collect();
         let vert = ExtRc::new(SsaVert::new(
             VertTag::Phi(pred.clone()),
             None,

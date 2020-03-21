@@ -51,7 +51,7 @@ pub enum Inst {
     St { src: RefCell<Value>, ptr: RefCell<Value> },
 }
 
-pub type PhiSrc = (Option<BlockRef>, RefCell<Value>);
+pub type PhiSrc = (BlockRef, RefCell<Value>);
 
 pub type InstRef = ExtRc<Inst>;
 
