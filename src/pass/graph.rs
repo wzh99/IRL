@@ -3,9 +3,9 @@ use std::collections::HashMap;
 use std::fmt::{Debug, Error, Formatter};
 use std::ops::Deref;
 
-use crate::lang::func::{BlockListener, BlockRef, Fn};
+use crate::lang::func::{BlockRef, DomTreeListener, Fn};
 use crate::lang::inst::{Inst, InstRef, PhiSrc};
-use crate::lang::ssa::InstrListener;
+use crate::lang::ssa::InstListener;
 use crate::lang::util::ExtRc;
 use crate::lang::value::{Const, Symbol, SymbolRef, Type, Typed, Value};
 
@@ -161,7 +161,7 @@ impl GraphBuilder {
     }
 }
 
-impl BlockListener for GraphBuilder {
+impl DomTreeListener for GraphBuilder {
     fn on_begin(&mut self, func: &Fn) {
         // Create vertices for parameters
         func.param.iter().for_each(|param| {
@@ -177,14 +177,14 @@ impl BlockListener for GraphBuilder {
             } else { unreachable!() }
         });
 
-        InstrListener::on_begin(self, func)
+        InstListener::on_begin(self, func)
     }
 
     fn on_end(&mut self, _: &Fn) {}
 
     fn on_enter(&mut self, block: BlockRef) {
         self.block = Some(block.clone());
-        InstrListener::on_enter(self, block)
+        InstListener::on_enter(self, block)
     }
 
     fn on_exit(&mut self, _: BlockRef) {}
@@ -194,7 +194,7 @@ impl BlockListener for GraphBuilder {
     fn on_exit_child(&mut self, _: BlockRef, _: BlockRef) {}
 }
 
-impl InstrListener for GraphBuilder {
+impl InstListener for GraphBuilder {
     fn on_instr(&mut self, instr: InstRef) {
         let def = (self.block.clone().unwrap(), instr.clone());
         match instr.deref() {

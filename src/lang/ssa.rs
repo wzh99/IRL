@@ -4,7 +4,7 @@ use std::iter::FromIterator;
 use std::ops::Deref;
 use std::rc::Rc;
 
-use crate::lang::func::{BlockListener, BlockRef, Fn};
+use crate::lang::func::{BlockRef, DomTreeListener, Fn};
 use crate::lang::inst::{Inst, InstRef, PhiSrc};
 use crate::lang::util::{ExtRc, WorkList};
 use crate::lang::value::{Scope, Symbol, SymbolRef, Typed, Value};
@@ -20,7 +20,7 @@ impl SsaFlag {
 }
 
 /// Visitor of instructions in SSA program.
-pub trait InstrListener: BlockListener {
+pub trait InstListener: DomTreeListener {
     fn on_begin(&mut self, func: &Fn) {
         // Visit phi instructions in the entrance block
         for instr in func.ent.borrow().instr.borrow().iter().cloned() {
@@ -57,7 +57,7 @@ pub trait InstrListener: BlockListener {
 }
 
 /// Visitor of variables in SSA program.
-pub trait ValueListener: InstrListener {
+pub trait ValueListener: InstListener {
     fn on_instr(&mut self, instr: InstRef) {
         match instr.deref() {
             Inst::Phi { src: _, dst: _ } => if let Some(dst) = instr.dst() {
@@ -104,14 +104,14 @@ pub struct Verifier {
     pub err: Vec<String>,
 }
 
-impl BlockListener for Verifier {
+impl DomTreeListener for Verifier {
     fn on_begin(&mut self, func: &Fn) {
         // Add parameters as the first frame
         func.param.iter().for_each(|p| { self.def.insert(p.borrow().clone()); });
         self.avail.push(func.param.iter().map(|p| p.borrow().clone()).collect());
 
         // Check phi operands in entrance block
-        InstrListener::on_begin(self, func);
+        InstListener::on_begin(self, func);
     }
 
     fn on_end(&mut self, func: &Fn) {
@@ -149,7 +149,7 @@ impl BlockListener for Verifier {
             }
         }
 
-        InstrListener::on_enter(self, block)
+        InstListener::on_enter(self, block)
     }
 
     fn on_exit(&mut self, _: BlockRef) {
@@ -161,7 +161,7 @@ impl BlockListener for Verifier {
     fn on_exit_child(&mut self, _: BlockRef, _: BlockRef) {}
 }
 
-impl InstrListener for Verifier {
+impl InstListener for Verifier {
     fn on_instr(&mut self, instr: InstRef) {
         ValueListener::on_instr(self, instr)
     }
@@ -330,7 +330,7 @@ struct Renamer {
     scope: Option<Rc<Scope>>,
 }
 
-impl BlockListener for Renamer {
+impl DomTreeListener for Renamer {
     fn on_begin(&mut self, func: &Fn) {
         // Initialize renaming stack
         let mut added = vec![];
@@ -359,7 +359,7 @@ impl BlockListener for Renamer {
         });
 
         self.scope = Some(func.scope.clone());
-        InstrListener::on_begin(self, func)
+        InstListener::on_begin(self, func)
     }
 
     fn on_end(&mut self, _: &Fn) {
@@ -370,7 +370,7 @@ impl BlockListener for Renamer {
 
     fn on_enter(&mut self, block: BlockRef) {
         self.def.push(vec![]);
-        InstrListener::on_enter(self, block)
+        InstListener::on_enter(self, block)
     }
 
     fn on_exit(&mut self, _: BlockRef) {
@@ -385,7 +385,7 @@ impl BlockListener for Renamer {
     fn on_exit_child(&mut self, _: BlockRef, _: BlockRef) {}
 }
 
-impl InstrListener for Renamer {
+impl InstListener for Renamer {
     fn on_instr(&mut self, instr: InstRef) {
         ValueListener::on_instr(self, instr)
     }
@@ -451,7 +451,7 @@ struct DefUseBuilder {
     blk: Vec<BlockRef>,
 }
 
-impl BlockListener for DefUseBuilder {
+impl DomTreeListener for DefUseBuilder {
     fn on_begin(&mut self, func: &Fn) {
         // Build parameter definition
         func.param.iter().for_each(|param| {
@@ -460,14 +460,14 @@ impl BlockListener for DefUseBuilder {
                 uses: vec![],
             });
         });
-        InstrListener::on_begin(self, func)
+        InstListener::on_begin(self, func)
     }
 
     fn on_end(&mut self, _: &Fn) {}
 
     fn on_enter(&mut self, block: BlockRef) {
         self.blk.push(block.clone());
-        InstrListener::on_enter(self, block);
+        InstListener::on_enter(self, block);
     }
 
     fn on_exit(&mut self, _: BlockRef) { self.blk.pop(); }
@@ -477,7 +477,7 @@ impl BlockListener for DefUseBuilder {
     fn on_exit_child(&mut self, _: BlockRef, _: BlockRef) {}
 }
 
-impl InstrListener for DefUseBuilder {
+impl InstListener for DefUseBuilder {
     fn on_instr(&mut self, instr: InstRef) {
         ValueListener::on_instr(self, instr)
     }

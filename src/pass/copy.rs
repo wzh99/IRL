@@ -2,10 +2,10 @@ use std::cell::RefCell;
 use std::collections::{HashMap, HashSet};
 use std::ops::Deref;
 
-use crate::lang::func::{BlockListener, BlockRef, Fn, FnRef};
+use crate::lang::func::{BlockRef, DomTreeListener, Fn, FnRef};
 use crate::lang::inst::{Inst, InstRef};
 use crate::lang::Program;
-use crate::lang::ssa::{InstrListener, ValueListener};
+use crate::lang::ssa::{InstListener, ValueListener};
 use crate::lang::value::{SymbolRef, Value};
 use crate::pass::{FnPass, Pass};
 
@@ -37,14 +37,14 @@ struct CopyListener {
     rm: HashSet<InstRef>,
 }
 
-impl BlockListener for CopyListener {
+impl DomTreeListener for CopyListener {
     fn on_begin(&mut self, _func: &Fn) {}
 
     fn on_end(&mut self, _func: &Fn) {}
 
     fn on_enter(&mut self, block: BlockRef) {
         self.def.push(vec![]);
-        InstrListener::on_enter(self, block.clone());
+        InstListener::on_enter(self, block.clone());
         block.instr.borrow_mut().retain(|instr| {
             !self.rm.contains(instr)
         })
@@ -61,7 +61,7 @@ impl BlockListener for CopyListener {
     fn on_exit_child(&mut self, _this: BlockRef, _child: BlockRef) {}
 }
 
-impl InstrListener for CopyListener {
+impl InstListener for CopyListener {
     fn on_instr(&mut self, instr: InstRef) {
         if let Inst::Mov { src, dst } = instr.as_ref() {
             if src.borrow().is_global_var() || dst.borrow().is_global_var() {

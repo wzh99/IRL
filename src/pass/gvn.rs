@@ -1,10 +1,10 @@
 use std::cell::RefCell;
 use std::collections::{HashMap, HashSet};
 
-use crate::lang::func::{BlockListener, BlockRef, Fn, FnRef};
+use crate::lang::func::{BlockRef, DomTreeListener, Fn, FnRef};
 use crate::lang::inst::InstRef;
 use crate::lang::Program;
-use crate::lang::ssa::{InstrListener, ValueListener};
+use crate::lang::ssa::{InstListener, ValueListener};
 use crate::lang::util::WorkList;
 use crate::lang::value::{SymbolRef, Value};
 use crate::pass::{FnPass, Pass};
@@ -151,10 +151,10 @@ impl GvnListener {
     }
 }
 
-impl BlockListener for GvnListener {
+impl DomTreeListener for GvnListener {
     fn on_begin(&mut self, func: &Fn) {
         self.def.push(func.param.iter().map(|p| p.borrow().clone()).collect());
-        InstrListener::on_begin(self, func)
+        InstListener::on_begin(self, func)
     }
 
     fn on_end(&mut self, _func: &Fn) {}
@@ -162,7 +162,7 @@ impl BlockListener for GvnListener {
     fn on_enter(&mut self, block: BlockRef) {
         // Replace congruent symbols
         self.def.push(vec![]);
-        InstrListener::on_enter(self, block.clone());
+        InstListener::on_enter(self, block.clone());
 
         // Clear instructions defining congruent symbols
         block.instr.borrow_mut().retain(|instr| {
@@ -178,7 +178,7 @@ impl BlockListener for GvnListener {
     fn on_exit_child(&mut self, _this: BlockRef, _child: BlockRef) {}
 }
 
-impl InstrListener for GvnListener {
+impl InstListener for GvnListener {
     fn on_instr(&mut self, instr: InstRef) {
         ValueListener::on_instr(self, instr)
     }

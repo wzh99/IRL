@@ -124,7 +124,7 @@ global variables:
 @g = 4
 ``` 
 
-Here we know that the final value of global variable `@g` is four. 18 instructions were executed, and it took 39 clock cycles to run this program.
+Here we know that the final value of global variable `@g` is four. 18 instructions were executed, and it took 39 time units to run this program.
 
 What if some runtime error occurs? We can see by modifying `$q <- ptr *i64 $p, 1` to `$q <- ptr *i64 $p, 2`.
 

@@ -3,6 +3,7 @@ use std::collections::{HashMap, HashSet};
 use std::ops::Deref;
 
 use crate::lang::func::{BlockRef, FnRef};
+use crate::lang::graph::{DomBuilder, RevVert, Vertex};
 use crate::lang::inst::{Inst, InstRef};
 use crate::lang::Program;
 use crate::lang::ssa::{DefPos, DefUse};
@@ -23,15 +24,15 @@ impl Pass for AdceOpt {
 }
 
 impl FnPass for AdceOpt {
-    fn run_on_fn(&mut self, func: &FnRef) {
+    fn run_on_fn(&mut self, f: &FnRef) {
         // Build control dependence graph
-        self.rev_df = func.rev_df();
+        self.rev_df = Self::rev_df(f);
 
         // Get def-use information for this function
-        self.def_use = func.def_use();
+        self.def_use = f.def_use();
 
         // Mark all instructions that are sure to be active
-        func.iter_dom(|block| {
+        f.iter_dom(|block| {
             block.for_each(|instr| {
                 match instr.as_ref() {
                     // Mark instructions that are returns or have side effect
@@ -50,7 +51,7 @@ impl FnPass for AdceOpt {
             }
         }
 
-        func.iter_dom(|blk| {
+        f.iter_dom(|blk| {
             // Remove unmarked instruction
             blk.instr.borrow_mut().retain(|instr| {
                 match instr.as_ref() {
@@ -83,7 +84,7 @@ impl FnPass for AdceOpt {
         });
 
         // Remove unreachable blocks
-        func.remove_unreachable();
+        f.remove_unreachable();
 
         // Clear data structure for this function
         self.instr.clear();
@@ -130,6 +131,87 @@ impl AdceOpt {
                 _ => {}
             }
         });
+    }
+
+    /// Compute reverse dominance frontier for a given function
+    fn rev_df(f: &FnRef) -> HashMap<BlockRef, Vec<BlockRef>> {
+        // Build post-dominator tree
+        let root = RevVert::Exit(f.clone());
+        let parent = DomBuilder::new(root.clone()).build();
+        let mut child: HashMap<_, Vec<_>> = HashMap::new();
+        parent.iter().for_each(|(c, p)| {
+            match child.get_mut(p) {
+                Some(list) => list.push(c.clone()),
+                None => { child.insert(p.clone(), vec![c.clone()]); }
+            }
+        });
+
+        // Build post-dominance frontier
+        let mut builder = RevDfBuilder {
+            parent,
+            child,
+            df: Default::default(),
+        };
+        builder.build(root);
+
+        // Convert to block map
+        let mut blk_df: HashMap<BlockRef, Vec<BlockRef>> = HashMap::new();
+        builder.df.into_iter().for_each(|(b, list)| {
+            if let RevVert::Block(b, _) = b {
+                list.into_iter().for_each(|df| {
+                    if let RevVert::Block(df, _) = df {
+                        match blk_df.get_mut(&b) {
+                            Some(list) => list.push(df),
+                            None => { blk_df.insert(b.clone(), vec![df]); }
+                        }
+                    }
+                })
+            }
+        });
+        blk_df
+    }
+}
+
+/// Dominance frontier construction for reverse CFG.
+/// To make the generic graph algorithm efficient, the vertices in reverse CFG cannot have much
+/// bookkeeping, so the listener pattern cannot be adopted here. So the implementation is different
+/// from the original CFG, although the algorithm is the same.
+struct RevDfBuilder {
+    parent: HashMap<RevVert, RevVert>,
+    child: HashMap<RevVert, Vec<RevVert>>,
+    df: HashMap<RevVert, Vec<RevVert>>,
+}
+
+impl RevDfBuilder {
+    fn build(&mut self, vert: RevVert) {
+        let mut set = HashSet::new();
+        vert.succ().iter().for_each(|succ| {
+            if self.parent.get(succ) != Some(&vert) {
+                set.insert(succ.clone());
+            }
+        });
+        self.child.get(&vert).cloned().map(|list| {
+            list.iter().for_each(|child| {
+                self.build(child.clone());
+                self.df[&child].clone().iter().for_each(|df| {
+                    if !self.dominates(&vert, df) || vert == *df {
+                        set.insert(df.clone());
+                    }
+                });
+            });
+        });
+        self.df.insert(vert.clone(), set.into_iter().collect());
+    }
+
+    fn dominates(&self, parent: &RevVert, child: &RevVert) -> bool {
+        let mut cur = Some(child.clone());
+        loop {
+            match cur {
+                Some(ref block) if parent == block => return true,
+                None => return false,
+                _ => cur = self.parent.get(&cur.unwrap()).cloned()
+            }
+        }
     }
 }
 

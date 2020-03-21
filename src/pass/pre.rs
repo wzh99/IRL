@@ -4,7 +4,7 @@ use std::hash::{Hash, Hasher};
 use std::iter::FromIterator;
 use std::ops::Deref;
 
-use crate::lang::func::{BlockListener, BlockRef, Fn, FnRef};
+use crate::lang::func::{BlockRef, DomTreeListener, Fn, FnRef};
 use crate::lang::inst::{BinOp, Inst};
 use crate::lang::Program;
 use crate::lang::util::{ExtRc, WorkList};
@@ -736,7 +736,7 @@ struct SetBuilder<'a> {
     sets: HashMap<BlockRef, LeaderSet>,
 }
 
-impl BlockListener for SetBuilder<'_> {
+impl DomTreeListener for SetBuilder<'_> {
     fn on_begin(&mut self, func: &Fn) {
         // Add parameters to value table and available set of entrance
         let ent = func.ent.borrow().clone();
