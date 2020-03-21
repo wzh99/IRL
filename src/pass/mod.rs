@@ -1,6 +1,4 @@
-use std::rc::Rc;
-
-use crate::lang::func::Func;
+use crate::lang::func::FnRef;
 use crate::lang::Program;
 
 pub mod util;
@@ -24,5 +22,5 @@ pub trait FnPass: Pass {
         pro.func.iter().for_each(|func| self.run_on_fn(func));
     }
 
-    fn run_on_fn(&mut self, f: &Rc<Func>);
+    fn run_on_fn(&mut self, f: &FnRef);
 }

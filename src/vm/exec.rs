@@ -2,10 +2,9 @@ use std::cell::RefCell;
 use std::collections::HashMap;
 use std::fmt::{Debug, Error, Formatter};
 use std::ops::{Add, Deref, DerefMut};
-use std::rc::Rc;
 
-use crate::lang::func::Func;
-use crate::lang::instr::{BinOp, Instr};
+use crate::lang::func::FnRef;
+use crate::lang::instr::{BinOp, Inst};
 use crate::lang::Program;
 use crate::lang::util::MutRc;
 use crate::lang::value::{Const, GlobalVarRef, Symbol, SymbolRef, Type, Typed, Value};
@@ -55,7 +54,7 @@ impl Machine {
         Ok(VmRcd { global, count })
     }
 
-    fn call(&mut self, func: &Rc<Func>, arg: Vec<Reg>) -> Result<Option<Reg>, RuntimeErr> {
+    fn call(&mut self, func: &FnRef, arg: Vec<Reg>) -> Result<Option<Reg>, RuntimeErr> {
         // Pass arguments to parameters
         let ref mut file: RegFile = func.param.iter().zip(arg.into_iter())
             .map(|(p, r)| { (p.borrow().clone(), r) }).collect();
@@ -73,7 +72,7 @@ impl Machine {
             // Assign values to phi destinations
             for phi in next_blk.instr.borrow().iter() {
                 match phi.as_ref() {
-                    Instr::Phi { src, dst } => {
+                    Inst::Phi { src, dst } => {
                         let src = &src.iter().find(|(b, _)| b == &frame.borrow().block).unwrap().1;
                         let val = match src.borrow().deref() {
                             Value::Var(sym) => file[sym].clone(),
@@ -91,48 +90,48 @@ impl Machine {
             for instr in cur_blk.instr.borrow().iter() {
                 self.count.count(instr.as_ref());
                 match instr.as_ref() {
-                    Instr::Phi { src: _, dst: _ } => {}
-                    Instr::Mov { src, dst } => {
+                    Inst::Phi { src: _, dst: _ } => {}
+                    Inst::Mov { src, dst } => {
                         let reg = self.reg_from_src(src, file);
                         self.reg_to_dst(reg, dst, file);
                     }
-                    Instr::Un { op, opd, dst } => {
+                    Inst::Un { op, opd, dst } => {
                         let opd = self.reg_from_src(opd, file).get_const();
                         let res = Reg::Val(op.eval(opd));
                         self.reg_to_dst(res, dst, file);
                     }
-                    Instr::Bin { op, fst, snd, dst } => self.exec_bin(*op, fst, snd, dst, file),
-                    Instr::Call { func, arg, dst } => {
+                    Inst::Bin { op, fst, snd, dst } => self.exec_bin(*op, fst, snd, dst, file),
+                    Inst::Call { func, arg, dst } => {
                         let arg: Vec<_> = arg.iter().map(|a| self.reg_from_src(a, file)).collect();
                         let res = self.call(func, arg)?;
                         dst.as_ref().map(|dst| self.reg_to_dst(res.unwrap(), dst, file));
                     }
-                    Instr::Ret { val } => {
+                    Inst::Ret { val } => {
                         let res = val.as_ref().map(|val| self.reg_from_src(val, file));
                         self.stack.pop_frame();
                         return Ok(res);
                     }
-                    Instr::Jmp { tgt } => {
+                    Inst::Jmp { tgt } => {
                         next_blk = tgt.borrow().clone();
                         frame.borrow_mut().instr = 0;
                         break;
                     }
-                    Instr::Br { cond, tr, fls } => {
+                    Inst::Br { cond, tr, fls } => {
                         let cond = self.reg_from_src(cond, file).get_const();
                         let cond = if let Const::I1(b) = cond { b } else { unreachable!() };
                         next_blk = if cond { tr.borrow().clone() } else { fls.borrow().clone() };
                         frame.borrow_mut().instr = 0;
                         break;
                     }
-                    Instr::Alloc { dst } => {
+                    Inst::Alloc { dst } => {
                         let ptr = self.stack.alloc(dst.borrow().get_type().tgt_type().size());
                         self.reg_to_dst(ptr, dst, file);
                     }
-                    Instr::New { dst, len } => self.exec_new(dst, len, file),
-                    Instr::Ptr { base, off, ind, dst } =>
+                    Inst::New { dst, len } => self.exec_new(dst, len, file),
+                    Inst::Ptr { base, off, ind, dst } =>
                         self.exec_ptr(base, off, ind, dst, file)?,
-                    Instr::Ld { ptr, dst } => self.exec_ld(ptr, dst, file)?,
-                    Instr::St { src, ptr } => self.exec_st(src, ptr, file)?
+                    Inst::Ld { ptr, dst } => self.exec_ld(ptr, dst, file)?,
+                    Inst::St { src, ptr } => self.exec_st(src, ptr, file)?
                 }
                 frame.borrow_mut().instr += 1;
             }
@@ -305,7 +304,7 @@ impl Machine {
                     tgt_ty = elem.deref().clone();
                 }
                 Type::Struct { field } => {
-                    // indices into struct are checked at compile time, impossible to be out of
+                    // indices into struct are checked at irc time, impossible to be out of
                     // bound
                     size_off += field[..idx].iter().map(|f| f.size()).fold(0, Add::add);
                     tgt_ty = field[idx].clone();
@@ -390,9 +389,9 @@ impl Debug for RuntimeErr {
 
 #[test]
 fn test_exec() {
-    use crate::compile::lex::Lexer;
-    use crate::compile::parse::Parser;
-    use crate::compile::build::Builder;
+    use crate::irc::lex::Lexer;
+    use crate::irc::parse::Parser;
+    use crate::irc::build::Builder;
     use crate::vm::exec::Machine;
     use std::fs::File;
     use std::convert::TryFrom;

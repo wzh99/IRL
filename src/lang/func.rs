@@ -9,13 +9,13 @@ use std::rc::Rc;
 
 use crate::lang::graph::{BfsIter, DfsIter, RevPostOrd, Vertex};
 use crate::lang::graph::dom;
-use crate::lang::instr::{Instr, InstrRef};
+use crate::lang::instr::{Inst, InstRef};
 use crate::lang::ssa::SsaFlag;
 use crate::lang::util::ExtRc;
 use crate::lang::value::{Scope, SymbolRef, Type, Typed};
 
 #[derive(Debug)]
-pub struct Func {
+pub struct Fn {
     /// Name of this function
     pub name: String,
     /// Scope of this function
@@ -33,15 +33,15 @@ pub struct Func {
     pub ssa: SsaFlag,
 }
 
-impl PartialEq for Func {
+impl PartialEq for Fn {
     fn eq(&self, other: &Self) -> bool {
         self.name == other.name && self.get_type() == other.get_type()
     }
 }
 
-impl Eq for Func {}
+impl Eq for Fn {}
 
-impl Typed for Func {
+impl Typed for Fn {
     fn get_type(&self) -> Type {
         Type::Fn {
             param: self.param.iter().map(|p| p.borrow().get_type()).collect(),
@@ -50,11 +50,19 @@ impl Typed for Func {
     }
 }
 
-impl Func {
+pub type FnRef = ExtRc<Fn>;
+
+impl Debug for FnRef {
+    fn fmt(&self, f: &mut Formatter<'_>) -> Result<(), Error> {
+        write!(f, "@{}", self.name)
+    }
+}
+
+impl Fn {
     pub fn new(name: String, scope: Scope, param: Vec<RefCell<SymbolRef>>, ret: Type,
-               ent: BasicBlock) -> Func
+               ent: BasicBlock) -> Fn
     {
-        Func {
+        Fn {
             name,
             scope: Rc::new(scope),
             param,
@@ -71,7 +79,7 @@ pub struct BasicBlock {
     /// Name of this basic block
     pub name: String,
     /// Linked list of all instructions in this block
-    pub instr: RefCell<VecDeque<InstrRef>>,
+    pub instr: RefCell<VecDeque<InstRef>>,
     /// Inside a function, the basic blocks form a control flow graph. For each basic block,
     /// it has predecessor and successor sets, depending on the control flow instructions in
     /// the block. `Vec` is actually used here because we want to keep the insertion order of
@@ -145,45 +153,45 @@ impl BasicBlock {
     }
 
     /// Visit each instruction in this block
-    pub fn for_each<F>(&self, f: F) where F: FnMut(InstrRef) {
+    pub fn for_each<F>(&self, f: F) where F: FnMut(InstRef) {
         self.instr.borrow().iter().cloned().for_each(f)
     }
 
     /// Push instruction to the front of the instruction list.
-    pub fn push_front(&self, ins: InstrRef) {
+    pub fn push_front(&self, ins: InstRef) {
         self.instr.borrow_mut().push_front(ins)
     }
 
     /// Push instruction to the back of the instruction list.
-    pub fn push_back(&self, ins: InstrRef) {
+    pub fn push_back(&self, ins: InstRef) {
         self.instr.borrow_mut().push_back(ins)
     }
 
     /// Get first instruction of this block
-    pub fn head(&self) -> InstrRef {
+    pub fn head(&self) -> InstRef {
         self.instr.borrow().front().unwrap().clone()
     }
 
     /// Get last instruction of this block
-    pub fn tail(&self) -> InstrRef {
+    pub fn tail(&self) -> InstRef {
         self.instr.borrow().back().unwrap().clone()
     }
 
     /// Possibly get the instruction before given one
-    pub fn before(&self, instr: &InstrRef) -> Option<InstrRef> {
+    pub fn before(&self, instr: &InstRef) -> Option<InstRef> {
         self.instr.borrow().iter().position(|i| i == instr)
             .and_then(|idx| self.instr.borrow().get(idx - 1).cloned())
     }
 
     /// Possibly get the instruction after given one
-    pub fn after(&self, instr: &InstrRef) -> Option<InstrRef> {
+    pub fn after(&self, instr: &InstRef) -> Option<InstRef> {
         self.instr.borrow().iter().position(|i| i == instr)
             .and_then(|idx| self.instr.borrow().get(idx + 1).cloned())
     }
 
     /// If the tail of the instruction list is a control flow instruction, insert `ins` before
     /// it. Otherwise, push to the back of the list.
-    pub fn insert_before_ctrl(&self, instr: InstrRef) {
+    pub fn insert_before_ctrl(&self, instr: InstRef) {
         if self.is_complete() {
             let idx = self.instr.borrow().len() - 1;
             self.instr.borrow_mut().insert(idx, instr)
@@ -240,8 +248,8 @@ impl BlockRef {
 
         // Modify target in control flow instructions
         match self.instr.borrow().back().unwrap().as_ref() {
-            Instr::Jmp { tgt } => { tgt.replace(to.clone()); }
-            Instr::Br { cond: _, tr, fls } => {
+            Inst::Jmp { tgt } => { tgt.replace(to.clone()); }
+            Inst::Br { cond: _, tr, fls } => {
                 if tr.borrow().deref() == from { tr.replace(to.clone()); }
                 if fls.borrow().deref() == from { fls.replace(to.clone()); }
             }
@@ -275,7 +283,7 @@ impl Vertex<BlockRef> for BlockRef {
     fn succ(&self) -> Vec<BlockRef> { self.succ.borrow().deref().clone() }
 }
 
-impl Func {
+impl Fn {
     /// Remove unreachable blocks in this function. This is necessary for algorithms that rely
     /// on predecessors of blocks. This procedure will rebuild phi instructions in blocks. Phi
     /// reconstruction rely on dominance tree, so if it is not built yet, the reconstruction will
@@ -300,7 +308,7 @@ impl Func {
                 return;
             }
             block.instr.borrow_mut().iter_mut().for_each(|instr| {
-                if let Instr::Phi { src, dst } = instr.as_ref() {
+                if let Inst::Phi { src, dst } = instr.as_ref() {
                     let prev_src = src.clone();
                     let new_src: Vec<_> = block.phi_pred().iter().map(|pred| {
                         prev_src.iter().find(|(p, _)| p == pred).unwrap().clone()
@@ -310,14 +318,14 @@ impl Func {
                         0 => unreachable!(),
                         // Replace this instruction with a move
                         1 => {
-                            *instr = ExtRc::new(Instr::Mov {
+                            *instr = ExtRc::new(Inst::Mov {
                                 src: new_src[0].1.clone(),
                                 dst: dst.clone(),
                             })
                         }
                         // Rebuild phi sources
                         _ => {
-                            *instr = ExtRc::new(Instr::Phi {
+                            *instr = ExtRc::new(Inst::Phi {
                                 src: new_src,
                                 dst: dst.clone(),
                             })
@@ -347,7 +355,7 @@ impl Func {
     }
 }
 
-impl Func {
+impl Fn {
     /// Return an iterator to breadth-first search the CFG.
     pub fn bfs(&self) -> BfsIter<BlockRef> { self.ent.borrow().bfs() }
 
@@ -361,10 +369,10 @@ impl Func {
 /// Visitor trait of dominance tree
 pub trait BlockListener {
     /// Called on the very beginning of visiting.
-    fn on_begin(&mut self, func: &Func);
+    fn on_begin(&mut self, func: &Fn);
 
     /// Called when the visiting is finished.
-    fn on_end(&mut self, func: &Func);
+    fn on_end(&mut self, func: &Fn);
 
     /// Called when the subtree whose root is current block is entered, before visiting its
     /// children.
@@ -389,7 +397,7 @@ pub struct BlockGen {
 }
 
 impl BlockGen {
-    pub fn new(func: &Func, pre: &str) -> BlockGen {
+    pub fn new(func: &Fn, pre: &str) -> BlockGen {
         let mut name = HashSet::new();
         func.iter_dom(|block| { name.insert(block.name.clone()); });
         BlockGen {
@@ -409,7 +417,7 @@ impl BlockGen {
     }
 }
 
-impl Func {
+impl Fn {
     /// Walk the dominator tree of this function with given listener trait object
     pub fn walk_dom<L>(&self, listener: &mut L) where L: BlockListener {
         listener.on_begin(self);
@@ -457,21 +465,21 @@ impl Func {
             to_split.iter().for_each(|succ| {
                 // Reconnect edges
                 let mid = blk_gen.gen();
-                mid.push_back(ExtRc::new(Instr::Jmp {
+                mid.push_back(ExtRc::new(Inst::Jmp {
                     tgt: RefCell::new(succ.clone())
                 }));
                 mid.connect(succ.clone());
                 block.switch_to(&succ, mid.clone());
                 // Replace phi source in the split successor
                 succ.instr.borrow_mut().iter_mut().for_each(|instr| {
-                    if let Instr::Phi { src, dst } = instr.as_ref().clone() {
+                    if let Inst::Phi { src, dst } = instr.as_ref().clone() {
                         let mut src = src.clone();
                         src.iter_mut().for_each(|(pred, _)| {
                             if pred == &Some(block.clone()) {
                                 *pred = Some(mid.clone())
                             }
                         });
-                        *instr = ExtRc::new(Instr::Phi { src, dst })
+                        *instr = ExtRc::new(Inst::Phi { src, dst })
                     }
                 })
             })
@@ -484,11 +492,11 @@ impl Func {
 #[derive(Eq, Clone)]
 enum RevVert<'a> {
     /// Entrance of the function, this does not represent the entrance block in th original CFG.
-    Enter(&'a Func),
+    Enter(&'a Fn),
     /// Represent a block in the CFG.
-    Block(BlockRef, &'a Func),
+    Block(BlockRef, &'a Fn),
     /// Exit of the function, the common predecessor of all exit blocks in reverse CFG.
-    Exit(&'a Func),
+    Exit(&'a Fn),
 }
 
 impl PartialEq for RevVert<'_> {
@@ -509,11 +517,11 @@ impl Hash for RevVert<'_> {
         match self {
             RevVert::Block(block, _) => block.hash(state),
             RevVert::Enter(func) => {
-                (*func as *const Func).hash(state);
+                (*func as *const Fn).hash(state);
                 0.hash(state)
             }
             RevVert::Exit(func) => {
-                (*func as *const Func).hash(state);
+                (*func as *const Fn).hash(state);
                 1.hash(state)
             }
         }
@@ -583,7 +591,7 @@ impl<'a> Vertex<RevVert<'a>> for RevVert<'a> {
     }
 }
 
-impl Func {
+impl Fn {
     // Visit CFG in order of post-dominator tree
     pub fn post_dom<F>(&self, mut f: F) where F: FnMut(BlockRef) {
         // Build dominator tree for reverse CFG
@@ -615,9 +623,9 @@ struct DfBuilder {
 }
 
 impl BlockListener for DfBuilder {
-    fn on_begin(&mut self, _: &Func) {}
+    fn on_begin(&mut self, _: &Fn) {}
 
-    fn on_end(&mut self, _: &Func) {}
+    fn on_end(&mut self, _: &Fn) {}
 
     fn on_enter(&mut self, block: BlockRef) {
         self.stack.push(HashSet::new());
@@ -644,7 +652,7 @@ impl BlockListener for DfBuilder {
     }
 }
 
-impl Func {
+impl Fn {
     /// Compute dominance frontiers for all basic blocks.
     /// This should be called after dominator tree is built.
     pub fn compute_df(&self) -> HashMap<BlockRef, Vec<BlockRef>> {
@@ -657,7 +665,7 @@ impl Func {
     }
 }
 
-impl Func {
+impl Fn {
     /// Compute dominance frontier for reverse CFG
     pub fn rev_df(&self) -> HashMap<BlockRef, Vec<BlockRef>> {
         // Build post-dominator tree

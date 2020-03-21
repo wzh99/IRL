@@ -1,6 +1,6 @@
 use std::ops::{Add, Deref};
 
-use crate::lang::instr::{BinOp, Instr};
+use crate::lang::instr::{BinOp, Inst};
 use crate::lang::value::{Type, Typed, Value};
 
 #[derive(Copy, Clone, Debug)]
@@ -19,12 +19,12 @@ impl Counter {
         self.time = 0;
     }
 
-    pub fn count(&mut self, instr: &Instr) {
+    pub fn count(&mut self, instr: &Inst) {
         self.num += 1;
         let mut time = match instr {
-            Instr::Mov { src: _, dst: _ } => MOV,
-            Instr::Un { op: _, opd: _, dst: _ } => UN_OP,
-            Instr::Bin { op, fst, snd: _, dst: _ } => {
+            Inst::Mov { src: _, dst: _ } => MOV,
+            Inst::Un { op: _, opd: _, dst: _ } => UN_OP,
+            Inst::Bin { op, fst, snd: _, dst: _ } => {
                 let ty = fst.borrow().get_type();
                 match op {
                     op if op.is_bitwise() | op.is_cmp() | op.is_shift() => FAST_BIN,
@@ -38,25 +38,25 @@ impl Counter {
                     _ => unreachable!()
                 }
             }
-            Instr::Call { func: _, arg, dst: _ } => CALL + arg.len() * MOV,
-            Instr::Ret { val: _ } => RET,
-            Instr::Jmp { tgt: _ } | Instr::Br { cond: _, tr: _, fls: _ } => JMP,
-            Instr::Phi { src: _, dst: _ } => MOV,
-            Instr::Alloc { dst: _ } => MOV,
-            Instr::New { dst: _, len: _ } => NEW,
-            Instr::Ptr { base: _, off, ind, dst: _ } => {
+            Inst::Call { func: _, arg, dst: _ } => CALL + arg.len() * MOV,
+            Inst::Ret { val: _ } => RET,
+            Inst::Jmp { tgt: _ } | Inst::Br { cond: _, tr: _, fls: _ } => JMP,
+            Inst::Phi { src: _, dst: _ } => MOV,
+            Inst::Alloc { dst: _ } => MOV,
+            Inst::New { dst: _, len: _ } => NEW,
+            Inst::Ptr { base: _, off, ind, dst: _ } => {
                 let mut opd: Vec<_> = ind.iter().collect();
                 off.as_ref().map(|off| opd.push(off));
                 opd.iter().map(|opd| {
                     match opd.borrow().deref() {
-                        // all constant offset can be computed at compile time
+                        // all constant offset can be computed at irc time
                         Value::Const(_) => 0,
                         // variable offset require one multiplication and one addition
                         Value::Var(_) => IMUL + FAST_BIN
                     }
                 }).fold(1, Add::add)
             }
-            Instr::Ld { ptr: _, dst: _ } | Instr::St { src: _, ptr: _ } => MEM,
+            Inst::Ld { ptr: _, dst: _ } | Inst::St { src: _, ptr: _ } => MEM,
         };
         instr.dst().map(|dst| if !dst.borrow().is_local_var() { time += GLB_PEN });
         self.time += time;

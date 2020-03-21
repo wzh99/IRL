@@ -2,10 +2,9 @@ use std::cell::RefCell;
 use std::collections::HashSet;
 use std::fmt::{Debug, Error, Formatter};
 use std::ops::Deref;
-use std::rc::Rc;
 
-use crate::lang::func::{BlockRef, Func};
-use crate::lang::instr::{Instr, InstrRef};
+use crate::lang::func::{BlockRef, Fn, FnRef};
+use crate::lang::instr::{Inst, InstRef};
 use crate::lang::Program;
 use crate::lang::util::{ExtRc, MutRc};
 use crate::lang::value::{Const, SymbolGen, Type, Typed, Value};
@@ -43,7 +42,7 @@ impl Debug for LoopNodeRef {
     fn fmt(&self, f: &mut Formatter<'_>) -> Result<(), Error> { self.borrow().header.fmt(f) }
 }
 
-impl Func {
+impl Fn {
     /// Detect all loops in the function and return as loop-nest forest
     pub fn analyze_loop(&self) -> Vec<LoopNodeRef> {
         // Find all natural loops
@@ -137,11 +136,11 @@ impl Pass for PtrExp {
 }
 
 impl FnPass for PtrExp {
-    fn run_on_fn(&mut self, func: &Rc<Func>) {
+    fn run_on_fn(&mut self, func: &FnRef) {
         func.iter_dom(|block| {
             // Find pointer instruction with indices
-            let ptr_list: Vec<InstrRef> = block.instr.borrow().iter().filter(|instr| {
-                if let Instr::Ptr { base: _, off: _, ind, dst: _ } = instr.as_ref() {
+            let ptr_list: Vec<InstRef> = block.instr.borrow().iter().filter(|instr| {
+                if let Inst::Ptr { base: _, off: _, ind, dst: _ } = instr.as_ref() {
                     !ind.is_empty()
                 } else { false }
             }).cloned().collect();
@@ -149,11 +148,11 @@ impl FnPass for PtrExp {
             // Expand pointer operation
             let mut gen = SymbolGen::new("t", func.scope.clone());
             ptr_list.into_iter().for_each(|ref ptr| {
-                if let Instr::Ptr { base, off, ind, dst } = ptr.as_ref() {
+                if let Inst::Ptr { base, off, ind, dst } = ptr.as_ref() {
                     // Extract the base pointer
                     let mut expand = vec![];
                     let mut cur_ptr = gen.gen(&base.borrow().get_type());
-                    let base_instr = ExtRc::new(Instr::Ptr {
+                    let base_instr = ExtRc::new(Inst::Ptr {
                         base: base.clone(),
                         off: off.clone(),
                         ind: vec![],
@@ -170,7 +169,7 @@ impl FnPass for PtrExp {
                                 let ref elem_ptr_ty = Type::Ptr(elem.clone());
                                 cur_ty = elem.deref().clone();
                                 let head_ptr = gen.gen(elem_ptr_ty);
-                                let head_instr = ExtRc::new(Instr::Ptr {
+                                let head_instr = ExtRc::new(Inst::Ptr {
                                     base: RefCell::new(Value::Var(cur_ptr.clone())),
                                     off: None,
                                     ind: vec![RefCell::new(Value::Const(Const::I64(0)))],
@@ -182,7 +181,7 @@ impl FnPass for PtrExp {
                                 let elem_ptr = if i == ind.len() - 1 {
                                     dst.borrow().clone()
                                 } else { gen.gen(elem_ptr_ty) };
-                                let elem_instr = ExtRc::new(Instr::Ptr {
+                                let elem_instr = ExtRc::new(Inst::Ptr {
                                     base: RefCell::new(Value::Var(head_ptr.clone())),
                                     off: Some(idx_val.clone()),
                                     ind: vec![],
@@ -203,7 +202,7 @@ impl FnPass for PtrExp {
                                 let elem_ptr = if i == ind.len() - 1 {
                                     dst.borrow().clone()
                                 } else { gen.gen(elem_ptr_ty) };
-                                let elem_instr = ExtRc::new(Instr::Ptr {
+                                let elem_instr = ExtRc::new(Inst::Ptr {
                                     base: RefCell::new(Value::Var(elem_ptr.clone())),
                                     off: None,
                                     ind: vec![idx_val.clone()],

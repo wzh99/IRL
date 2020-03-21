@@ -4,8 +4,8 @@ use std::iter::FromIterator;
 use std::ops::Deref;
 use std::rc::Rc;
 
-use crate::lang::func::{BlockListener, BlockRef, Func};
-use crate::lang::instr::{Instr, InstrRef, PhiSrc};
+use crate::lang::func::{BlockListener, BlockRef, Fn};
+use crate::lang::instr::{Inst, InstRef, PhiSrc};
 use crate::lang::util::{ExtRc, WorkList};
 use crate::lang::value::{Scope, Symbol, SymbolRef, Typed, Value};
 
@@ -21,11 +21,11 @@ impl SsaFlag {
 
 /// Visitor of instructions in SSA program.
 pub trait InstrListener: BlockListener {
-    fn on_begin(&mut self, func: &Func) {
+    fn on_begin(&mut self, func: &Fn) {
         // Visit phi instructions in the entrance block
         for instr in func.ent.borrow().instr.borrow().iter().cloned() {
             match instr.deref() {
-                Instr::Phi { src: _, dst: _ } => self.on_succ_phi(None, instr),
+                Inst::Phi { src: _, dst: _ } => self.on_succ_phi(None, instr),
                 _ => break
             }
         }
@@ -41,7 +41,7 @@ pub trait InstrListener: BlockListener {
         for succ in block.succ.borrow().iter() {
             for instr in succ.instr.borrow().iter() {
                 match instr.deref() {
-                    Instr::Phi { src: _, dst: _ } =>
+                    Inst::Phi { src: _, dst: _ } =>
                         self.on_succ_phi(Some(block.clone()), instr.clone()),
                     _ => break // phi instructions must be at front of each block
                 }
@@ -50,17 +50,17 @@ pub trait InstrListener: BlockListener {
     }
 
     /// Called when visiting each instruction.
-    fn on_instr(&mut self, instr: InstrRef);
+    fn on_instr(&mut self, instr: InstRef);
 
     /// Called when visiting phi instructions in successor blocks.
-    fn on_succ_phi(&mut self, this: Option<BlockRef>, instr: InstrRef);
+    fn on_succ_phi(&mut self, this: Option<BlockRef>, instr: InstRef);
 }
 
 /// Visitor of variables in SSA program.
 pub trait ValueListener: InstrListener {
-    fn on_instr(&mut self, instr: InstrRef) {
+    fn on_instr(&mut self, instr: InstRef) {
         match instr.deref() {
-            Instr::Phi { src: _, dst: _ } => if let Some(dst) = instr.dst() {
+            Inst::Phi { src: _, dst: _ } => if let Some(dst) = instr.dst() {
                 self.on_def(instr.clone(), dst);
             }
             _ => {
@@ -74,8 +74,8 @@ pub trait ValueListener: InstrListener {
         }
     }
 
-    fn on_succ_phi(&mut self, this: Option<BlockRef>, instr: InstrRef) {
-        if let Instr::Phi { src, dst: _ } = instr.deref() {
+    fn on_succ_phi(&mut self, this: Option<BlockRef>, instr: InstRef) {
+        if let Inst::Phi { src, dst: _ } = instr.deref() {
             for (pred, opd) in src {
                 match (&this, pred, opd) {
                     (Some(this), Some(pred), opd) if this == pred =>
@@ -88,10 +88,10 @@ pub trait ValueListener: InstrListener {
     }
 
     /// Call on operands (uses) of the instruction.
-    fn on_use(&mut self, instr: InstrRef, opd: &RefCell<Value>);
+    fn on_use(&mut self, instr: InstRef, opd: &RefCell<Value>);
 
     /// Call on possible definition of the instruction.
-    fn on_def(&mut self, instr: InstrRef, def: &RefCell<SymbolRef>);
+    fn on_def(&mut self, instr: InstRef, def: &RefCell<SymbolRef>);
 }
 
 pub struct Verifier {
@@ -105,7 +105,7 @@ pub struct Verifier {
 }
 
 impl BlockListener for Verifier {
-    fn on_begin(&mut self, func: &Func) {
+    fn on_begin(&mut self, func: &Fn) {
         // Add parameters as the first frame
         func.param.iter().for_each(|p| { self.def.insert(p.borrow().clone()); });
         self.avail.push(func.param.iter().map(|p| p.borrow().clone()).collect());
@@ -114,7 +114,7 @@ impl BlockListener for Verifier {
         InstrListener::on_begin(self, func);
     }
 
-    fn on_end(&mut self, func: &Func) {
+    fn on_end(&mut self, func: &Fn) {
         func.ssa.set(true);
         self.def.clear();
         self.avail.clear();
@@ -130,7 +130,7 @@ impl BlockListener for Verifier {
         // Check correspondence of phi operands to predecessors
         for instr in block.instr.borrow().iter() {
             match instr.deref() {
-                Instr::Phi { src, dst: _ } => {
+                Inst::Phi { src, dst: _ } => {
                     let phi_pred: Vec<Option<BlockRef>> = src.iter()
                         .map(|(pred, _)| pred.clone()).collect();
                     for pred in &req_pred {
@@ -162,17 +162,17 @@ impl BlockListener for Verifier {
 }
 
 impl InstrListener for Verifier {
-    fn on_instr(&mut self, instr: InstrRef) {
+    fn on_instr(&mut self, instr: InstRef) {
         ValueListener::on_instr(self, instr)
     }
 
-    fn on_succ_phi(&mut self, this: Option<BlockRef>, instr: InstrRef) {
+    fn on_succ_phi(&mut self, this: Option<BlockRef>, instr: InstRef) {
         ValueListener::on_succ_phi(self, this, instr)
     }
 }
 
 impl ValueListener for Verifier {
-    fn on_use(&mut self, _: InstrRef, opd: &RefCell<Value>) {
+    fn on_use(&mut self, _: InstRef, opd: &RefCell<Value>) {
         match opd.borrow().deref() {
             Value::Var(sym) if sym.is_local_var() && !self.is_avail(sym) => {
                 self.err.push(format!(
@@ -183,7 +183,7 @@ impl ValueListener for Verifier {
         }
     }
 
-    fn on_def(&mut self, _: InstrRef, def: &RefCell<SymbolRef>) {
+    fn on_def(&mut self, _: InstRef, def: &RefCell<SymbolRef>) {
         if def.borrow().is_local_var() {
             let sym = def.borrow().clone();
             if self.def.contains(&sym) { // already statically defined
@@ -211,7 +211,7 @@ impl Verifier {
     }
 }
 
-impl Func {
+impl Fn {
     pub fn to_ssa(&self) {
         if self.ssa.get() { return; } // already in SSA form
         let df = self.compute_df();
@@ -253,7 +253,7 @@ impl Func {
                     let src: Vec<PhiSrc> = tgt.phi_pred().into_iter().map(|pred| {
                         (pred, RefCell::new(Value::Var(sym.clone())))
                     }).collect();
-                    tgt.push_front(ExtRc::new(Instr::Phi {
+                    tgt.push_front(ExtRc::new(Inst::Phi {
                         src,
                         dst: RefCell::new(sym.clone()),
                     }));
@@ -331,7 +331,7 @@ struct Renamer {
 }
 
 impl BlockListener for Renamer {
-    fn on_begin(&mut self, func: &Func) {
+    fn on_begin(&mut self, func: &Fn) {
         // Initialize renaming stack
         let mut added = vec![];
         func.scope.for_each(|sym| {
@@ -362,7 +362,7 @@ impl BlockListener for Renamer {
         InstrListener::on_begin(self, func)
     }
 
-    fn on_end(&mut self, _: &Func) {
+    fn on_end(&mut self, _: &Fn) {
         self.sym.clear();
         self.def.clear();
         self.scope = None;
@@ -386,17 +386,17 @@ impl BlockListener for Renamer {
 }
 
 impl InstrListener for Renamer {
-    fn on_instr(&mut self, instr: InstrRef) {
+    fn on_instr(&mut self, instr: InstRef) {
         ValueListener::on_instr(self, instr)
     }
 
-    fn on_succ_phi(&mut self, this: Option<BlockRef>, instr: InstrRef) {
+    fn on_succ_phi(&mut self, this: Option<BlockRef>, instr: InstRef) {
         ValueListener::on_succ_phi(self, this, instr)
     }
 }
 
 impl ValueListener for Renamer {
-    fn on_use(&mut self, _: InstrRef, opd: &RefCell<Value>) {
+    fn on_use(&mut self, _: InstRef, opd: &RefCell<Value>) {
         opd.replace_with(|opd| {
             match opd.deref() {
                 Value::Var(sym) => match sym.deref() {
@@ -411,7 +411,7 @@ impl ValueListener for Renamer {
         });
     }
 
-    fn on_def(&mut self, _: InstrRef, def: &RefCell<SymbolRef>) {
+    fn on_def(&mut self, _: InstRef, def: &RefCell<SymbolRef>) {
         def.replace_with(|sym| {
             match sym.as_ref() {
                 Symbol::Local { name: _, ty: _ } => {
@@ -432,7 +432,7 @@ impl ValueListener for Renamer {
 #[derive(Debug)]
 pub struct DefUse {
     pub def: DefPos,
-    pub uses: Vec<InstrRef>,
+    pub uses: Vec<InstRef>,
 }
 
 /// Specify the definition position
@@ -441,7 +441,7 @@ pub enum DefPos {
     /// Defined in parameter list
     Param,
     /// Defined in instruction
-    Instr(BlockRef, InstrRef),
+    Instr(BlockRef, InstRef),
     /// Serve as placeholder for the symbol whose definition point has not yet been determined
     None,
 }
@@ -452,7 +452,7 @@ struct DefUseBuilder {
 }
 
 impl BlockListener for DefUseBuilder {
-    fn on_begin(&mut self, func: &Func) {
+    fn on_begin(&mut self, func: &Fn) {
         // Build parameter definition
         func.param.iter().for_each(|param| {
             self.info.insert(param.borrow().clone(), DefUse {
@@ -463,7 +463,7 @@ impl BlockListener for DefUseBuilder {
         InstrListener::on_begin(self, func)
     }
 
-    fn on_end(&mut self, _: &Func) {}
+    fn on_end(&mut self, _: &Fn) {}
 
     fn on_enter(&mut self, block: BlockRef) {
         self.blk.push(block.clone());
@@ -478,17 +478,17 @@ impl BlockListener for DefUseBuilder {
 }
 
 impl InstrListener for DefUseBuilder {
-    fn on_instr(&mut self, instr: InstrRef) {
+    fn on_instr(&mut self, instr: InstRef) {
         ValueListener::on_instr(self, instr)
     }
 
-    fn on_succ_phi(&mut self, this: Option<BlockRef>, instr: InstrRef) {
+    fn on_succ_phi(&mut self, this: Option<BlockRef>, instr: InstRef) {
         ValueListener::on_succ_phi(self, this, instr)
     }
 }
 
 impl ValueListener for DefUseBuilder {
-    fn on_use(&mut self, instr: InstrRef, opd: &RefCell<Value>) {
+    fn on_use(&mut self, instr: InstRef, opd: &RefCell<Value>) {
         match opd.borrow().deref() {
             Value::Var(sym) if sym.is_local_var() => match self.info.get_mut(sym) {
                 Some(info) => info.uses.push(instr),
@@ -503,7 +503,7 @@ impl ValueListener for DefUseBuilder {
         }
     }
 
-    fn on_def(&mut self, instr: InstrRef, def: &RefCell<SymbolRef>) {
+    fn on_def(&mut self, instr: InstRef, def: &RefCell<SymbolRef>) {
         let def = def.borrow().clone();
         if def.is_local_var() {
             self.info.insert(def.clone(), DefUse {
@@ -514,7 +514,7 @@ impl ValueListener for DefUseBuilder {
     }
 }
 
-impl Func {
+impl Fn {
     /// Rebuild scope for SSA form function.
     pub fn rebuild_ssa_scope(&self) {
         self.scope.clear();
@@ -537,7 +537,7 @@ impl Func {
 
 pub type DefUseMap = HashMap<SymbolRef, DefUse>;
 
-impl Func {
+impl Fn {
     /// Compute define-use information for symbols
     pub fn def_use(&self) -> DefUseMap {
         let mut listener = DefUseBuilder {
@@ -622,9 +622,9 @@ impl Func {
 
 #[test]
 fn test_ssa() {
-    use crate::compile::lex::Lexer;
-    use crate::compile::parse::Parser;
-    use crate::compile::build::Builder;
+    use crate::irc::lex::Lexer;
+    use crate::irc::parse::Parser;
+    use crate::irc::build::Builder;
     use crate::lang::print::Printer;
     use std::io::stdout;
     use std::fs::File;

@@ -1,10 +1,9 @@
 use std::cell::RefCell;
 use std::collections::{HashMap, HashSet};
 use std::ops::Deref;
-use std::rc::Rc;
 
-use crate::lang::func::{BlockRef, Func};
-use crate::lang::instr::InstrRef;
+use crate::lang::func::{BlockRef, FnRef};
+use crate::lang::instr::InstRef;
 use crate::lang::Program;
 use crate::lang::ssa::{DefPos, DefUseMap};
 use crate::lang::util::WorkList;
@@ -19,7 +18,7 @@ impl Pass for LicmOpt {
 }
 
 impl FnPass for LicmOpt {
-    fn run_on_fn(&mut self, func: &Rc<Func>) {
+    fn run_on_fn(&mut self, func: &FnRef) {
         // Build loop-nest trees
         let trees = func.analyze_loop();
 
@@ -42,14 +41,14 @@ impl FnPass for LicmOpt {
 impl LicmOpt {
     pub fn new() -> LicmOpt { LicmOpt {} }
 
-    fn opt_loop(&self, func: &Rc<Func>, node: LoopNodeRef) {
+    fn opt_loop(&self, func: &FnRef, node: LoopNodeRef) {
         // Get define-use information
         // This should be computed in each loop, because the definition point of a value may have
         // changed when processing the previous loop.
         let ref def_use = func.def_use();
 
         // Build instruction work list
-        let mut instr_list: HashSet<InstrRef> = HashSet::new();
+        let mut instr_list: HashSet<InstRef> = HashSet::new();
         let level = node.borrow().level_blocks();
         level.iter().for_each(|blk| {
             blk.instr.borrow().iter().for_each(|instr| { instr_list.insert(instr.clone()); })
@@ -59,7 +58,7 @@ impl LicmOpt {
         // Iteratively find all loop invariants and hoist them
         let ref header = node.borrow().header.clone();
         let ref mut hoist: HashMap<SymbolRef, BlockRef> = HashMap::new();
-        let ref mut removed: HashSet<InstrRef> = HashSet::new();
+        let ref mut removed: HashSet<InstRef> = HashSet::new();
         loop {
             match work.pick() {
                 Some(instr) => {
@@ -117,7 +116,7 @@ impl LicmOpt {
         }
     }
 
-    fn def_block(val: &RefCell<Value>, func: &Rc<Func>, def_use: &DefUseMap,
+    fn def_block(val: &RefCell<Value>, func: &FnRef, def_use: &DefUseMap,
                  hoist: &HashMap<SymbolRef, BlockRef>) -> BlockRef
     {
         let ent = func.ent.borrow().clone();
@@ -137,9 +136,9 @@ impl LicmOpt {
 
 #[test]
 fn test_licm() {
-    use crate::compile::lex::Lexer;
-    use crate::compile::parse::Parser;
-    use crate::compile::build::Builder;
+    use crate::irc::lex::Lexer;
+    use crate::irc::parse::Parser;
+    use crate::irc::build::Builder;
     use crate::lang::print::Printer;
     use crate::pass::osr::OsrOpt;
     use crate::pass::pre::PreOpt;

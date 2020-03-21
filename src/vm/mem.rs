@@ -4,7 +4,7 @@ use std::mem::size_of;
 use std::ops::Add;
 use std::rc::Rc;
 
-use crate::lang::func::{BlockRef, Func};
+use crate::lang::func::{BlockRef, Fn, FnRef};
 use crate::lang::util::MutRc;
 use crate::lang::value::{Const, SymbolRef, Type};
 
@@ -40,7 +40,7 @@ impl Stack {
     pub fn len(&self) -> usize { self.frame.len() }
 
     /// Push a new frame to stack with the given function.
-    pub fn push_frame(&mut self, func: &Rc<Func>) {
+    pub fn push_frame(&mut self, func: &FnRef) {
         let frame = Frame {
             func: func.clone(),
             block: None,
@@ -84,7 +84,7 @@ impl Stack {
 #[derive(Clone, Debug)]
 pub struct Frame {
     /// The function called on this frame
-    pub func: Rc<Func>,
+    pub func: FnRef,
     /// The block being executed
     pub block: Option<BlockRef>,
     /// The index of instruction in this block being executed
@@ -178,7 +178,7 @@ impl Type {
             Type::Ptr(_) => size_of::<Reg>(),
             Type::Array { elem, len } => elem.size() * *len,
             Type::Struct { field } => field.iter().map(|f| f.size()).fold(0, Add::add),
-            Type::Fn { param: _, ret: _ } => size_of::<Rc<Func>>(),
+            Type::Fn { param: _, ret: _ } => size_of::<Rc<Fn>>(),
             Type::Alias(_) => self.orig().size(),
         }
     }

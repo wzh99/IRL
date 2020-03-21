@@ -2,8 +2,8 @@ use std::cell::RefCell;
 use std::io::{Error, Write};
 use std::ops::Deref;
 
-use crate::lang::func::{BlockRef, Func};
-use crate::lang::instr::{Instr, InstrRef};
+use crate::lang::func::{BlockRef, Fn};
+use crate::lang::instr::{Inst, InstRef};
 use crate::lang::Program;
 use crate::lang::value::{GlobalVar, Symbol, Type, Typed, Value};
 
@@ -60,7 +60,7 @@ impl Printer<'_> {
         writeln!(self.writer, "{};", s)
     }
 
-    pub fn print_fn(&mut self, func: &Func) -> Result<(), Error> {
+    pub fn print_fn(&mut self, func: &Fn) -> Result<(), Error> {
         // Print signature
         let mut s = format!("fn @{}(", func.name);
         let params: Vec<String> = func.param.iter().map(|s| {
@@ -91,14 +91,14 @@ impl Printer<'_> {
         Ok(())
     }
 
-    fn print_instr(&mut self, instr: &InstrRef) -> Result<(), Error> {
+    fn print_instr(&mut self, instr: &InstRef) -> Result<(), Error> {
         let s = match instr.deref() {
-            Instr::Mov { src, dst } =>
+            Inst::Mov { src, dst } =>
                 format!("{} <- mov {} {}", fmt_val!(dst), fmt_ty!(dst), fmt_val!(src)),
-            Instr::Un { op, opd, dst } =>
+            Inst::Un { op, opd, dst } =>
                 format!("{} <- {} {} {}", fmt_val!(dst), op.to_string(), fmt_ty!(dst),
                         fmt_val!(opd)),
-            Instr::Bin { op, fst, snd, dst } => {
+            Inst::Bin { op, fst, snd, dst } => {
                 let opd_ty = if op.is_cmp() {
                     fst.borrow().get_type()
                 } else {
@@ -107,7 +107,7 @@ impl Printer<'_> {
                 format!("{} <- {} {} {}, {}", fmt_val!(dst), op.to_string(), opd_ty.to_string(),
                         fmt_val!(fst), fmt_val!(snd))
             }
-            Instr::Call { func, arg, dst } => {
+            Inst::Call { func, arg, dst } => {
                 let ty = if let Type::Void = func.ret { "".to_string() } else {
                     func.ret.to_string() + " "
                 };
@@ -115,21 +115,21 @@ impl Printer<'_> {
                 dst.as_ref().map(|dst| s = format!("{} <- ", fmt_val!(dst)) + s.as_str());
                 s
             }
-            Instr::Phi { src, dst } =>
+            Inst::Phi { src, dst } =>
                 format!("{} <- phi {} {}", fmt_val!(dst), fmt_ty!(dst), self.fmt_phi_list(src)),
-            Instr::Ret { val } => {
+            Inst::Ret { val } => {
                 let mut s = "ret".to_string();
                 val.as_ref().map(|v| s += format!(" {}", fmt_val!(v)).as_str());
                 s
             }
-            Instr::Jmp { tgt } => format!("jmp %{}", tgt.borrow().name),
-            Instr::Br { cond, tr, fls } =>
+            Inst::Jmp { tgt } => format!("jmp %{}", tgt.borrow().name),
+            Inst::Br { cond, tr, fls } =>
                 format!("br {} ? %{} : %{}", fmt_val!(cond), tr.borrow().name, fls.borrow().name),
-            Instr::Alloc { dst } => {
+            Inst::Alloc { dst } => {
                 let dst_ty = dst.borrow().get_type();
                 format!("{} <- alloc {}", fmt_val!(dst), dst_ty.tgt_type().to_string())
             }
-            Instr::New { dst, len } => {
+            Inst::New { dst, len } => {
                 let dst_ty = dst.borrow().get_type();
                 let len = match len {
                     Some(len) => format!("[{}]", fmt_val!(len)),
@@ -137,7 +137,7 @@ impl Printer<'_> {
                 };
                 format!("{} <- new {}{}", fmt_val!(dst), len, dst_ty.tgt_type().to_string())
             }
-            Instr::Ptr { base, off, ind, dst } => {
+            Inst::Ptr { base, off, ind, dst } => {
                 let mut s = format!("{} <- ptr {} {}", fmt_val!(dst), fmt_ty!(dst),
                                     fmt_val!(base));
                 off.as_ref().map(|off| s += format!(", {}", fmt_val!(off)).as_str());
@@ -146,9 +146,9 @@ impl Printer<'_> {
                 }
                 s
             }
-            Instr::Ld { ptr, dst } =>
+            Inst::Ld { ptr, dst } =>
                 format!("{} <- ld {} {}", fmt_val!(dst), fmt_ty!(dst), fmt_val!(ptr)),
-            Instr::St { src, ptr } =>
+            Inst::St { src, ptr } =>
                 format!("st {} {} -> {}", fmt_ty!(src), fmt_val!(src), fmt_val!(ptr))
         };
 
@@ -173,9 +173,9 @@ impl Printer<'_> {
 
 #[test]
 fn test_print() {
-    use crate::compile::build::Builder;
-    use crate::compile::lex::Lexer;
-    use crate::compile::parse::Parser;
+    use crate::irc::build::Builder;
+    use crate::irc::lex::Lexer;
+    use crate::irc::parse::Parser;
     use std::fs::File;
     use std::io::{Read, stdout};
     use std::convert::TryFrom;

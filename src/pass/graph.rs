@@ -3,8 +3,8 @@ use std::collections::HashMap;
 use std::fmt::{Debug, Error, Formatter};
 use std::ops::Deref;
 
-use crate::lang::func::{BlockListener, BlockRef, Func};
-use crate::lang::instr::{Instr, InstrRef, PhiSrc};
+use crate::lang::func::{BlockListener, BlockRef, Fn};
+use crate::lang::instr::{Inst, InstRef, PhiSrc};
 use crate::lang::ssa::InstrListener;
 use crate::lang::util::ExtRc;
 use crate::lang::value::{Const, Symbol, SymbolRef, Type, Typed, Value};
@@ -19,7 +19,7 @@ pub struct SsaVert {
     pub uses: RefCell<Vec<VertRef>>,
     /// Instruction that defines this value in the CFG
     /// This field maybe `None` if the this vertex does not have a corresponding instruction.
-    pub instr: RefCell<Option<(BlockRef, InstrRef)>>,
+    pub instr: RefCell<Option<(BlockRef, InstRef)>>,
     /// Local variable that this vertex corresponds to
     pub sym: RefCell<Option<SymbolRef>>,
 }
@@ -34,7 +34,7 @@ impl Typed for SsaVert {
 }
 
 impl SsaVert {
-    pub fn new(tag: VertTag, instr: Option<(BlockRef, InstrRef)>) -> SsaVert {
+    pub fn new(tag: VertTag, instr: Option<(BlockRef, InstRef)>) -> SsaVert {
         SsaVert {
             tag,
             opd: RefCell::new(vec![]),
@@ -162,7 +162,7 @@ impl GraphBuilder {
 }
 
 impl BlockListener for GraphBuilder {
-    fn on_begin(&mut self, func: &Func) {
+    fn on_begin(&mut self, func: &Fn) {
         // Create vertices for parameters
         func.param.iter().for_each(|param| {
             let param = param.borrow().clone();
@@ -180,7 +180,7 @@ impl BlockListener for GraphBuilder {
         InstrListener::on_begin(self, func)
     }
 
-    fn on_end(&mut self, _: &Func) {}
+    fn on_end(&mut self, _: &Fn) {}
 
     fn on_enter(&mut self, block: BlockRef) {
         self.block = Some(block.clone());
@@ -195,31 +195,31 @@ impl BlockListener for GraphBuilder {
 }
 
 impl InstrListener for GraphBuilder {
-    fn on_instr(&mut self, instr: InstrRef) {
+    fn on_instr(&mut self, instr: InstRef) {
         let def = (self.block.clone().unwrap(), instr.clone());
         match instr.deref() {
             // Create vertex for phi destination if it has not been created, since it may be used
             // in following instructions.
-            Instr::Phi { src, dst } => {
+            Inst::Phi { src, dst } => {
                 let vert = self.graph.find(dst.borrow().deref())
                     .unwrap_or_else(|| self.build_phi(src, dst));
                 vert.instr.replace(Some(def.clone()));
                 vert.sym.replace(Some(dst.clone().borrow().clone()));
             }
-            Instr::Mov { src, dst } => self.build_move(src, dst),
-            Instr::Un { op, opd, dst } => {
+            Inst::Mov { src, dst } => self.build_move(src, dst),
+            Inst::Un { op, opd, dst } => {
                 let opd = self.get_src_vert(opd);
                 let dst = self.get_dst_vert(dst, op.to_string(), Some(def));
                 dst.add_opd(opd);
             }
-            Instr::Bin { op, fst, snd, dst } => {
+            Inst::Bin { op, fst, snd, dst } => {
                 let fst = self.get_src_vert(fst);
                 let snd = self.get_src_vert(snd);
                 let dst = self.get_dst_vert(dst, op.to_string(), Some(def));
                 dst.add_opd(fst);
                 dst.add_opd(snd);
             }
-            Instr::Call { func, arg, dst } => {
+            Inst::Call { func, arg, dst } => {
                 // Function returns are not SSA value. Because a function may modify global
                 // variables, and it may return different values even with the same parameters.
                 let dst_vert = ExtRc::new(SsaVert::new(
@@ -232,7 +232,7 @@ impl InstrListener for GraphBuilder {
                     dst_vert.add_opd(a);
                 }
             }
-            Instr::Ret { val } => {
+            Inst::Ret { val } => {
                 let vert = ExtRc::new(SsaVert::new(
                     VertTag::Consume("ret".to_string()),
                     Some(def),
@@ -243,8 +243,8 @@ impl InstrListener for GraphBuilder {
                 });
                 self.graph.add(vert, None);
             }
-            Instr::Jmp { tgt: _ } => {} // nothing to do
-            Instr::Br { cond, tr: _, fls: _ } => {
+            Inst::Jmp { tgt: _ } => {} // nothing to do
+            Inst::Br { cond, tr: _, fls: _ } => {
                 let vert = ExtRc::new(SsaVert::new(
                     VertTag::Consume("br".to_string()),
                     Some(def),
@@ -253,14 +253,14 @@ impl InstrListener for GraphBuilder {
                 vert.add_opd(cond);
                 self.graph.add(vert, None);
             }
-            Instr::Alloc { dst } => {
+            Inst::Alloc { dst } => {
                 let vert = ExtRc::new(SsaVert::new(
                     VertTag::Cell(dst.borrow().name().to_string()),
                     Some(def),
                 ));
                 self.graph.add(vert, Some(dst.borrow().clone()));
             }
-            Instr::New { dst, len } => {
+            Inst::New { dst, len } => {
                 let vert = ExtRc::new(SsaVert::new(
                     VertTag::Cell(dst.borrow().name().to_string()),
                     Some(def),
@@ -271,9 +271,9 @@ impl InstrListener for GraphBuilder {
                 });
                 self.graph.add(vert, Some(dst.borrow().clone()));
             }
-            Instr::Ptr { base, off, ind, dst } =>
+            Inst::Ptr { base, off, ind, dst } =>
                 self.build_ptr(base, off, ind, dst, def),
-            Instr::Ld { ptr, dst } => {
+            Inst::Ld { ptr, dst } => {
                 let ptr = self.get_src_vert(ptr);
                 let vert = ExtRc::new(SsaVert::new(
                     VertTag::Cell(dst.borrow().name().to_string()),
@@ -282,7 +282,7 @@ impl InstrListener for GraphBuilder {
                 vert.add_opd(ptr.clone());
                 self.graph.add(vert, Some(dst.borrow().clone()))
             }
-            Instr::St { src, ptr } => {
+            Inst::St { src, ptr } => {
                 let vert = ExtRc::new(SsaVert::new(
                     VertTag::Consume("st".to_string()),
                     Some(def),
@@ -296,18 +296,18 @@ impl InstrListener for GraphBuilder {
         }
     }
 
-    fn on_succ_phi(&mut self, this: Option<BlockRef>, instr: InstrRef) {
+    fn on_succ_phi(&mut self, this: Option<BlockRef>, instr: InstRef) {
         // Create vertex for destination, if not created before.
         let dst = instr.dst().unwrap();
         let dst_vert = self.graph.find(&dst.borrow().deref()).unwrap_or_else(|| {
-            if let Instr::Phi { src, dst: _ } = instr.deref() {
+            if let Inst::Phi { src, dst: _ } = instr.deref() {
                 self.build_phi(src, dst)
             } else { unreachable!() }
         });
 
         // Find corresponding position of current block in phi sources, replace placeholder with
         // real vertex.
-        if let Instr::Phi { src, dst: _ } = instr.deref() {
+        if let Inst::Phi { src, dst: _ } = instr.deref() {
             let idx = src.iter().position(|(pred, _)| *pred == this).unwrap();
             let val = &src.get(idx).unwrap().1;
             let src_vert = self.get_src_vert(val);
@@ -340,7 +340,7 @@ impl GraphBuilder {
 
     /// Build graph from ptr instruction
     fn build_ptr(&mut self, base: &RefCell<Value>, off: &Option<RefCell<Value>>,
-                 ind: &Vec<RefCell<Value>>, dst: &RefCell<SymbolRef>, def: (BlockRef, InstrRef))
+                 ind: &Vec<RefCell<Value>>, dst: &RefCell<SymbolRef>, def: (BlockRef, InstRef))
     {
         let dst = self.get_dst_vert(dst, "ptr".to_string(), Some(def));
         let base = self.get_src_vert(base);
@@ -414,7 +414,7 @@ impl GraphBuilder {
 
     /// Create destination vertex with given symbol.
     fn get_dst_vert(&mut self, sym: &RefCell<SymbolRef>, op: String,
-                    def: Option<(BlockRef, InstrRef)>) -> VertRef
+                    def: Option<(BlockRef, InstRef)>) -> VertRef
     {
         match sym.borrow().as_ref() {
             // For local variable, create variable vertex with given operation name.

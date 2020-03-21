@@ -4,8 +4,8 @@ use std::collections::{HashMap, HashSet};
 use std::rc::Rc;
 use std::str::FromStr;
 
-use crate::lang::func::{BlockRef, Func};
-use crate::lang::instr::{BinOp, Instr};
+use crate::lang::func::{BlockRef, FnRef};
+use crate::lang::instr::{BinOp, Inst};
 use crate::lang::Program;
 use crate::lang::util::ExtRc;
 use crate::lang::value::{Const, Scope, SymbolGen, Typed, Value};
@@ -14,7 +14,7 @@ use crate::pass::graph::{GraphBuilder, SsaGraph, SsaVert, VertRef, VertTag};
 
 pub struct OsrOpt {
     /// Reference to current function
-    func: Option<Rc<Func>>,
+    func: Option<FnRef>,
     /// SSA graph forms the base of this algorithm
     graph: SsaGraph,
     /// Reverse post-order number of blocks
@@ -56,7 +56,7 @@ impl Pass for OsrOpt {
 }
 
 impl FnPass for OsrOpt {
-    fn run_on_fn(&mut self, func: &Rc<Func>) {
+    fn run_on_fn(&mut self, func: &FnRef) {
         // Set function-related members
         self.func = Some(func.clone());
         self.gen = SymbolGen::new("t", func.scope.clone());
@@ -261,7 +261,7 @@ impl OsrOpt {
             let (blk, instr) = iv.instr.borrow().as_ref().unwrap().clone();
             let new_instr = ExtRc::new(if rc.get_type().is_ptr() && !instr.is_phi() {
                 // Pointer operation should be treated differently
-                Instr::Ptr {
+                Inst::Ptr {
                     base: RefCell::new(Self::val_from_vert(rc)),
                     off: Some(RefCell::new(Self::val_from_vert(iv))),
                     ind: vec![],
@@ -399,7 +399,7 @@ impl OsrOpt {
                 let fst_val = Self::val_from_vert(fst);
                 let snd_val = Self::val_from_vert(snd);
                 let ref dst_ty = op.res_type(&fst_val.get_type()).unwrap();
-                let instr = ExtRc::new(Instr::Bin {
+                let instr = ExtRc::new(Inst::Bin {
                     op,
                     fst: RefCell::new(fst_val),
                     snd: RefCell::new(snd_val),
@@ -432,7 +432,7 @@ impl OsrOpt {
         match &off.tag {
             // Insert just move instruction if the offset is zero
             VertTag::Const(Const::I64(0)) => {
-                let instr = ExtRc::new(Instr::Mov {
+                let instr = ExtRc::new(Inst::Mov {
                     src: RefCell::new(ptr_val),
                     dst: RefCell::new(dst_sym),
                 });
@@ -443,7 +443,7 @@ impl OsrOpt {
             // Create new pointer instruction
             _ => {
                 let off_val = Self::val_from_vert(off);
-                let instr = ExtRc::new(Instr::Ptr {
+                let instr = ExtRc::new(Inst::Ptr {
                     base: RefCell::new(ptr_val),
                     off: Some(RefCell::new(off_val)),
                     ind: vec![],
@@ -518,9 +518,9 @@ impl OsrOpt {
 
 #[test]
 fn test_osr() {
-    use crate::compile::lex::Lexer;
-    use crate::compile::parse::Parser;
-    use crate::compile::build::Builder;
+    use crate::irc::lex::Lexer;
+    use crate::irc::parse::Parser;
+    use crate::irc::build::Builder;
     use crate::lang::print::Printer;
     use crate::vm::exec::Machine;
 

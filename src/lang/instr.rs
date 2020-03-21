@@ -1,14 +1,13 @@
 use std::cell::RefCell;
 use std::fmt::{Debug, Error, Formatter};
-use std::rc::Rc;
 use std::str::FromStr;
 
-use crate::lang::func::{BlockRef, Func};
+use crate::lang::func::{BlockRef, FnRef};
 use crate::lang::util::ExtRc;
 use crate::lang::value::{Const, Symbol, SymbolRef, Type, Value};
 
 #[derive(Clone, Debug)]
-pub enum Instr {
+pub enum Inst {
     /// Move (copy) data from one virtual register to another
     Mov { src: RefCell<Value>, dst: RefCell<SymbolRef> },
     /// Unary operations
@@ -16,7 +15,7 @@ pub enum Instr {
     /// Binary operations
     Bin { op: BinOp, fst: RefCell<Value>, snd: RefCell<Value>, dst: RefCell<SymbolRef> },
     /// Procedure call
-    Call { func: Rc<Func>, arg: Vec<RefCell<Value>>, dst: Option<RefCell<SymbolRef>> },
+    Call { func: FnRef, arg: Vec<RefCell<Value>>, dst: Option<RefCell<SymbolRef>> },
     /// Return computation results, or `None` if return type is `Void`.
     Ret { val: Option<RefCell<Value>> },
     /// Jump to another basic block
@@ -54,31 +53,31 @@ pub enum Instr {
 
 pub type PhiSrc = (Option<BlockRef>, RefCell<Value>);
 
-pub type InstrRef = ExtRc<Instr>;
+pub type InstRef = ExtRc<Inst>;
 
-impl Debug for InstrRef {
+impl Debug for InstRef {
     fn fmt(&self, f: &mut Formatter<'_>) -> Result<(), Error> {
         write!(f, "{}", self.0.name())
     }
 }
 
-impl Instr {
+impl Inst {
     /// Get instruction name
     pub fn name(&self) -> String {
         match self {
-            Instr::Mov { src: _, dst: _ } => "mov".to_string(),
-            Instr::Un { op, opd: _, dst: _ } => op.to_string(),
-            Instr::Bin { op, fst: _, snd: _, dst: _ } => op.to_string(),
-            Instr::Jmp { tgt: _ } => "jmp".to_string(),
-            Instr::Br { cond: _, tr: _, fls: _ } => "br".to_string(),
-            Instr::Call { func: _, arg: _, dst: _ } => "call".to_string(),
-            Instr::Ret { val: _ } => "ret".to_string(),
-            Instr::Phi { src: _, dst: _ } => "phi".to_string(),
-            Instr::Alloc { dst: _ } => "alloc".to_string(),
-            Instr::New { dst: _, len: _ } => "new".to_string(),
-            Instr::Ptr { base: _, off: _, ind: _, dst: _ } => "ptr".to_string(),
-            Instr::Ld { ptr: _, dst: _ } => "ld".to_string(),
-            Instr::St { src: _, ptr: _ } => "st".to_string(),
+            Inst::Mov { src: _, dst: _ } => "mov".to_string(),
+            Inst::Un { op, opd: _, dst: _ } => op.to_string(),
+            Inst::Bin { op, fst: _, snd: _, dst: _ } => op.to_string(),
+            Inst::Jmp { tgt: _ } => "jmp".to_string(),
+            Inst::Br { cond: _, tr: _, fls: _ } => "br".to_string(),
+            Inst::Call { func: _, arg: _, dst: _ } => "call".to_string(),
+            Inst::Ret { val: _ } => "ret".to_string(),
+            Inst::Phi { src: _, dst: _ } => "phi".to_string(),
+            Inst::Alloc { dst: _ } => "alloc".to_string(),
+            Inst::New { dst: _, len: _ } => "new".to_string(),
+            Inst::Ptr { base: _, off: _, ind: _, dst: _ } => "ptr".to_string(),
+            Inst::Ld { ptr: _, dst: _ } => "ld".to_string(),
+            Inst::St { src: _, ptr: _ } => "st".to_string(),
         }
     }
 
@@ -87,22 +86,22 @@ impl Instr {
     /// Currently, only `jmp`, `br` and `ret`are control flow instructions.
     pub fn is_ctrl(&self) -> bool {
         match self {
-            Instr::Jmp { tgt: _ } | Instr::Br { cond: _, tr: _, fls: _ }
-            | Instr::Ret { val: _ } => true,
+            Inst::Jmp { tgt: _ } | Inst::Br { cond: _, tr: _, fls: _ }
+            | Inst::Ret { val: _ } => true,
             _ => false
         }
     }
 
     pub fn is_ret(&self) -> bool {
         match self {
-            Instr::Ret { val: _ } => true,
+            Inst::Ret { val: _ } => true,
             _ => false
         }
     }
 
     pub fn is_phi(&self) -> bool {
         match self {
-            Instr::Phi { src: _, dst: _ } => true,
+            Inst::Phi { src: _, dst: _ } => true,
             _ => false
         }
     }
@@ -111,18 +110,18 @@ impl Instr {
     /// this instruction.
     pub fn dst(&self) -> Option<&RefCell<SymbolRef>> {
         match self {
-            Instr::Mov { src: _, dst } => Some(dst),
-            Instr::Un { op: _, opd: _, dst } => Some(dst),
-            Instr::Bin { op: _, fst: _, snd: _, dst } => Some(dst),
-            Instr::Call { func: _, arg: _, dst } => dst.as_ref(),
-            Instr::Phi { src: _, dst } => Some(dst),
-            Instr::Jmp { tgt: _ } => None,
-            Instr::Br { cond: _, tr: _, fls: _ } => None,
-            Instr::Ret { val: _ } => None,
-            Instr::Alloc { dst } | Instr::New { dst, len: _ } => Some(dst),
-            Instr::Ptr { base: _, off: _, ind: _, dst } => Some(dst),
-            Instr::Ld { ptr: _, dst } => Some(dst),
-            Instr::St { src: _, ptr: _ } => None,
+            Inst::Mov { src: _, dst } => Some(dst),
+            Inst::Un { op: _, opd: _, dst } => Some(dst),
+            Inst::Bin { op: _, fst: _, snd: _, dst } => Some(dst),
+            Inst::Call { func: _, arg: _, dst } => dst.as_ref(),
+            Inst::Phi { src: _, dst } => Some(dst),
+            Inst::Jmp { tgt: _ } => None,
+            Inst::Br { cond: _, tr: _, fls: _ } => None,
+            Inst::Ret { val: _ } => None,
+            Inst::Alloc { dst } | Inst::New { dst, len: _ } => Some(dst),
+            Inst::Ptr { base: _, off: _, ind: _, dst } => Some(dst),
+            Inst::Ld { ptr: _, dst } => Some(dst),
+            Inst::St { src: _, ptr: _ } => None,
         }
     }
 
@@ -132,30 +131,30 @@ impl Instr {
     /// Return list of all the source operands used by this instruction.
     pub fn src(&self) -> Vec<&RefCell<Value>> {
         match self {
-            Instr::Mov { src, dst: _ } => vec![src],
-            Instr::Un { op: _, opd, dst: _ } => vec![opd],
-            Instr::Bin { op: _, fst, snd, dst: _ } => vec![fst, snd],
-            Instr::Call { func: _, arg, dst: _ } => arg.iter().map(|a| a).collect(),
-            Instr::Phi { src, dst: _ } => src.iter().map(|(_, v)| v).collect(),
-            Instr::Ret { val } => match val {
+            Inst::Mov { src, dst: _ } => vec![src],
+            Inst::Un { op: _, opd, dst: _ } => vec![opd],
+            Inst::Bin { op: _, fst, snd, dst: _ } => vec![fst, snd],
+            Inst::Call { func: _, arg, dst: _ } => arg.iter().map(|a| a).collect(),
+            Inst::Phi { src, dst: _ } => src.iter().map(|(_, v)| v).collect(),
+            Inst::Ret { val } => match val {
                 Some(v) => vec![v],
                 None => vec![]
             }
-            Instr::Jmp { tgt: _ } => vec![],
-            Instr::Br { cond, tr: _, fls: _ } => vec![cond],
-            Instr::Alloc { dst: _ } => vec![],
-            Instr::New { dst: _, len } => match len {
+            Inst::Jmp { tgt: _ } => vec![],
+            Inst::Br { cond, tr: _, fls: _ } => vec![cond],
+            Inst::Alloc { dst: _ } => vec![],
+            Inst::New { dst: _, len } => match len {
                 Some(len) => vec![len],
                 None => vec![]
             }
-            Instr::Ptr { base, off, ind, dst: _ } => {
+            Inst::Ptr { base, off, ind, dst: _ } => {
                 let mut v = vec![base];
                 off.as_ref().map(|off| v.push(off));
                 for i in ind { v.push(i) }
                 v
             }
-            Instr::Ld { ptr, dst: _ } => vec![ptr],
-            Instr::St { src, ptr } => vec![src, ptr]
+            Inst::Ld { ptr, dst: _ } => vec![ptr],
+            Inst::St { src, ptr } => vec![src, ptr]
         }
     }
 
@@ -163,9 +162,9 @@ impl Instr {
     pub fn has_side_effect(&self) -> bool {
         match self {
             // Called function may or may not have side effect, here we assume it has
-            Instr::Call { func: _, arg: _, dst: _ } => true,
+            Inst::Call { func: _, arg: _, dst: _ } => true,
             // Store instruction modifies memory
-            Instr::St { src: _, ptr: _ } => true,
+            Inst::St { src: _, ptr: _ } => true,
             // For other instructions, check if it assigns to global variable
             instr if instr.dst().is_some() => {
                 let sym = instr.dst().unwrap();

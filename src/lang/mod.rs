@@ -1,6 +1,6 @@
 use std::rc::Rc;
 
-use crate::lang::func::Func;
+use crate::lang::func::FnRef;
 use crate::lang::value::{GlobalVarRef, Scope};
 
 pub mod util;
@@ -16,7 +16,7 @@ pub struct Program {
     /// Global variable list
     pub vars: Vec<GlobalVarRef>,
     /// Function list
-    pub func: Vec<Rc<Func>>,
+    pub func: Vec<FnRef>,
     /// Scope for global symbols
     pub global: Rc<Scope>,
 }

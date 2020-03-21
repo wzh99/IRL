@@ -1,9 +1,8 @@
 use std::cell::RefCell;
 use std::collections::{HashMap, HashSet};
-use std::rc::Rc;
 
-use crate::lang::func::{BlockListener, BlockRef, Func};
-use crate::lang::instr::InstrRef;
+use crate::lang::func::{BlockListener, BlockRef, Fn, FnRef};
+use crate::lang::instr::InstRef;
 use crate::lang::Program;
 use crate::lang::ssa::{InstrListener, ValueListener};
 use crate::lang::util::WorkList;
@@ -20,7 +19,7 @@ impl Gvn {
         Gvn { vert_num: Default::default() }
     }
 
-    pub fn number(mut self, func: &Func) -> HashMap<SymbolRef, usize> {
+    pub fn number(mut self, func: &Fn) -> HashMap<SymbolRef, usize> {
         // Build value graph for this function.
         let mut builder = GraphBuilder::new();
         func.walk_dom(&mut builder);
@@ -107,7 +106,7 @@ impl Pass for GvnOpt {
 }
 
 impl FnPass for GvnOpt {
-    fn run_on_fn(&mut self, func: &Rc<Func>) {
+    fn run_on_fn(&mut self, func: &FnRef) {
         // Number values
         let sym_num = Gvn::new().number(func);
 
@@ -139,7 +138,7 @@ struct GvnListener {
     /// Defined symbols stack
     def: Vec<Vec<SymbolRef>>,
     /// Instructions to be eliminated in current block
-    dup: HashSet<InstrRef>,
+    dup: HashSet<InstRef>,
 }
 
 impl GvnListener {
@@ -153,12 +152,12 @@ impl GvnListener {
 }
 
 impl BlockListener for GvnListener {
-    fn on_begin(&mut self, func: &Func) {
+    fn on_begin(&mut self, func: &Fn) {
         self.def.push(func.param.iter().map(|p| p.borrow().clone()).collect());
         InstrListener::on_begin(self, func)
     }
 
-    fn on_end(&mut self, _func: &Func) {}
+    fn on_end(&mut self, _func: &Fn) {}
 
     fn on_enter(&mut self, block: BlockRef) {
         // Replace congruent symbols
@@ -180,17 +179,17 @@ impl BlockListener for GvnListener {
 }
 
 impl InstrListener for GvnListener {
-    fn on_instr(&mut self, instr: InstrRef) {
+    fn on_instr(&mut self, instr: InstRef) {
         ValueListener::on_instr(self, instr)
     }
 
-    fn on_succ_phi(&mut self, this: Option<BlockRef>, instr: InstrRef) {
+    fn on_succ_phi(&mut self, this: Option<BlockRef>, instr: InstRef) {
         ValueListener::on_succ_phi(self, this, instr)
     }
 }
 
 impl ValueListener for GvnListener {
-    fn on_use(&mut self, _instr: InstrRef, opd: &RefCell<Value>) {
+    fn on_use(&mut self, _instr: InstRef, opd: &RefCell<Value>) {
         opd.replace_with(|val| {
             match val {
                 Value::Var(sym) if sym.is_local_var() => {
@@ -201,7 +200,7 @@ impl ValueListener for GvnListener {
         });
     }
 
-    fn on_def(&mut self, instr: InstrRef, def: &RefCell<SymbolRef>) {
+    fn on_def(&mut self, instr: InstRef, def: &RefCell<SymbolRef>) {
         def.replace_with(|sym| {
             match sym {
                 sym if sym.is_local_var() => {
@@ -221,9 +220,9 @@ impl ValueListener for GvnListener {
 
 #[test]
 fn test_gvn() {
-    use crate::compile::lex::Lexer;
-    use crate::compile::parse::Parser;
-    use crate::compile::build::Builder;
+    use crate::irc::lex::Lexer;
+    use crate::irc::parse::Parser;
+    use crate::irc::build::Builder;
     use crate::lang::print::Printer;
     use std::io::stdout;
     use std::fs::File;

@@ -5,7 +5,7 @@ use std::ops::*;
 use std::rc::Rc;
 use std::str::FromStr;
 
-use crate::lang::func::Func;
+use crate::lang::func::FnRef;
 use crate::lang::util::ExtRc;
 
 #[derive(Clone, Eq, Debug)]
@@ -18,7 +18,7 @@ pub enum Type {
     Fn { param: Vec<Type>, ret: Box<Type> },
     /// Pointer type
     Ptr(Box<Type>),
-    /// Array type, whose length should be specified at compile time
+    /// Array type, whose length should be specified at irc time
     Array { elem: Box<Type>, len: usize },
     /// Structure type
     Struct { field: Vec<Type> },
@@ -204,14 +204,14 @@ impl Value {
 pub enum Symbol {
     Local {
         name: String,
-        ty: Type
+        ty: Type,
     },
     Global(GlobalVarRef),
     Type {
         name: String,
         ty: RefCell<Type>,
     },
-    Func(Rc<Func>),
+    Func(FnRef),
 }
 
 pub type SymbolRef = ExtRc<Symbol>;
@@ -380,14 +380,14 @@ impl SymbolGen {
                 ty: ty.clone(),
             });
             self.scope.insert(sym.clone());
-            return sym
+            return sym;
         }
     }
 }
 
-/// A compile-time constant.
+/// A irc-time constant.
 /// Note that `Ord` and `PartialOrd` trait is just for comparing two `Const` objects, not for
-/// evaluating the constants at compile time. To achieve this, use the `eval` associative method
+/// evaluating the constants at irc time. To achieve this, use the `eval` associative method
 /// in operator's implementation.
 #[derive(Ord, PartialOrd, Eq, PartialEq, Copy, Clone, Hash, Debug)]
 pub enum Const {

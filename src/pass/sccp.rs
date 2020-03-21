@@ -1,11 +1,10 @@
 use std::cell::RefCell;
 use std::collections::{HashMap, HashSet};
 use std::ops::Deref;
-use std::rc::Rc;
 
-use crate::lang::func::{BlockRef, Func};
+use crate::lang::func::{BlockRef, FnRef};
 use crate::lang::instr::{BinOp, PhiSrc, UnOp};
-use crate::lang::instr::Instr;
+use crate::lang::instr::Inst;
 use crate::lang::Program;
 use crate::lang::util::{ExtRc, WorkList};
 use crate::lang::value::{Const, Symbol, SymbolRef, Value};
@@ -52,7 +51,7 @@ struct SsaEdge {
 enum LatVal {
     /// Yet-undetermined value
     Top,
-    /// Determined compile-time constant
+    /// Determined irc-time constant
     Const(Const),
     /// Not constant or cannot be determined to be constant
     Bottom,
@@ -82,7 +81,7 @@ impl Pass for SccpOpt {
 }
 
 impl FnPass for SccpOpt {
-    fn run_on_fn(&mut self, func: &Rc<Func>) {
+    fn run_on_fn(&mut self, func: &FnRef) {
         // Create value graph.
         let mut builder = GraphBuilder::new();
         func.walk_dom(&mut builder);
@@ -120,7 +119,7 @@ impl FnPass for SccpOpt {
             block.instr.borrow_mut().retain(|instr| {
                 // Remove constant definition
                 match instr.dst() {
-                    Some(dst) if self.lat_from_sym(dst).is_const() => { return false }
+                    Some(dst) if self.lat_from_sym(dst).is_const() => { return false; }
                     _ => {}
                 }
                 // Possibly replace symbols with constants
@@ -134,7 +133,7 @@ impl FnPass for SccpOpt {
 
             // Remove unreachable blocks
             match block.tail().as_ref() {
-                Instr::Br { cond, tr, fls } => match self.lat_from_val(cond) {
+                Inst::Br { cond, tr, fls } => match self.lat_from_val(cond) {
                     LatVal::Const(Const::I1(c)) => {
                         let (tgt, rm) = if c {
                             (tr.borrow().clone(), fls.borrow().clone())
@@ -142,7 +141,7 @@ impl FnPass for SccpOpt {
                             (fls.borrow().clone(), tr.borrow().clone())
                         };
                         *block.instr.borrow_mut().back_mut().unwrap() = ExtRc::new(
-                            Instr::Jmp { tgt: RefCell::new(tgt) }
+                            Inst::Jmp { tgt: RefCell::new(tgt) }
                         );
                         block.disconnect(&rm);
                     }
@@ -187,13 +186,13 @@ impl SccpOpt {
         self.blk_vis.insert(block.clone());
         for instr in block.instr.borrow().iter() {
             match instr.deref() {
-                Instr::Phi { src, dst } => self.eval_phi(src, dst),
-                Instr::Jmp { tgt } => self.cfg_work.insert(CfgEdge {
+                Inst::Phi { src, dst } => self.eval_phi(src, dst),
+                Inst::Jmp { tgt } => self.cfg_work.insert(CfgEdge {
                     from: Some(block.clone()),
                     to: tgt.borrow().clone(),
                 }),
-                Instr::Br { cond, tr, fls } => self.eval_br(cond, tr, fls, &block),
-                Instr::Ret { val: _ } => return,
+                Inst::Br { cond, tr, fls } => self.eval_br(cond, tr, fls, &block),
+                Inst::Ret { val: _ } => return,
                 instr if instr.is_assign() => self.eval_assign(instr),
                 _ => continue
             }
@@ -211,8 +210,8 @@ impl SccpOpt {
         if !self.blk_vis.contains(&block) { return; }
 
         match instr.deref() {
-            Instr::Phi { src, dst } => self.eval_phi(src, dst),
-            Instr::Br { cond, tr, fls } => self.eval_br(cond, tr, fls, &block),
+            Inst::Phi { src, dst } => self.eval_phi(src, dst),
+            Inst::Br { cond, tr, fls } => self.eval_br(cond, tr, fls, &block),
             instr if instr.is_assign() => self.eval_assign(instr),
             _ => {}
         }
@@ -245,7 +244,7 @@ impl SccpOpt {
         }
     }
 
-    fn eval_assign(&mut self, instr: &Instr) {
+    fn eval_assign(&mut self, instr: &Inst) {
         // Decide whether this instruction should be evaluated.
         let dst = instr.dst().unwrap();
         let prev_lat = self.lat_from_sym(dst);
@@ -253,11 +252,11 @@ impl SccpOpt {
 
         // Propagate constant according to instruction type.
         let new_lat = match instr {
-            Instr::Un { op, opd, dst: _ } => self.eval_un(*op, self.lat_from_val(opd)),
-            Instr::Bin { op, fst, snd, dst: _ } =>
+            Inst::Un { op, opd, dst: _ } => self.eval_un(*op, self.lat_from_val(opd)),
+            Inst::Bin { op, fst, snd, dst: _ } =>
                 self.eval_bin(*op, self.lat_from_val(fst), self.lat_from_val(snd)),
             // Skip move instruction, since their constantness depend on the symbol moved to it.
-            Instr::Mov { src: _, dst: _ } => return,
+            Inst::Mov { src: _, dst: _ } => return,
             // Cannot compute lattice values for other instructions.
             _ => LatVal::Bottom
         };
@@ -343,9 +342,9 @@ impl SccpOpt {
 
 #[test]
 fn test_sccp() {
-    use crate::compile::lex::Lexer;
-    use crate::compile::parse::Parser;
-    use crate::compile::build::Builder;
+    use crate::irc::lex::Lexer;
+    use crate::irc::parse::Parser;
+    use crate::irc::build::Builder;
     use crate::lang::print::Printer;
     use std::io::stdout;
     use std::fs::File;

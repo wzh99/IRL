@@ -3,10 +3,9 @@ use std::collections::{BTreeSet, HashMap};
 use std::hash::{Hash, Hasher};
 use std::iter::FromIterator;
 use std::ops::Deref;
-use std::rc::Rc;
 
-use crate::lang::func::{BlockListener, BlockRef, Func};
-use crate::lang::instr::{BinOp, Instr};
+use crate::lang::func::{BlockListener, BlockRef, Fn, FnRef};
+use crate::lang::instr::{BinOp, Inst};
 use crate::lang::Program;
 use crate::lang::util::{ExtRc, WorkList};
 use crate::lang::value::{Const, SymbolGen, SymbolRef, Type, Typed, Value};
@@ -313,7 +312,7 @@ impl Pass for PreOpt {
 }
 
 impl FnPass for PreOpt {
-    fn run_on_fn(&mut self, func: &Rc<Func>) {
+    fn run_on_fn(&mut self, func: &FnRef) {
         // Make sure the CFG is edge split
         func.split_edge();
 
@@ -456,7 +455,7 @@ impl FnPass for PreOpt {
                             } else { unreachable!() };
                         (block, RefCell::new(Value::Var(sym)))
                     }).collect();
-                    block.push_front(ExtRc::new(Instr::Phi {
+                    block.push_front(ExtRc::new(Inst::Phi {
                         src: phi_src,
                         dst: RefCell::new(dst_sym.clone()),
                     }));
@@ -476,7 +475,7 @@ impl FnPass for PreOpt {
                         let num = self.table.find(&Expr::Temp(dst.clone())).unwrap();
                         let leader = Self::find_leader(&sets[block].avail_out, num).unwrap();
                         if leader != dst.clone() {
-                            *instr = ExtRc::new(Instr::Mov {
+                            *instr = ExtRc::new(Inst::Mov {
                                 src: RefCell::new(Value::Var(leader)),
                                 dst: RefCell::new(dst),
                             })
@@ -519,7 +518,7 @@ impl PreOpt {
 
                 // Insert instruction
                 let dst_sym = gen.gen(&op.res_type(&ty).unwrap());
-                pred.insert_before_ctrl(ExtRc::new(Instr::Bin {
+                pred.insert_before_ctrl(ExtRc::new(Inst::Bin {
                     op,
                     fst: RefCell::new(fst_val),
                     snd: RefCell::new(snd_val),
@@ -562,7 +561,7 @@ impl PreOpt {
 
                 // Insert instruction
                 let dst_sym = gen.gen(&ty);
-                pred.insert_before_ctrl(ExtRc::new(Instr::Ptr {
+                pred.insert_before_ctrl(ExtRc::new(Inst::Ptr {
                     base: RefCell::new(base_val),
                     off: off_val,
                     ind: idx_val,
@@ -600,7 +599,7 @@ impl PreOpt {
         let mut num_map: HashMap<usize, (usize, Expr)> = HashMap::new();
         for instr in succ.instr.borrow().iter() {
             match instr.deref() {
-                Instr::Phi { src, dst } => {
+                Inst::Phi { src, dst } => {
                     let dst_num = self.table.find(&Expr::Temp(dst.borrow().clone())).unwrap();
                     if num_map.contains_key(&dst_num) { continue; }
                     let src_opd = &src.iter().find(|(block, _)| block.as_ref() == Some(&pred))
@@ -738,7 +737,7 @@ struct SetBuilder<'a> {
 }
 
 impl BlockListener for SetBuilder<'_> {
-    fn on_begin(&mut self, func: &Func) {
+    fn on_begin(&mut self, func: &Fn) {
         // Add parameters to value table and available set of entrance
         let ent = func.ent.borrow().clone();
         let avail_in: HashMap<usize, Expr> = func.param.iter().map(|p| {
@@ -752,7 +751,7 @@ impl BlockListener for SetBuilder<'_> {
         self.sets.insert(ent, leader);
     }
 
-    fn on_end(&mut self, _func: &Func) {}
+    fn on_end(&mut self, _func: &Fn) {}
 
     fn on_enter(&mut self, block: BlockRef) {
         // Register this block
@@ -781,12 +780,12 @@ impl BlockListener for SetBuilder<'_> {
 
             // Visit interested instruction
             match instr.deref() {
-                Instr::Phi { src: _, dst: _ } => {
+                Inst::Phi { src: _, dst: _ } => {
                     self.table.add_num(dst_num, dst_expr.clone());
                     Self::try_insert(&mut set!(phi), dst_num, dst);
                     Self::try_insert(&mut set!(avail_out), dst_num, dst_expr);
                 }
-                Instr::Mov { src, dst: _ } => {
+                Inst::Mov { src, dst: _ } => {
                     if !src.borrow().is_global_var() {
                         let (src_num, src_expr) = self.find_src(src);
                         Self::try_insert(&mut set!(expr), src_num, src_expr);
@@ -795,7 +794,7 @@ impl BlockListener for SetBuilder<'_> {
                     Self::try_insert(&mut set!(tmp), dst_num, dst);
                     Self::try_insert(&mut set!(avail_out), dst_num, dst_expr);
                 }
-                Instr::Bin { op, fst, snd, dst: _ } => {
+                Inst::Bin { op, fst, snd, dst: _ } => {
                     // Once global variable appears in either operand, this expression will not be
                     // considered.
                     if !fst.borrow().is_global_var() && !snd.borrow().is_global_var() {
@@ -821,7 +820,7 @@ impl BlockListener for SetBuilder<'_> {
                     Self::try_insert(&mut set!(avail_out), dst_num, dst_expr);
                 }
                 // Only pointer operation with offset and without indices are considered
-                Instr::Ptr { base, off, ind, dst: _ } if ind.len() <= 1 => {
+                Inst::Ptr { base, off, ind, dst: _ } if ind.len() <= 1 => {
                     if base.borrow().is_local_var()
                         && (off.is_none() || !off.as_ref().unwrap().borrow().is_global_var())
                         && (ind.is_empty() || !ind[0].borrow().is_global_var()) {
@@ -908,9 +907,9 @@ impl SetBuilder<'_> {
 
 #[test]
 fn test_pre() {
-    use crate::compile::lex::Lexer;
-    use crate::compile::parse::Parser;
-    use crate::compile::build::Builder;
+    use crate::irc::lex::Lexer;
+    use crate::irc::parse::Parser;
+    use crate::irc::build::Builder;
     use crate::lang::print::Printer;
     use crate::vm::exec::Machine;
     use std::io::stdout;

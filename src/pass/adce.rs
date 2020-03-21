@@ -1,10 +1,9 @@
 use std::cell::RefCell;
 use std::collections::{HashMap, HashSet};
 use std::ops::Deref;
-use std::rc::Rc;
 
-use crate::lang::func::{BlockRef, Func};
-use crate::lang::instr::{Instr, InstrRef};
+use crate::lang::func::{BlockRef, FnRef};
+use crate::lang::instr::{Inst, InstRef};
 use crate::lang::Program;
 use crate::lang::ssa::{DefPos, DefUse};
 use crate::lang::util::{ExtRc, WorkList};
@@ -15,8 +14,8 @@ pub struct AdceOpt {
     rev_df: HashMap<BlockRef, Vec<BlockRef>>,
     def_use: HashMap<SymbolRef, DefUse>,
     blk: HashSet<BlockRef>,
-    instr: HashSet<InstrRef>,
-    work: WorkList<(BlockRef, InstrRef)>,
+    instr: HashSet<InstRef>,
+    work: WorkList<(BlockRef, InstRef)>,
 }
 
 impl Pass for AdceOpt {
@@ -24,7 +23,7 @@ impl Pass for AdceOpt {
 }
 
 impl FnPass for AdceOpt {
-    fn run_on_fn(&mut self, func: &Rc<Func>) {
+    fn run_on_fn(&mut self, func: &FnRef) {
         // Build control dependence graph
         self.rev_df = func.rev_df();
 
@@ -63,7 +62,7 @@ impl FnPass for AdceOpt {
             });
 
             // Deal with conditional branch
-            if let Instr::Br { cond: _, tr, fls } = blk.tail().as_ref() {
+            if let Inst::Br { cond: _, tr, fls } = blk.tail().as_ref() {
                 let mut tgt = vec![tr.borrow().clone(), fls.borrow().clone()];
                 tgt.retain(|blk| self.blk.contains(blk));
                 match tgt.len() {
@@ -72,7 +71,7 @@ impl FnPass for AdceOpt {
                     // Only one is active, modify the control flow in this block.
                     1 => {
                         let succ = tgt[0].clone();
-                        let jmp = ExtRc::new(Instr::Jmp {
+                        let jmp = ExtRc::new(Inst::Jmp {
                             tgt: RefCell::new(succ.clone())
                         });
                         *blk.instr.borrow_mut().back_mut().unwrap() = jmp;
@@ -103,7 +102,7 @@ impl AdceOpt {
         }
     }
 
-    fn mark(&mut self, blk: BlockRef, instr: InstrRef) {
+    fn mark(&mut self, blk: BlockRef, instr: InstRef) {
         // Mark block and instruction
         if self.instr.contains(&instr) { return; }
         self.blk.insert(blk.clone());
@@ -113,7 +112,7 @@ impl AdceOpt {
         self.rev_df.get(&blk).cloned().map(|list| {
             list.iter().for_each(|dep| {
                 let tail = dep.tail();
-                if let Instr::Br { cond: _, tr: _, fls: _ } = tail.deref() {
+                if let Inst::Br { cond: _, tr: _, fls: _ } = tail.deref() {
                     self.work.insert((dep.clone(), tail))
                 }
             })
@@ -136,9 +135,9 @@ impl AdceOpt {
 
 #[test]
 fn test_adce() {
-    use crate::compile::lex::Lexer;
-    use crate::compile::parse::Parser;
-    use crate::compile::build::Builder;
+    use crate::irc::lex::Lexer;
+    use crate::irc::parse::Parser;
+    use crate::irc::build::Builder;
     use crate::lang::print::Printer;
     use std::io::stdout;
     use std::fs::File;

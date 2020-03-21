@@ -1,10 +1,9 @@
 use std::cell::RefCell;
 use std::collections::{HashMap, HashSet};
 use std::ops::Deref;
-use std::rc::Rc;
 
-use crate::lang::func::{BlockListener, BlockRef, Func};
-use crate::lang::instr::{Instr, InstrRef};
+use crate::lang::func::{BlockListener, BlockRef, Fn, FnRef};
+use crate::lang::instr::{Inst, InstRef};
 use crate::lang::Program;
 use crate::lang::ssa::{InstrListener, ValueListener};
 use crate::lang::value::{SymbolRef, Value};
@@ -22,7 +21,7 @@ impl Pass for CopyProp {
 }
 
 impl FnPass for CopyProp {
-    fn run_on_fn(&mut self, func: &Rc<Func>) {
+    fn run_on_fn(&mut self, func: &FnRef) {
         let mut listener = CopyListener {
             map: Default::default(),
             def: vec![],
@@ -35,13 +34,13 @@ impl FnPass for CopyProp {
 struct CopyListener {
     map: HashMap<SymbolRef, Value>,
     def: Vec<Vec<SymbolRef>>,
-    rm: HashSet<InstrRef>,
+    rm: HashSet<InstRef>,
 }
 
 impl BlockListener for CopyListener {
-    fn on_begin(&mut self, _func: &Func) {}
+    fn on_begin(&mut self, _func: &Fn) {}
 
-    fn on_end(&mut self, _func: &Func) {}
+    fn on_end(&mut self, _func: &Fn) {}
 
     fn on_enter(&mut self, block: BlockRef) {
         self.def.push(vec![]);
@@ -63,8 +62,8 @@ impl BlockListener for CopyListener {
 }
 
 impl InstrListener for CopyListener {
-    fn on_instr(&mut self, instr: InstrRef) {
-        if let Instr::Mov { src, dst } = instr.as_ref() {
+    fn on_instr(&mut self, instr: InstRef) {
+        if let Inst::Mov { src, dst } = instr.as_ref() {
             if src.borrow().is_global_var() || dst.borrow().is_global_var() {
                 return; // don't propagate global variable
             }
@@ -81,13 +80,13 @@ impl InstrListener for CopyListener {
         }
     }
 
-    fn on_succ_phi(&mut self, this: Option<BlockRef>, instr: InstrRef) {
+    fn on_succ_phi(&mut self, this: Option<BlockRef>, instr: InstRef) {
         ValueListener::on_succ_phi(self, this, instr)
     }
 }
 
 impl ValueListener for CopyListener {
-    fn on_use(&mut self, _instr: InstrRef, opd: &RefCell<Value>) {
+    fn on_use(&mut self, _instr: InstRef, opd: &RefCell<Value>) {
         opd.replace_with(|opd| {
             match opd {
                 Value::Var(ref sym) if self.map.contains_key(sym) => self.map[sym].clone(),
@@ -96,5 +95,5 @@ impl ValueListener for CopyListener {
         });
     }
 
-    fn on_def(&mut self, _instr: InstrRef, _def: &RefCell<SymbolRef>) {}
+    fn on_def(&mut self, _instr: InstRef, _def: &RefCell<SymbolRef>) {}
 }
