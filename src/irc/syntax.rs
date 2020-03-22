@@ -166,7 +166,7 @@ pub enum Token {
     GlobalId(Loc, String),
     /// Local identifier `/$[A-Za-z0-9._]/`
     LocalId(Loc, String),
-    /// Label `/%[A-Za-z0-9_]+/`
+    /// Label `/%[A-Za-z0-9._]+/`
     Label(Loc, String),
     /// Reserved words `/[A-Za-z_][A-Za-z0-9._]*/`
     Reserved(Loc, String),

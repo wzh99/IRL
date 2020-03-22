@@ -121,7 +121,7 @@ impl Lexer {
                         read_char!();
                         state = NfaState::LabelName
                     }
-                    _ if Self::is_alpha_under(c) => {
+                    _ if Self::is_alpha_mark(c) => {
                         // reserved word
                         read_char!();
                         state = NfaState::ResName
@@ -286,13 +286,13 @@ impl Lexer {
     /// Decide if `c` is a mark
     fn is_mark(c: char) -> bool { c == '_' || c == '.' }
 
-    /// Decide if `c` is ASCII alphanumeric or underline [A-Za-z0-9_]
+    /// Decide if `c` is [A-Za-z0-9._]
     fn is_alpha_num_mark(c: char) -> bool {
         c.is_ascii_alphanumeric() || Self::is_mark(c)
     }
 
-    /// Decide if `c` is ASCII alphabetic or underline [A-Za-z_]
-    fn is_alpha_under(c: char) -> bool {
+    /// Decide if `c` is [A-Za-z._]
+    fn is_alpha_mark(c: char) -> bool {
         c.is_ascii_alphabetic() || Self::is_mark(c)
     }
 }
