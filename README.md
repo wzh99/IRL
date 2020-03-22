@@ -30,6 +30,7 @@ fn @main() {
     ret
 }
 
+[inline, readonly]
 fn @max($a: i64, $b: i64) -> i64 {
 %Begin:
     $c <- ge i64 $a, $b

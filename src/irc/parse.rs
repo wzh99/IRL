@@ -38,6 +38,7 @@ impl Parser {
             let term = match self.peek(0)? {
                 Token::GlobalId(_, _) => self.var_def()?,
                 Token::Reserved(_, k) if &k == "fn" => self.fn_def()?,
+                Token::LeftSquare(_) => self.fn_def()?,
                 Token::Reserved(_, k) if &k == "type" => self.alias_def()?,
                 Token::Eof(_) => break,
                 tok => self.err(vec!["{GlobalId}", "fn", "type", "Eof"], tok)?
@@ -85,13 +86,40 @@ impl Parser {
 
     fn fn_def(&mut self) -> ParseResult {
         let loc = self.loc.clone();
+        let attrib = match self.peek(0)? {
+            Token::LeftSquare(_) => Some(Box::new(self.fn_attrib_list()?)),
+            _ => None
+        };
         match self.consume()? {
             Token::Reserved(_, k) if &k == "fn" => (),
-            kw => return self.err(vec!["fn"], kw)
+            k => return self.err(vec!["fn"], k)
         }
         let sig = self.fn_sig()?; // FnSig
         let body = self.fn_body()?; // FnBody
-        Ok(Term::FnDef { loc, sig: Box::new(sig), body: Box::new(body) })
+        Ok(Term::FnDef { loc, attrib, sig: Box::new(sig), body: Box::new(body) })
+    }
+
+    fn fn_attrib_list(&mut self) -> ParseResult {
+        let loc = self.loc.clone();
+        let left = self.consume()?;
+        check_op!(self, left, "[");
+        let mut list = vec![];
+        loop {
+            match self.peek(0)? {
+                Token::Reserved(_, _) if list.is_empty() => list.push(self.consume()?),
+                Token::Comma(_) if !list.is_empty() => {
+                    self.consume()?;
+                    let r = self.peek(0)?;
+                    if let Token::Reserved(_, _) = r {
+                        list.push(self.consume()?);
+                    } else { return self.err(vec!["{Reserved}"], r); }
+                }
+                _ => break
+            }
+        }
+        let right = self.consume()?;
+        check_op!(self, right, "]");
+        Ok(Term::FnAttribList { loc, list })
     }
 
     fn fn_sig(&mut self) -> ParseResult {

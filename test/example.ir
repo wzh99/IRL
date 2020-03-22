@@ -23,6 +23,7 @@ fn @main() {
 }
 
 // Demonstrate SSA form of function
+[inline, readonly]
 fn @max($a: i64, $b: i64) -> i64 { // post type annotation
 %Begin:
     $c <- ge i64 $a, $b // result type of comparing operator is always `i1`

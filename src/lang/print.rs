@@ -61,6 +61,12 @@ impl Printer<'_> {
     }
 
     pub fn print_fn(&mut self, func: &Fn) -> Result<(), Error> {
+        // Print attributes
+        if func.attrib.len() > 0 {
+            let s: Vec<_> = func.attrib.iter().map(|v| v.to_string()).collect();
+            writeln!(self.writer, "[{}]", s.join(", "))?;
+        }
+
         // Print signature
         let mut s = format!("fn @{}(", func.name);
         let params: Vec<String> = func.param.iter().map(|s| {

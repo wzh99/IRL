@@ -6,7 +6,7 @@ use std::str::FromStr;
 
 use crate::irc::{CompileErr, Loc};
 use crate::irc::syntax::{Term, Token};
-use crate::lang::func::{BasicBlock, BlockRef, Fn, FnRef};
+use crate::lang::func::{BasicBlock, BlockRef, Fn, FnAttrib, FnRef};
 use crate::lang::inst::{BinOp, Inst, PhiSrc, UnOp};
 use crate::lang::Program;
 use crate::lang::ssa::Verifier;
@@ -99,8 +99,8 @@ impl Builder {
                 }
                 // Create signature part for function, while its body are left empty for a later
                 // pass.
-                Term::FnDef { loc, sig, body } => {
-                    let func = ExtRc::new(self.build_fn_sig(sig, &pro.global)?);
+                Term::FnDef { loc, attrib, sig, body } => {
+                    let func = ExtRc::new(self.build_fn_sig(sig, attrib.as_ref(), &pro.global)?);
                     pro.func.push(func.clone());
                     let sym = ExtRc::new(Symbol::Func(func));
                     let added = pro.global.insert(sym.clone());
@@ -138,8 +138,38 @@ impl Builder {
         Ok(GlobalVar { name: name.to_string(), ty, init })
     }
 
-    fn build_fn_sig(&self, term: &Term, global: &Rc<Scope>) -> Result<Fn, CompileErr> {
-        if let Term::FnSig { loc: _, id, param, ret } = term {
+    fn build_fn_sig(&self, sig: &Term, attrib: Option<&Box<Term>>, global: &Rc<Scope>)
+                    -> Result<Fn, CompileErr>
+    {
+        if let Term::FnSig { loc, id, param, ret } = sig {
+            // Build function attributes
+            let attrib = match attrib {
+                Some(term) => if let Term::FnAttribList { loc: _, list } = term.as_ref() {
+                    let mut attrib = vec![];
+                    for a in list {
+                        if let Token::Reserved(l, s) = a {
+                            let a = FnAttrib::from_str(s.as_str()).map_err(|()| {
+                                CompileErr {
+                                    loc: l.clone(),
+                                    msg: format!("invalid function attribute"),
+                                }
+                            })?;
+                            if attrib.contains(&a) {
+                                Err(CompileErr {
+                                    loc: l.clone(),
+                                    msg: format!("duplicated attribute {}", a.to_string()),
+                                })?
+                            }
+                            attrib.push(a);
+                        } else {
+                            unreachable!()
+                        };
+                    }
+                    attrib
+                } else { unreachable!() }
+                None => vec![]
+            };
+
             // Extract function name
             let name = if let Token::GlobalId(_, s) = id {
                 self.trim_tag(s) // trim global tag
@@ -149,6 +179,7 @@ impl Builder {
             let mut plist: Vec<RefCell<SymbolRef>> = Vec::new();
             let scope = Scope::new();
             if let Term::ParamList { loc: _, list } = param.as_ref() {
+                // Process parameters
                 for p in list {
                     if let Term::ParamDef { loc, id: Token::LocalId(_, s), ty } = p {
                         let sym = ExtRc::new(
@@ -174,9 +205,42 @@ impl Builder {
                 None => Type::Void,
             };
 
+            // Check special function
+            self.check_special_fn(name, &plist, &ret, loc)?;
+
             // Return incomplete function object
-            Ok(Fn::new(name.to_string(), scope, plist, ret, BasicBlock::default()))
+            Ok(Fn::new(
+                name.to_string(),
+                scope,
+                attrib,
+                plist,
+                ret,
+                BasicBlock::default())
+            )
         } else { unreachable!() }
+    }
+
+    fn check_special_fn(&self, name: &str, param: &Vec<RefCell<SymbolRef>>, ret: &Type, loc: &Loc)
+                        -> Result<(), CompileErr>
+    {
+        match name {
+            "main" => {
+                if !param.is_empty() {
+                    return Err(CompileErr {
+                        loc: loc.clone(),
+                        msg: format!("expect 0 parameter, got {}", param.len()),
+                    });
+                }
+                if *ret != Type::Void {
+                    return Err(CompileErr {
+                        loc: loc.clone(),
+                        msg: format!("expect void return type, got {}", ret.to_string()),
+                    });
+                }
+            }
+            _ => {}
+        }
+        Ok(())
     }
 
     fn build_body(&self, terms: &Vec<Term>, func: FnRef, global: Rc<Scope>)
@@ -503,6 +567,12 @@ impl Builder {
         if let Term::FnCall { loc, func: Token::GlobalId(_, id), arg } = call {
             // Find function definition from context
             let fn_name = self.trim_tag(id);
+            if fn_name == "main" {
+                Err(CompileErr {
+                    loc: loc.clone(),
+                    msg: format!("cannot call function @main"),
+                })?
+            }
             let fn_sym = ctx.global.find(fn_name).ok_or(
                 CompileErr {
                     loc: loc.clone(),

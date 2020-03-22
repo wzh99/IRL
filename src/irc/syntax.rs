@@ -5,24 +5,24 @@ use crate::irc::Loc;
 #[derive(Clone, Debug)]
 pub enum Term {
     /// Program : ( VarDef | AliasDef | FnDef)* ;
-    /// FIRST = { GlobalId -> VarDef, `fn` -> FnDef, `` }
+    /// FIRST = { GlobalId -> VarDef, { `[`, `fn` } -> FnDef, `type` -> AliasDef, `` }
     /// FOLLOW = { EOF }
     Program { def: Vec<Term> },
 
     /// VarDef : GlobalId ( `<-` Integer )? `:`  TypeDecl `;` ;
     /// FIRST = { GlobalId }
-    /// FOLLOW = { GlobalId, `fn`, `type` }
     VarDef { loc: Loc, id: Token, init: Option<Token>, ty: Box<Term> },
 
-    /// TypeAlias : `type` GlobalId `=` TypeDecl `;` ;
+    /// AliasDef : `type` GlobalId `=` TypeDecl `;` ;
     /// FIRST = { `type` }
-    /// FOLLOW = { GlobalId, `fn`, `type` }
     AliasDef { loc: Loc, id: Token, ty: Box<Term> },
 
-    /// FnDef : `fn` FnSig FnBody ;
-    /// FIRST = { `fn` }
-    /// FOLLOW = { GlobalId, `fn`, `type` }
-    FnDef { loc: Loc, sig: Box<Term>, body: Box<Term> },
+    /// FnDef : FnAttribList ? `fn` FnSig FnBody ;
+    /// FIRST = { `[` -> FnAttribList, `fn` }
+    FnDef { loc: Loc, attrib: Option<Box<Term>>, sig: Box<Term>, body: Box<Term> },
+
+    /// FnAttribList : `[` ( Reserved ( `,` Reserved)* )? `]`
+    FnAttribList { loc: Loc, list: Vec<Token> },
 
     /// FnSig : GlobalId `(` ParamList `)` FnRet? ;
     /// FIRST = { GlobalId }

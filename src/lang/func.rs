@@ -5,6 +5,7 @@ use std::fmt::{Debug, Error, Formatter};
 use std::iter::FromIterator;
 use std::ops::Deref;
 use std::rc::Rc;
+use std::str::FromStr;
 
 use crate::lang::graph::DomBuilder;
 use crate::lang::inst::{Inst, InstRef};
@@ -18,6 +19,8 @@ pub struct Fn {
     pub name: String,
     /// Scope of this function
     pub scope: Rc<Scope>,
+    /// Attribute list
+    pub attrib: Vec<FnAttrib>,
     /// Parameter list
     pub param: Vec<RefCell<SymbolRef>>,
     /// Return type
@@ -57,17 +60,44 @@ impl Debug for FnRef {
 }
 
 impl Fn {
-    pub fn new(name: String, scope: Scope, param: Vec<RefCell<SymbolRef>>, ret: Type,
-               ent: BasicBlock) -> Fn
+    pub fn new(name: String, scope: Scope, attrib: Vec<FnAttrib>, param: Vec<RefCell<SymbolRef>>,
+               ret: Type, ent: BasicBlock) -> Fn
     {
         Fn {
             name,
             scope: Rc::new(scope),
+            attrib,
             param,
             ret,
             ent: RefCell::new(ExtRc::new(ent)),
             exit: RefCell::new(HashSet::new()),
             ssa: SsaFlag::new(),
+        }
+    }
+
+    pub fn has_attrib(&self, attrib: FnAttrib) -> bool { self.attrib.contains(&attrib) }
+}
+
+#[derive(Eq, PartialEq, Copy, Clone, Debug)]
+pub enum FnAttrib {
+    Inline,
+    NoInline,
+    ReadOnly,
+}
+
+impl ToString for FnAttrib {
+    fn to_string(&self) -> String { format!("{:?}", self).to_lowercase() }
+}
+
+impl FromStr for FnAttrib {
+    type Err = ();
+
+    fn from_str(s: &str) -> Result<Self, Self::Err> {
+        match s {
+            "inline" => Ok(FnAttrib::Inline),
+            "noinline" => Ok(FnAttrib::NoInline),
+            "readonly" => Ok(FnAttrib::ReadOnly),
+            _ => Err(())
         }
     }
 }
