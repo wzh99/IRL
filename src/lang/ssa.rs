@@ -30,11 +30,11 @@ pub trait InstListener: DomTreeListener {
         }
 
         // Visit phi instructions in successors
-        for succ in block.succ.borrow().iter() {
-            for instr in succ.instr.borrow().iter() {
+        for succ in block.succ.borrow().clone().into_iter() {
+            for instr in succ.instr.borrow().clone().into_iter() {
                 match instr.deref() {
                     Inst::Phi { src: _, dst: _ } =>
-                        self.on_succ_phi(block.clone(), instr.clone()),
+                        self.on_succ_phi(block.clone(), instr),
                     _ => break // phi instructions must be at front of each block
                 }
             }

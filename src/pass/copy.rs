@@ -1,3 +1,4 @@
+use std::borrow::Borrow;
 use std::cell::RefCell;
 use std::collections::{HashMap, HashSet};
 use std::ops::Deref;
@@ -63,25 +64,39 @@ impl DomTreeListener for CopyListener {
 
 impl InstListener for CopyListener {
     fn on_instr(&mut self, instr: InstRef) {
-        if let Inst::Mov { src, dst } = instr.as_ref() {
-            if src.borrow().is_global_var() || dst.borrow().is_global_var() {
-                return; // don't propagate global variable
+        match instr.as_ref() {
+            // Propagate copy
+            Inst::Mov { src, dst } => {
+                if src.borrow().is_global_var() || dst.borrow().is_global_var() {
+                    return; // don't propagate global variable
+                }
+                match src.borrow().deref() {
+                    Value::Const(_) => self.map.insert(dst.borrow().clone(), src.borrow().clone()),
+                    Value::Var(sym) =>
+                        self.map.insert(dst.borrow().clone(), self.map.get(sym).cloned()
+                            .unwrap_or(Value::Var(sym.clone())))
+                };
+                self.def.last_mut().unwrap().push(dst.borrow().clone());
+                self.rm.insert(instr);
             }
-            match src.borrow().deref() {
-                Value::Const(_) => self.map.insert(dst.borrow().clone(), src.borrow().clone()),
-                Value::Var(sym) =>
-                    self.map.insert(dst.borrow().clone(), self.map.get(sym).cloned()
-                        .unwrap_or(Value::Var(sym.clone())))
-            };
-            self.def.last_mut().unwrap().push(dst.borrow().clone());
-            self.rm.insert(instr);
-        } else {
-            ValueListener::on_instr(self, instr)
+            // Eliminate phi with only one operand
+            Inst::Phi { src, dst } if src.len() == 1 => {
+                let src = src[0].1.borrow().clone();
+                match &src {
+                    Value::Const(_) => self.map.insert(dst.borrow().clone(), src.clone()),
+                    Value::Var(sym) =>
+                        self.map.insert(dst.borrow().clone(), self.map.get(sym).cloned()
+                            .unwrap_or(Value::Var(sym.clone())))
+                };
+                self.def.last_mut().unwrap().push(dst.borrow().clone());
+                self.rm.insert(instr);
+            }
+            _ => ValueListener::on_instr(self, instr)
         }
     }
 
     fn on_succ_phi(&mut self, this: BlockRef, instr: InstRef) {
-        ValueListener::on_succ_phi(self, this, instr)
+        ValueListener::on_succ_phi(self, this, instr.clone())
     }
 }
 

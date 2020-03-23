@@ -10,6 +10,7 @@ use crate::lang::ssa::{DefPos, DefUse};
 use crate::lang::util::{ExtRc, WorkList};
 use crate::lang::value::{SymbolRef, Value};
 use crate::pass::{FnPass, Pass};
+use crate::pass::copy::CopyProp;
 
 pub struct AdceOpt {
     rev_df: HashMap<BlockRef, Vec<BlockRef>>,
@@ -234,6 +235,7 @@ fn test_adce() {
     let builder = Builder::new(tree);
     let mut pro = builder.build().unwrap();
     FnPass::run(&mut AdceOpt::new(), &mut pro);
+    FnPass::run(&mut CopyProp::new(), &mut pro);
 
     let mut out = stdout();
     let mut printer = Printer::new(out.borrow_mut());

@@ -393,24 +393,10 @@ impl Fn {
                     let new_src: Vec<_> = block.pred.borrow().iter().map(|pred| {
                         prev_src.iter().find(|(p, _)| p == pred).unwrap().clone()
                     }).collect();
-                    match new_src.len() {
-                        // Phi predecessor list will not be empty at any time
-                        0 => unreachable!(),
-                        // Replace this instruction with a move
-                        1 => {
-                            *instr = ExtRc::new(Inst::Mov {
-                                src: new_src[0].1.clone(),
-                                dst: dst.clone(),
-                            })
-                        }
-                        // Rebuild phi sources
-                        _ => {
-                            *instr = ExtRc::new(Inst::Phi {
-                                src: new_src,
-                                dst: dst.clone(),
-                            })
-                        }
-                    }
+                    *instr = ExtRc::new(Inst::Phi {
+                        src: new_src,
+                        dst: dst.clone(),
+                    })
                 }
             }); // end for each inst
         }) // end for each block
