@@ -370,6 +370,7 @@ impl SymbolGen {
         }
     }
 
+    /// Generate symbol of given type in fixed name format
     pub fn gen(&mut self, ty: &Type) -> SymbolRef {
         loop {
             let name = format!("{}{}", self.pre, self.num);
@@ -383,11 +384,28 @@ impl SymbolGen {
             return sym;
         }
     }
+
+    /// Generate a renamed symbol of given one.
+    pub fn rename(&mut self, sym: &SymbolRef) -> SymbolRef {
+        let pre = sym.name();
+        let mut i = 0usize;
+        loop {
+            let name = format!("{}_{}", pre, i);
+            i += 1;
+            if self.scope.find(name.as_str()).is_some() { continue; }
+            let sym = ExtRc::new(Symbol::Local {
+                name,
+                ty: sym.get_type(),
+            });
+            self.scope.insert(sym.clone());
+            return sym;
+        }
+    }
 }
 
-/// A irc-time constant.
+/// A compile-time constant.
 /// Note that `Ord` and `PartialOrd` trait is just for comparing two `Const` objects, not for
-/// evaluating the constants at irc time. To achieve this, use the `eval` associative method
+/// evaluating the constants at compile time. To achieve this, use the `eval` associative method
 /// in operator's implementation.
 #[derive(Ord, PartialOrd, Eq, PartialEq, Copy, Clone, Hash, Debug)]
 pub enum Const {

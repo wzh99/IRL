@@ -32,7 +32,7 @@ impl FnPass for AdceOpt {
         self.def_use = f.def_use();
 
         // Mark all instructions that are sure to be active
-        f.iter_dom(|block| {
+        f.iter_dom().for_each(|block| {
             block.for_each(|instr| {
                 match instr.as_ref() {
                     // Mark instructions that are returns or have side effect
@@ -51,7 +51,7 @@ impl FnPass for AdceOpt {
             }
         }
 
-        f.iter_dom(|blk| {
+        f.iter_dom().for_each(|blk| {
             // Remove unmarked instruction
             blk.instr.borrow_mut().retain(|instr| {
                 match instr.as_ref() {

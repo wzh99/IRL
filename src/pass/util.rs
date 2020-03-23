@@ -47,7 +47,7 @@ impl Fn {
     pub fn analyze_loop(&self) -> Vec<LoopNodeRef> {
         // Find all natural loops
         let mut trees = vec![];
-        self.iter_dom(|ref blk| {
+        self.iter_dom().for_each(|ref blk| {
             blk.succ.borrow().iter()
                 .filter(|succ| succ.dominates(blk))
                 .for_each(|header| trees.push(Self::create_natural(blk, header)));
@@ -137,7 +137,7 @@ impl Pass for PtrExp {
 
 impl FnPass for PtrExp {
     fn run_on_fn(&mut self, func: &FnRef) {
-        func.iter_dom(|block| {
+        func.iter_dom().for_each(|block| {
             // Find pointer instruction with indices
             let ptr_list: Vec<InstRef> = block.instr.borrow().iter().filter(|instr| {
                 if let Inst::Ptr { base: _, off: _, ind, dst: _ } = instr.as_ref() {

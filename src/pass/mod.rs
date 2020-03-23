@@ -10,6 +10,7 @@ pub mod licm;
 pub mod osr;
 pub mod adce;
 pub mod copy;
+pub mod inl;
 
 /// Program pass trait
 pub trait Pass {

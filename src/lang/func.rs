@@ -302,7 +302,7 @@ pub struct BlockGen {
 impl BlockGen {
     pub fn new(func: &Fn, pre: &str) -> BlockGen {
         let mut name = HashSet::new();
-        func.iter_dom(|block| { name.insert(block.name.clone()); });
+        func.iter_dom().for_each(|block| { name.insert(block.name.clone()); });
         BlockGen {
             name,
             pre: pre.to_string(),
@@ -310,6 +310,7 @@ impl BlockGen {
         }
     }
 
+    /// Generate a new block with fixed name format.
     pub fn gen(&mut self) -> BlockRef {
         loop {
             let name = format!("{}{}", self.pre, self.count);
@@ -318,13 +319,59 @@ impl BlockGen {
             return ExtRc::new(BasicBlock::new(name));
         }
     }
+
+    /// Generate a new block based on the name of a given block
+    pub fn rename(&mut self, blk: &BlockRef) -> BlockRef {
+        let pre = blk.name.as_str();
+        let mut i = 0usize;
+        loop {
+            let name = format!("{}_{}", pre, i);
+            i += 1;
+            if self.name.contains(&name) { continue; }
+            self.name.insert(name.clone());
+            return ExtRc::new(BasicBlock::new(name));
+        }
+    }
 }
 
 impl Fn {
+    /// Split critical edge in the CFG. A critical edge is an CFG edge that whose predecessor has
+    /// several successors, and whose successor has several predecessors.
+    pub fn split_edge(&self) {
+        let mut blk_gen = BlockGen::new(self, "B");
+        self.iter_dom().for_each(|ref block| {
+            // Decide whether there are any critical edges
+            if block.succ.borrow().len() <= 1 { return; }
+            let to_split: Vec<_> = block.succ.borrow().iter().cloned().filter(|succ| {
+                succ.pred.borrow().len() > 1
+            }).collect();
+
+            // Split edges
+            to_split.iter().for_each(|succ| {
+                // Reconnect edges
+                let mid = blk_gen.gen();
+                mid.push_back(ExtRc::new(Inst::Jmp {
+                    tgt: RefCell::new(succ.clone())
+                }));
+                mid.connect(succ.clone());
+                block.switch_to(&succ, mid.clone());
+
+                // Replace phi source in the split successor
+                succ.instr.borrow_mut().iter_mut().for_each(|instr| {
+                    if let Inst::Phi { src, dst } = instr.as_ref().clone() {
+                        let mut src = src.clone();
+                        src.iter_mut().filter(|(pred, _)| pred == block)
+                            .for_each(|(pred, _)| *pred = mid.clone());
+                        *instr = ExtRc::new(Inst::Phi { src, dst })
+                    }
+                })
+            })
+        });
+        self.build_dom()
+    }
+
     /// Remove unreachable blocks in this function. This is necessary for algorithms that rely
-    /// on predecessors of blocks. This procedure will rebuild phi instructions in blocks. Phi
-    /// reconstruction rely on dominance tree, so if it is not built yet, the reconstruction will
-    /// not be carried out.
+    /// on predecessors of blocks. This procedure will rebuild phi instructions in blocks.
     pub fn remove_unreachable(&self) {
         // Mark all reachable blocks
         let mut marked = HashSet::new();
@@ -340,10 +387,6 @@ impl Fn {
             });
 
             // Rebuild phi instruction of this block
-            if block.parent().is_none() && block.children().is_empty() {
-                // this indicates that the dominator tree is not built yet
-                return;
-            }
             block.instr.borrow_mut().iter_mut().for_each(|instr| {
                 if let Inst::Phi { src, dst } = instr.as_ref() {
                     let prev_src = src.clone();
@@ -369,10 +412,12 @@ impl Fn {
                         }
                     }
                 }
-            });
-        })
+            }); // end for each inst
+        }) // end for each block
     }
+}
 
+impl Fn {
     /// Build dominator tree according to current CFG.
     /// This method is just a wrapper for the generic graph algorithm.
     pub fn build_dom(&self) {
@@ -389,6 +434,29 @@ impl Fn {
             block.parent.replace(Some(dom.clone()));
             dom.child.borrow_mut().push(block);
         }
+    }
+}
+
+pub struct DomIter {
+    stack: Vec<BlockRef>
+}
+
+impl Iterator for DomIter {
+    type Item = BlockRef;
+
+    fn next(&mut self) -> Option<Self::Item> {
+        self.stack.pop().map(|blk| {
+            self.stack.append(&mut blk.child.borrow().clone());
+            blk
+        })
+    }
+}
+
+impl Fn {
+    /// Iterate blocks in dominator tree order.
+/// This provide a simpler interface for procedures that only want to visit each block.
+    pub fn iter_dom(&self) -> DomIter {
+        DomIter { stack: vec![self.ent.borrow().clone()] }
     }
 }
 
@@ -431,55 +499,6 @@ impl Fn {
             listener.on_exit_child(block.clone(), child.clone());
         }
         listener.on_exit(block);
-    }
-
-    /// Iterate blocks in dominator tree order.
-    /// This provide a simpler interface for procedures that only want to visit each block.\
-    pub fn iter_dom<F>(&self, mut f: F) where F: FnMut(BlockRef) {
-        let mut stack = vec![self.ent.borrow().clone()];
-        loop {
-            match stack.pop() {
-                Some(block) => {
-                    block.child.borrow().iter().cloned().for_each(|c| stack.push(c));
-                    f(block)
-                }
-                None => break
-            }
-        }
-    }
-
-    /// Split critical edge in the CFG. A critical edge is an CFG edge that whose predecessor has
-    /// several successors, and whose successor has several predecessors.
-    pub fn split_edge(&self) {
-        let mut blk_gen = BlockGen::new(self, "B");
-        self.iter_dom(|ref block| {
-            // Decide whether there are any critical edges
-            if block.succ.borrow().len() <= 1 { return; }
-            let to_split: Vec<_> = block.succ.borrow().iter().cloned().filter(|succ| {
-                succ.pred.borrow().len() > 1
-            }).collect();
-
-            // Split edges
-            to_split.iter().for_each(|succ| {
-                // Reconnect edges
-                let mid = blk_gen.gen();
-                mid.push_back(ExtRc::new(Inst::Jmp {
-                    tgt: RefCell::new(succ.clone())
-                }));
-                mid.connect(succ.clone());
-                block.switch_to(&succ, mid.clone());
-                // Replace phi source in the split successor
-                succ.instr.borrow_mut().iter_mut().for_each(|instr| {
-                    if let Inst::Phi { src, dst } = instr.as_ref().clone() {
-                        let mut src = src.clone();
-                        src.iter_mut().filter(|(pred, _)| pred == block)
-                            .for_each(|(pred, _)| *pred = mid.clone());
-                        *instr = ExtRc::new(Inst::Phi { src, dst })
-                    }
-                })
-            })
-        });
-        self.build_dom()
     }
 }
 

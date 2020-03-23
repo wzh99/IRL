@@ -590,7 +590,7 @@ impl Fn {
         }
 
         // Remove instruction if it is not marked before
-        self.iter_dom(|block| {
+        self.iter_dom().for_each(|block| {
             block.instr.borrow_mut().retain(|instr| {
                 if marked.contains(instr) {
                     instr.dst().map(|dst| self.scope.remove(&dst.borrow().name()));

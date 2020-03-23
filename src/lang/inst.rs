@@ -2,7 +2,7 @@ use std::cell::RefCell;
 use std::fmt::{Debug, Error, Formatter};
 use std::str::FromStr;
 
-use crate::lang::func::{BlockRef, FnRef};
+use crate::lang::func::{BlockRef, FnAttrib, FnRef};
 use crate::lang::util::ExtRc;
 use crate::lang::value::{Const, Symbol, SymbolRef, Type, Value};
 
@@ -161,14 +161,15 @@ impl Inst {
     /// Decide whether this instruction has side effects
     pub fn has_side_effect(&self) -> bool {
         match self {
-            // Called function may or may not have side effect, here we assume it has
-            Inst::Call { func: _, arg: _, dst: _ } => true,
+            // If called function is not marked `readonly`, it has side effects.
+            Inst::Call { func, arg: _, dst: _ } => !func.has_attrib(FnAttrib::ReadOnly),
             // Store instruction modifies memory
             Inst::St { src: _, ptr: _ } => true,
+            // `new` instruction modifies heap memory
+            Inst::New { dst: _, len: _ } => true,
             // For other instructions, check if it assigns to global variable
             instr if instr.dst().is_some() => {
-                let sym = instr.dst().unwrap();
-                match sym.borrow().as_ref() {
+                match instr.dst().unwrap().borrow().as_ref() {
                     Symbol::Global(_) => true,
                     _ => false
                 }

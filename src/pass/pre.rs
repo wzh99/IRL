@@ -391,7 +391,7 @@ impl FnPass for PreOpt {
         while inserted {
             inserted = false;
             // Traverse dominator tree
-            func.iter_dom(|ref block| {
+            func.iter_dom().for_each(|ref block| {
                 // Inherit created temporaries from dominator
                 new_tmp.insert(block.clone(), HashMap::new());
                 if block.parent().is_none() { return; }
@@ -467,7 +467,7 @@ impl FnPass for PreOpt {
         }
 
         // Eliminate redundant computation
-        func.iter_dom(|ref block| {
+        func.iter_dom().for_each(|ref block| {
             block.instr.borrow_mut().iter_mut().for_each(|instr| {
                 match instr.dst() {
                     Some(dst) if dst.borrow().is_local_var() => {
