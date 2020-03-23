@@ -59,7 +59,7 @@ impl FnPass for OsrOpt {
     fn run_on_fn(&mut self, func: &FnRef) {
         // Set function-related members
         self.func = Some(func.clone());
-        self.gen = SymbolGen::new("t", func.scope.clone());
+        self.gen = SymbolGen::new(func.scope.clone(), "t");
 
         // Create reverse post-order number
         self.rpo = func.rpo().enumerate().map(|(i, b)| (b, i)).collect();
@@ -135,7 +135,7 @@ impl OsrOpt {
             df_num: Default::default(),
             header: Default::default(),
             expr: Default::default(),
-            gen: SymbolGen::new("", Rc::new(Scope::new())),
+            gen: SymbolGen::new(Rc::new(Scope::new()), ""),
             red: Default::default(),
         }
     }
@@ -311,7 +311,7 @@ impl OsrOpt {
                                 None,
                             ));
                             Some(self.apply("add", opd, &zero))
-                        },
+                        }
                         _ => None
                     }).map(|new_opd| {
                         *opd = new_opd.clone();
@@ -378,7 +378,7 @@ impl OsrOpt {
     fn create_vert(&mut self, op: &str, fst: &VertRef, snd: &VertRef) -> VertRef {
         // Create pointer vertex if original operation is a pointer
         if fst.get_type().is_ptr() || snd.get_type().is_ptr() {
-            return self.create_ptr(snd, fst)
+            return self.create_ptr(snd, fst);
         }
 
         let op = BinOp::from_str(op).unwrap();
@@ -482,7 +482,7 @@ impl OsrOpt {
     fn val_from_vert(v: &VertRef) -> Value {
         match &v.tag {
             VertTag::Const(c) => Value::Const(*c),
-            VertTag::Value(_) | VertTag::Param(_) | VertTag::Phi(_) =>
+            VertTag::Value(_) | VertTag::Param(_) | VertTag::Phi(_) | VertTag::Cell(_) =>
                 Value::Var(v.sym.borrow().as_ref().unwrap().clone()),
             _ => panic!("cannot create value from vertex {:?}", v.tag)
         }

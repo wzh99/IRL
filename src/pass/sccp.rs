@@ -116,7 +116,7 @@ impl FnPass for SccpOpt {
 
         // Apply code replacement
         func.dfs().for_each(|block| {
-            block.instr.borrow_mut().retain(|instr| {
+            block.inst.borrow_mut().retain(|instr| {
                 // Remove constant definition
                 match instr.dst() {
                     Some(dst) if self.lat_from_sym(dst).is_const() => { return false; }
@@ -140,7 +140,7 @@ impl FnPass for SccpOpt {
                         } else {
                             (fls.borrow().clone(), tr.borrow().clone())
                         };
-                        *block.instr.borrow_mut().back_mut().unwrap() = ExtRc::new(
+                        *block.inst.borrow_mut().back_mut().unwrap() = ExtRc::new(
                             Inst::Jmp { tgt: RefCell::new(tgt) }
                         );
                         block.disconnect(&rm);
@@ -184,7 +184,7 @@ impl SccpOpt {
         // Visit all instructions in this block
         let block = edge.to;
         self.blk_vis.insert(block.clone());
-        for instr in block.instr.borrow().iter() {
+        for instr in block.inst.borrow().iter() {
             match instr.deref() {
                 Inst::Phi { src, dst } => self.eval_phi(src, dst),
                 Inst::Jmp { tgt } => self.cfg_work.insert(CfgEdge {

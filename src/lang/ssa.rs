@@ -25,13 +25,13 @@ pub trait InstListener: DomTreeListener {
 
     fn on_enter(&mut self, block: BlockRef) {
         // Visit instructions
-        for instr in block.instr.borrow().iter().cloned() {
+        for instr in block.inst.borrow().iter().cloned() {
             self.on_instr(instr);
         }
 
         // Visit phi instructions in successors
         for succ in block.succ.borrow().clone().into_iter() {
-            for instr in succ.instr.borrow().clone().into_iter() {
+            for instr in succ.inst.borrow().clone().into_iter() {
                 match instr.deref() {
                     Inst::Phi { src: _, dst: _ } =>
                         self.on_succ_phi(block.clone(), instr),
@@ -68,7 +68,7 @@ pub trait ValueListener: InstListener {
 
     fn on_succ_phi(&mut self, this: BlockRef, instr: InstRef) {
         if let Inst::Phi { src, dst: _ } = instr.deref() {
-            src.iter().filter(|(pred, _)| *pred == this)
+            src.iter().filter(|(pred, _)| pred.borrow().deref() == &this)
                 .for_each(|(_, opd)| self.on_use(instr.clone(), opd))
         }
     }
@@ -111,17 +111,18 @@ impl DomTreeListener for Verifier {
         self.avail.push(vec![]);
 
         // Build predecessor list
-        let req_pred = block.pred.borrow().clone();
+        let req_pred: Vec<_> = block.pred.borrow().clone().into_iter()
+            .map(|b| RefCell::new(b)).collect();
 
         // Check correspondence of phi operands to predecessors
-        for instr in block.instr.borrow().iter() {
+        for instr in block.inst.borrow().iter() {
             match instr.deref() {
                 Inst::Phi { src, dst: _ } => {
-                    let phi_pred: Vec<_> = src.iter().map(|(pred, _)| pred.clone()).collect();
+                    let phi_pred: Vec<_> = src.clone().into_iter().map(|(pred, _)| pred).collect();
                     for pred in &req_pred {
                         if !phi_pred.contains(pred) {
                             self.err.push(format!(
-                                "phi operand not found for {}", pred.name
+                                "phi operand not found for {}", pred.borrow().name
                             ));
                         }
                     }
@@ -232,7 +233,7 @@ impl Fn {
                     // Insert phi instruction for this symbol
                     if ins_phi.get(tgt).unwrap().contains(&sym) { continue; }
                     let src: Vec<PhiSrc> = tgt.pred.borrow().clone().into_iter().map(|pred| {
-                        (pred, RefCell::new(Value::Var(sym.clone())))
+                        (RefCell::new(pred), RefCell::new(Value::Var(sym.clone())))
                     }).collect();
                     tgt.push_front(ExtRc::new(Inst::Phi {
                         src,
@@ -260,7 +261,7 @@ impl Fn {
 
     fn defined_sym(&self, block: &BlockRef) -> HashSet<SymbolRef> {
         let mut def: HashSet<SymbolRef> = HashSet::new();
-        for instr in block.instr.borrow().iter() {
+        for instr in block.inst.borrow().iter() {
             for sym in instr.dst() {
                 match sym.borrow().as_ref() {
                     Symbol::Local { name: _, ty: _ } => {
@@ -422,7 +423,7 @@ pub enum DefPos {
     /// Defined in parameter list
     Param,
     /// Defined in instruction
-    Instr(BlockRef, InstRef),
+    Inst(BlockRef, InstRef),
     /// Serve as placeholder for the symbol whose definition point has not yet been determined
     None,
 }
@@ -488,7 +489,7 @@ impl ValueListener for DefUseBuilder {
         let def = def.borrow().clone();
         if def.is_local_var() {
             self.info.insert(def.clone(), DefUse {
-                def: DefPos::Instr(self.blk.last().unwrap().clone(), instr),
+                def: DefPos::Inst(self.blk.last().unwrap().clone(), instr),
                 uses: vec![],
             });
         }
@@ -502,7 +503,7 @@ impl Fn {
         let mut sym: Vec<SymbolRef> = vec![];
         self.param.iter().for_each(|p| sym.push(p.borrow().clone()));
         self.dfs().for_each(|block| {
-            block.instr.borrow().iter().for_each(|instr| {
+            block.inst.borrow().iter().for_each(|instr| {
                 match instr.dst() {
                     Some(dst) if dst.borrow().is_local_var() => match dst.borrow().deref() {
                         dst if dst.is_local_var() => sym.push(dst.clone()),
@@ -548,7 +549,7 @@ impl Fn {
                 // A circular reference is a pair of symbols that for each symbol, its only use
                 // point is the definition of the other symbol, and the only use point of that
                 // symbol is the one of this symbol.
-                DefPos::Instr(_, instr) if instr.is_phi() && def_use[sym].uses.len() == 1 => {
+                DefPos::Inst(_, instr) if instr.is_phi() && def_use[sym].uses.len() == 1 => {
                     let phi_dst = sym;
                     let other_instr = def_use[phi_dst].uses[0].clone();
                     match other_instr.dst() {
@@ -564,7 +565,7 @@ impl Fn {
                     }
                 }
                 // For any other instruction, remove if it has no uses and it has no side effects.
-                DefPos::Instr(_, instr) if def_use[sym].uses.is_empty()
+                DefPos::Inst(_, instr) if def_use[sym].uses.is_empty()
                     && !instr.has_side_effect() => remove.push(instr),
                 _ => {}
             }
@@ -591,7 +592,7 @@ impl Fn {
 
         // Remove instruction if it is not marked before
         self.iter_dom().for_each(|block| {
-            block.instr.borrow_mut().retain(|instr| {
+            block.inst.borrow_mut().retain(|instr| {
                 if marked.contains(instr) {
                     instr.dst().map(|dst| self.scope.remove(&dst.borrow().name()));
                     false

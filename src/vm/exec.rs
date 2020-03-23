@@ -70,15 +70,16 @@ impl Machine {
         let mut next_blk = func.ent.borrow().clone();
         loop {
             // Assign values to phi destinations
-            for phi in next_blk.instr.borrow().iter() {
+            for phi in next_blk.inst.borrow().iter() {
                 match phi.as_ref() {
                     Inst::Phi { src, dst } => {
-                        let src = &src.iter().find(|(b, _)| b == &frame.borrow().block).unwrap().1;
+                        let src = &src.iter()
+                            .find(|(b, _)| b.borrow().deref() == &frame.borrow().block).unwrap().1;
                         let val = match src.borrow().deref() {
                             Value::Var(sym) => file[sym].clone(),
                             Value::Const(c) => Reg::Val(*c)
                         };
-                        file.insert(dst.borrow().clone(), val);
+                        self.reg_to_dst(val, dst, file)
                     }
                     _ => break
                 }
@@ -87,7 +88,7 @@ impl Machine {
             // Transfer to the new block and execute the remaining instructions
             let cur_blk = next_blk.clone();
             frame.borrow_mut().block = cur_blk.clone();
-            for instr in cur_blk.instr.borrow().iter() {
+            for instr in cur_blk.inst.borrow().iter() {
                 self.count.count(instr.as_ref());
                 match instr.as_ref() {
                     Inst::Phi { src: _, dst: _ } => {}

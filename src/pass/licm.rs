@@ -51,7 +51,7 @@ impl LicmOpt {
         let mut instr_list: HashSet<InstRef> = HashSet::new();
         let level = node.borrow().level_blocks();
         level.iter().for_each(|blk| {
-            blk.instr.borrow().iter().for_each(|instr| { instr_list.insert(instr.clone()); })
+            blk.inst.borrow().iter().for_each(|instr| { instr_list.insert(instr.clone()); })
         });
         let mut work: WorkList<_> = instr_list.clone().into_iter().collect();
 
@@ -98,7 +98,7 @@ impl LicmOpt {
 
         // Remove instruction in their original block
         level.iter().for_each(|blk| {
-            blk.instr.borrow_mut().retain(|instr| !removed.contains(instr))
+            blk.inst.borrow_mut().retain(|instr| !removed.contains(instr))
         })
     }
 
@@ -109,7 +109,7 @@ impl LicmOpt {
             Value::Const(_) => true,
             Value::Var(sym) if sym.is_local_var() => match &def_use[sym].def {
                 DefPos::Param => true,
-                DefPos::Instr(blk, _) => blk.strict_dom(header) || hoist.contains_key(sym),
+                DefPos::Inst(blk, _) => blk.strict_dom(header) || hoist.contains_key(sym),
                 DefPos::None => unreachable!()
             }
             _ => false
@@ -124,7 +124,7 @@ impl LicmOpt {
             Value::Const(_) => ent,
             Value::Var(sym) => match &def_use[sym].def {
                 DefPos::Param => ent,
-                DefPos::Instr(blk, _) => match hoist.get(sym) {
+                DefPos::Inst(blk, _) => match hoist.get(sym) {
                     Some(new_blk) => new_blk.clone(),
                     None => blk.clone()
                 }

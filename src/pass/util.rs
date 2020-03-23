@@ -139,14 +139,14 @@ impl FnPass for PtrExp {
     fn run_on_fn(&mut self, func: &FnRef) {
         func.iter_dom().for_each(|block| {
             // Find pointer instruction with indices
-            let ptr_list: Vec<InstRef> = block.instr.borrow().iter().filter(|instr| {
+            let ptr_list: Vec<InstRef> = block.inst.borrow().iter().filter(|instr| {
                 if let Inst::Ptr { base: _, off: _, ind, dst: _ } = instr.as_ref() {
                     !ind.is_empty()
                 } else { false }
             }).cloned().collect();
 
             // Expand pointer operation
-            let mut gen = SymbolGen::new("t", func.scope.clone());
+            let mut gen = SymbolGen::new(func.scope.clone(), "t");
             ptr_list.into_iter().for_each(|ref ptr| {
                 if let Inst::Ptr { base, off, ind, dst } = ptr.as_ref() {
                     // Extract the base pointer
@@ -216,10 +216,10 @@ impl FnPass for PtrExp {
                     });
 
                     // Insert the expanded instructions to block
-                    let pos = block.instr.borrow().iter().position(|instr| instr == ptr).unwrap();
-                    block.instr.borrow_mut().remove(pos);
+                    let pos = block.inst.borrow().iter().position(|instr| instr == ptr).unwrap();
+                    block.inst.borrow_mut().remove(pos);
                     expand.into_iter().rev().for_each(|instr| {
-                        block.instr.borrow_mut().insert(pos, instr)
+                        block.inst.borrow_mut().insert(pos, instr)
                     })
                 } else { unreachable!() }
             })

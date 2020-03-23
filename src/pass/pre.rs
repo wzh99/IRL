@@ -386,7 +386,7 @@ impl FnPass for PreOpt {
 
         // Hoist expressions to earlier points
         let mut new_tmp: HashMap<BlockRef, HashMap<usize, SymbolRef>> = HashMap::new();
-        let mut gen = SymbolGen::new("t", func.scope.clone());
+        let mut gen = SymbolGen::new(func.scope.clone(), "t");
         let mut inserted = true;
         while inserted {
             inserted = false;
@@ -453,7 +453,7 @@ impl FnPass for PreOpt {
                         let sym = if let Expr::Temp(sym) = avail[&block].clone() {
                             sym
                         } else { unreachable!() };
-                        (block, RefCell::new(Value::Var(sym)))
+                        (RefCell::new(block), RefCell::new(Value::Var(sym)))
                     }).collect();
                     block.push_front(ExtRc::new(Inst::Phi {
                         src: phi_src,
@@ -468,7 +468,7 @@ impl FnPass for PreOpt {
 
         // Eliminate redundant computation
         func.iter_dom().for_each(|ref block| {
-            block.instr.borrow_mut().iter_mut().for_each(|instr| {
+            block.inst.borrow_mut().iter_mut().for_each(|instr| {
                 match instr.dst() {
                     Some(dst) if dst.borrow().is_local_var() => {
                         let dst = dst.borrow().clone();
@@ -597,12 +597,12 @@ impl PreOpt {
     {
         // Build number map for all phi destinations in successor block
         let mut num_map: HashMap<usize, (usize, Expr)> = HashMap::new();
-        for instr in succ.instr.borrow().iter() {
+        for instr in succ.inst.borrow().iter() {
             match instr.deref() {
                 Inst::Phi { src, dst } => {
                     let dst_num = self.table.find(&Expr::Temp(dst.borrow().clone())).unwrap();
                     if num_map.contains_key(&dst_num) { continue; }
-                    let src_opd = &src.iter().find(|(block, _)| *block == pred)
+                    let src_opd = &src.iter().find(|(block, _)| *block.borrow() == pred)
                         .unwrap().1;
                     num_map.insert(dst_num, self.find_value(src_opd));
                 }
@@ -762,7 +762,7 @@ impl DomTreeListener for SetBuilder<'_> {
         }
 
         // Visit instructions
-        block.instr.borrow().iter().for_each(|instr| {
+        block.inst.borrow().iter().for_each(|instr| {
             // Skip those whose results are not stored in local variables
             match instr.dst() {
                 None => return, // this instruction does not produce a value

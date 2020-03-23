@@ -71,9 +71,9 @@ If a function contains one or more phi instructions, it is assumed to be in SSA 
 
 * Each phi instruction has source operands for all predecessors.
 
-## Optimization
+## Passes
 
-Optimizations are implemented as different passes on the program. Most of the optimizations are based on the SSA form, so transformation to that form is mandatory. At present, the following optimizations are supported:
+Transformations of the program is implemented in passes. Most of the passes are based on the SSA form, so prior transformation to that form is mandatory. At present, the following optimizations are supported:
 
 ### Global Value Numbering
 
@@ -107,7 +107,11 @@ Take an aggressive approach to Dead Code Elimination. It only keep instructions 
 
 Replace later uses of copied values with their original ones. Can serve as a subroutine for other optimizations. See [`pass::copy::CopyProp`](src/pass/copy.rs).
 
-Other optimizations will be added to this project successively.
+### Inlining
+
+Replace calls to procedures with copies of their bodies. This transformation can expose more optimization opportunities to later passes. See [`pass::inl::Inliner`](src/pass/inl.rs).
+
+More optimizations will be supported successively.
 
 ## Execution
 

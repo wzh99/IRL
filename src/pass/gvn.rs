@@ -165,7 +165,7 @@ impl DomTreeListener for GvnListener {
         InstListener::on_enter(self, block.clone());
 
         // Clear instructions defining congruent symbols
-        block.instr.borrow_mut().retain(|instr| {
+        block.inst.borrow_mut().retain(|instr| {
             !self.dup.contains(instr)
         });
         self.def.pop();

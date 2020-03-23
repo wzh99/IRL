@@ -10,7 +10,6 @@ use crate::lang::ssa::{DefPos, DefUse};
 use crate::lang::util::{ExtRc, WorkList};
 use crate::lang::value::{SymbolRef, Value};
 use crate::pass::{FnPass, Pass};
-use crate::pass::copy::CopyProp;
 
 pub struct AdceOpt {
     rev_df: HashMap<BlockRef, Vec<BlockRef>>,
@@ -54,7 +53,7 @@ impl FnPass for AdceOpt {
 
         f.iter_dom().for_each(|blk| {
             // Remove unmarked instruction
-            blk.instr.borrow_mut().retain(|instr| {
+            blk.inst.borrow_mut().retain(|instr| {
                 match instr.as_ref() {
                     // Keep all control flow instructions
                     ctrl if ctrl.is_ctrl() => true,
@@ -76,7 +75,7 @@ impl FnPass for AdceOpt {
                         let jmp = ExtRc::new(Inst::Jmp {
                             tgt: RefCell::new(succ.clone())
                         });
-                        *blk.instr.borrow_mut().back_mut().unwrap() = jmp;
+                        *blk.inst.borrow_mut().back_mut().unwrap() = jmp;
                         blk.succ.replace(vec![succ]);
                     }
                     _ => unreachable!()
@@ -125,7 +124,7 @@ impl AdceOpt {
             let src = src.borrow().clone();
             match src {
                 Value::Var(sym) if sym.is_local_var() => {
-                    if let DefPos::Instr(blk, instr) = &self.def_use[&sym].def {
+                    if let DefPos::Inst(blk, instr) = &self.def_use[&sym].def {
                         self.work.insert((blk.clone(), instr.clone()))
                     }
                 }
@@ -222,6 +221,7 @@ fn test_adce() {
     use crate::irc::parse::Parser;
     use crate::irc::build::Builder;
     use crate::lang::print::Printer;
+    use crate::pass::copy::CopyProp;
     use std::io::stdout;
     use std::fs::File;
     use std::convert::TryFrom;

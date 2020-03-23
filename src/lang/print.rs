@@ -91,7 +91,7 @@ impl Printer<'_> {
 
     fn print_block(&mut self, block: &BlockRef) -> Result<(), Error> {
         writeln!(self.writer, "%{}:", block.name)?;
-        for instr in block.instr.borrow().iter() {
+        for instr in block.inst.borrow().iter() {
             self.print_instr(instr)?;
         }
         Ok(())
@@ -169,7 +169,7 @@ impl Printer<'_> {
 
     fn fmt_phi_list(&self, list: &Vec<PhiSrc>) -> String {
         let vec: Vec<String> = list.iter()
-            .map(|(b, v)| format!("[%{}: {}]", b.name, v.borrow().to_string())).collect();
+            .map(|(b, v)| format!("[%{}: {}]", b.borrow().name, v.borrow().to_string())).collect();
         vec.join(" ")
     }
 }

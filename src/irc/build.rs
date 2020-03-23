@@ -346,7 +346,7 @@ impl Builder {
                 let dst = self.create_symbol(dst, &ty, ctx)?;
                 self.build_fn_call(call, Some(dst), ctx)
             }
-            Term::PhiRhs { loc: _, ty, list } => {
+            Term::PhiRhs { loc, ty, list } => {
                 let ty = self.create_type(ty, &ctx.global)?;
                 let dst = self.create_symbol(dst, &ty, ctx)?;
                 if let Term::PhiList { loc: _, list } = list.deref() {
@@ -356,7 +356,7 @@ impl Builder {
                             msg: format!("destination {} is not local variable", dst.name()),
                         });
                     }
-                    self.build_phi_instr(&ty, dst, list, ctx)
+                    self.build_phi_instr(&ty, dst, list, ctx, loc)
                 } else { unreachable!() }
             }
             Term::PtrRhs { loc, ty, opd, idx } => {
@@ -612,14 +612,36 @@ impl Builder {
         } else { unreachable!() }
     }
 
-    fn build_phi_instr(&self, ty: &Type, dst: SymbolRef, list: &Vec<Term>, ctx: &Context)
-        -> Result<Inst, CompileErr>
+    fn build_phi_instr(&self, ty: &Type, dst: SymbolRef, list: &Vec<Term>, ctx: &Context,
+                       loc: &Loc) -> Result<Inst, CompileErr>
     {
+        // Make sure destination is local variable
+        if dst.is_global_var() {
+            return Err(CompileErr {
+                loc: loc.clone(),
+                msg: format!(
+                    "global variable cannot be used as destination of phi instruction",
+                ),
+            });
+        }
+
+        // Build phi source operands
         let mut pairs: Vec<PhiSrc> = Vec::new();
         for t in list {
             if let Term::PhiOpd { loc: _, lab, opd } = t {
+                // Create operand value
                 // the operand may not be defined when reading this instruction
                 let val = self.create_value(ty, opd, ctx)?;
+                if val.is_global_var() {
+                    return Err(CompileErr {
+                        loc: opd.loc(),
+                        msg: format!(
+                            "global variable cannot be used as source of phi instruction"
+                        ),
+                    });
+                }
+
+                // Create predecessor block
                 let block = if let Token::Label(loc, s) = lab {
                     let s = self.trim_tag(s);
                     ctx.labels.get(self.trim_tag(s)).cloned().ok_or(
@@ -629,10 +651,10 @@ impl Builder {
                         }
                     )?
                 } else { unreachable!() };
-                pairs.push((block, RefCell::new(val)));
+                pairs.push((RefCell::new(block), RefCell::new(val)));
             } else { unreachable!() }
         }
-        pairs.sort_by_cached_key(|(blk, _)| blk.name.clone());
+        pairs.sort_by_cached_key(|(blk, _)| blk.borrow().name.clone());
         Ok(Inst::Phi { src: pairs, dst: RefCell::new(dst) })
     }
 
@@ -680,7 +702,7 @@ impl Builder {
     fn build_non_assign(&self, term: &Term, ctx: &Context) -> Result<Inst, CompileErr> {
         match term {
             Term::RetInstr { loc, opd } => {
-                ctx.func.exit.borrow_mut().insert(ctx.block.borrow().clone());
+                ctx.func.exit.borrow_mut().push(ctx.block.borrow().clone());
                 match &ctx.func.ret {
                     Type::Void => if opd.is_none() {
                         Ok(Inst::Ret { val: None })

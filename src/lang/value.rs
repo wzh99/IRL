@@ -311,6 +311,10 @@ pub struct Scope {
     map: RefCell<HashMap<String, SymbolRef>>,
 }
 
+impl Default for Scope {
+    fn default() -> Self { Scope::new() }
+}
+
 impl Scope {
     /// Create a new scope.
     /// If `parent` is `Some(p)`, a function scope with parent pointer `p` will be created.
@@ -362,7 +366,7 @@ pub struct SymbolGen {
 }
 
 impl SymbolGen {
-    pub fn new(pre: &str, scope: Rc<Scope>) -> SymbolGen {
+    pub fn new(scope: Rc<Scope>, pre: &str) -> SymbolGen {
         SymbolGen {
             pre: pre.to_string(),
             num: 0,
@@ -387,10 +391,10 @@ impl SymbolGen {
 
     /// Generate a renamed symbol of given one.
     pub fn rename(&mut self, sym: &SymbolRef) -> SymbolRef {
-        let pre = sym.name();
+        let pre = sym.name().split('.').collect::<Vec<&str>>()[0];
         let mut i = 0usize;
         loop {
-            let name = format!("{}_{}", pre, i);
+            let name = format!("{}.{}", pre, i);
             i += 1;
             if self.scope.find(name.as_str()).is_some() { continue; }
             let sym = ExtRc::new(Symbol::Local {

@@ -51,7 +51,7 @@ pub enum Inst {
     St { src: RefCell<Value>, ptr: RefCell<Value> },
 }
 
-pub type PhiSrc = (BlockRef, RefCell<Value>);
+pub type PhiSrc = (RefCell<BlockRef>, RefCell<Value>);
 
 pub type InstRef = ExtRc<Inst>;
 
@@ -125,9 +125,6 @@ impl Inst {
         }
     }
 
-    /// Decide if this instruction assign to some variable
-    pub fn is_assign(&self) -> bool { self.dst().is_some() }
-
     /// Return list of all the source operands used by this instruction.
     pub fn src(&self) -> Vec<&RefCell<Value>> {
         match self {
@@ -157,6 +154,19 @@ impl Inst {
             Inst::St { src, ptr } => vec![src, ptr]
         }
     }
+
+    /// Return all blocks referenced in this instruction.
+    pub fn blk(&self) -> Vec<&RefCell<BlockRef>> {
+        match self {
+            Inst::Jmp { tgt } => vec![tgt],
+            Inst::Br { cond: _, tr, fls } => vec![tr, fls],
+            Inst::Phi { src, dst: _ } => src.iter().map(|(b, _)| b).collect(),
+            _ => vec![]
+        }
+    }
+
+    /// Decide if this instruction assign to some variable
+    pub fn is_assign(&self) -> bool { self.dst().is_some() }
 
     /// Decide whether this instruction has side effects
     pub fn has_side_effect(&self) -> bool {

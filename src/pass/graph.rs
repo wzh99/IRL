@@ -308,7 +308,7 @@ impl InstListener for GraphBuilder {
         // Find corresponding position of current block in phi sources, replace placeholder with
         // real vertex.
         if let Inst::Phi { src, dst: _ } = instr.deref() {
-            let idx = src.iter().position(|(pred, _)| *pred == this).unwrap();
+            let idx = src.iter().position(|(pred, _)| *pred.borrow() == this).unwrap();
             let val = &src.get(idx).unwrap().1;
             let src_vert = self.get_src_vert(val);
             *dst_vert.opd.borrow_mut().get_mut(idx).unwrap() = src_vert.clone();
@@ -322,7 +322,7 @@ impl GraphBuilder {
     fn build_phi(&mut self, src: &Vec<PhiSrc>, dst: &RefCell<SymbolRef>) -> VertRef
     {
         let dst = dst.borrow().clone();
-        let pred: Vec<_> = src.iter().map(|(pred, _)| pred.clone()).collect();
+        let pred: Vec<_> = src.iter().map(|(pred, _)| pred.borrow().clone()).collect();
         let vert = ExtRc::new(SsaVert::new(
             VertTag::Phi(pred.clone()),
             None,

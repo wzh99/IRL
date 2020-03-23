@@ -28,7 +28,7 @@ pub struct Fn {
     /// Entrance block of this function
     pub ent: RefCell<BlockRef>,
     /// Set of exit blocks of this function
-    pub exit: RefCell<HashSet<BlockRef>>,
+    pub exit: RefCell<Vec<BlockRef>>,
     /// Whether this function is in SSA form.
     /// This tag should only be set by verification and transformation function.
     pub ssa: SsaFlag,
@@ -70,7 +70,7 @@ impl Fn {
             param,
             ret,
             ent: RefCell::new(ExtRc::new(ent)),
-            exit: RefCell::new(HashSet::new()),
+            exit: RefCell::new(Default::default()),
             ssa: SsaFlag::new(),
         }
     }
@@ -107,7 +107,7 @@ pub struct BasicBlock {
     /// Name of this basic block
     pub name: String,
     /// Linked list of all instructions in this block
-    pub instr: RefCell<VecDeque<InstRef>>,
+    pub inst: RefCell<VecDeque<InstRef>>,
     /// Inside a function, the basic blocks form a control flow graph. For each basic block,
     /// it has predecessor and successor sets, depending on the control flow instructions in
     /// the block. `Vec` is actually used here because we want to keep the insertion order of
@@ -154,7 +154,7 @@ impl BasicBlock {
     pub fn new(name: String) -> BasicBlock {
         BasicBlock {
             name,
-            instr: RefCell::new(VecDeque::new()),
+            inst: RefCell::new(VecDeque::new()),
             pred: RefCell::new(vec![]),
             succ: RefCell::new(vec![]),
             parent: RefCell::new(None),
@@ -174,7 +174,7 @@ impl BasicBlock {
 
     /// A basic block is complete iff. it ends with control instructions.
     pub fn is_complete(&self) -> bool {
-        match self.instr.borrow().back() {
+        match self.inst.borrow().back() {
             Some(back) => back.deref().is_ctrl(),
             None => false
         }
@@ -182,47 +182,47 @@ impl BasicBlock {
 
     /// Visit each instruction in this block
     pub fn for_each<F>(&self, f: F) where F: FnMut(InstRef) {
-        self.instr.borrow().iter().cloned().for_each(f)
+        self.inst.borrow().iter().cloned().for_each(f)
     }
 
     /// Push instruction to the front of the instruction list.
     pub fn push_front(&self, ins: InstRef) {
-        self.instr.borrow_mut().push_front(ins)
+        self.inst.borrow_mut().push_front(ins)
     }
 
     /// Push instruction to the back of the instruction list.
     pub fn push_back(&self, ins: InstRef) {
-        self.instr.borrow_mut().push_back(ins)
+        self.inst.borrow_mut().push_back(ins)
     }
 
     /// Get first instruction of this block
     pub fn head(&self) -> InstRef {
-        self.instr.borrow().front().unwrap().clone()
+        self.inst.borrow().front().unwrap().clone()
     }
 
     /// Get last instruction of this block
     pub fn tail(&self) -> InstRef {
-        self.instr.borrow().back().unwrap().clone()
+        self.inst.borrow().back().unwrap().clone()
     }
 
     /// Possibly get the instruction before given one
     pub fn before(&self, instr: &InstRef) -> Option<InstRef> {
-        self.instr.borrow().iter().position(|i| i == instr)
-            .and_then(|idx| self.instr.borrow().get(idx - 1).cloned())
+        self.inst.borrow().iter().position(|i| i == instr)
+            .and_then(|idx| self.inst.borrow().get(idx - 1).cloned())
     }
 
     /// Possibly get the instruction after given one
     pub fn after(&self, instr: &InstRef) -> Option<InstRef> {
-        self.instr.borrow().iter().position(|i| i == instr)
-            .and_then(|idx| self.instr.borrow().get(idx + 1).cloned())
+        self.inst.borrow().iter().position(|i| i == instr)
+            .and_then(|idx| self.inst.borrow().get(idx + 1).cloned())
     }
 
     /// If the tail of the instruction list is a control flow instruction, insert `ins` before
     /// it. Otherwise, push to the back of the list.
     pub fn insert_before_ctrl(&self, instr: InstRef) {
         if self.is_complete() {
-            let idx = self.instr.borrow().len() - 1;
-            self.instr.borrow_mut().insert(idx, instr)
+            let idx = self.inst.borrow().len() - 1;
+            self.inst.borrow_mut().insert(idx, instr)
         } else {
             self.push_back(instr)
         }
@@ -262,7 +262,7 @@ impl BlockRef {
         self.connect(to.clone());
 
         // Modify target in control flow instructions
-        match self.instr.borrow().back().unwrap().as_ref() {
+        match self.inst.borrow().back().unwrap().as_ref() {
             Inst::Jmp { tgt } => { tgt.replace(to.clone()); }
             Inst::Br { cond: _, tr, fls } => {
                 if tr.borrow().deref() == from { tr.replace(to.clone()); }
@@ -322,7 +322,7 @@ impl BlockGen {
 
     /// Generate a new block based on the name of a given block
     pub fn rename(&mut self, blk: &BlockRef) -> BlockRef {
-        let pre = blk.name.as_str();
+        let pre = blk.name.as_str().split('_').collect::<Vec<&str>>()[0];
         let mut i = 0usize;
         loop {
             let name = format!("{}_{}", pre, i);
@@ -357,11 +357,11 @@ impl Fn {
                 block.switch_to(&succ, mid.clone());
 
                 // Replace phi source in the split successor
-                succ.instr.borrow_mut().iter_mut().for_each(|instr| {
+                succ.inst.borrow_mut().iter_mut().for_each(|instr| {
                     if let Inst::Phi { src, dst } = instr.as_ref().clone() {
                         let mut src = src.clone();
-                        src.iter_mut().filter(|(pred, _)| pred == block)
-                            .for_each(|(pred, _)| *pred = mid.clone());
+                        src.iter_mut().filter(|(pred, _)| pred.borrow().deref() == block)
+                            .for_each(|(pred, _)| *pred = RefCell::new(mid.clone()));
                         *instr = ExtRc::new(Inst::Phi { src, dst })
                     }
                 })
@@ -387,11 +387,11 @@ impl Fn {
             });
 
             // Rebuild phi instruction of this block
-            block.instr.borrow_mut().iter_mut().for_each(|instr| {
+            block.inst.borrow_mut().iter_mut().for_each(|instr| {
                 if let Inst::Phi { src, dst } = instr.as_ref() {
                     let prev_src = src.clone();
                     let new_src: Vec<_> = block.pred.borrow().iter().map(|pred| {
-                        prev_src.iter().find(|(p, _)| p == pred).unwrap().clone()
+                        prev_src.iter().find(|(p, _)| p.borrow().deref() == pred).unwrap().clone()
                     }).collect();
                     *instr = ExtRc::new(Inst::Phi {
                         src: new_src,

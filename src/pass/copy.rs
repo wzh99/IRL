@@ -1,6 +1,5 @@
-use std::borrow::Borrow;
 use std::cell::RefCell;
-use std::collections::{HashMap, HashSet};
+use std::collections::HashMap;
 use std::ops::Deref;
 
 use crate::lang::func::{BlockRef, DomTreeListener, Fn, FnRef};
@@ -26,7 +25,6 @@ impl FnPass for CopyProp {
         let mut listener = CopyListener {
             map: Default::default(),
             def: vec![],
-            rm: Default::default(),
         };
         func.walk_dom(&mut listener)
     }
@@ -35,7 +33,6 @@ impl FnPass for CopyProp {
 struct CopyListener {
     map: HashMap<SymbolRef, Value>,
     def: Vec<Vec<SymbolRef>>,
-    rm: HashSet<InstRef>,
 }
 
 impl DomTreeListener for CopyListener {
@@ -46,9 +43,6 @@ impl DomTreeListener for CopyListener {
     fn on_enter(&mut self, block: BlockRef) {
         self.def.push(vec![]);
         InstListener::on_enter(self, block.clone());
-        block.instr.borrow_mut().retain(|instr| {
-            !self.rm.contains(instr)
-        })
     }
 
     fn on_exit(&mut self, _block: BlockRef) {
@@ -67,8 +61,11 @@ impl InstListener for CopyListener {
         match instr.as_ref() {
             // Propagate copy
             Inst::Mov { src, dst } => {
-                if src.borrow().is_global_var() || dst.borrow().is_global_var() {
-                    return; // don't propagate global variable
+                // Don't propagate global variable
+                if src.borrow().is_global_var() { return; }
+                if dst.borrow().is_global_var() { // treat like other instructions
+                    ValueListener::on_instr(self, instr);
+                    return;
                 }
                 match src.borrow().deref() {
                     Value::Const(_) => self.map.insert(dst.borrow().clone(), src.borrow().clone()),
@@ -77,7 +74,6 @@ impl InstListener for CopyListener {
                             .unwrap_or(Value::Var(sym.clone())))
                 };
                 self.def.last_mut().unwrap().push(dst.borrow().clone());
-                self.rm.insert(instr);
             }
             // Eliminate phi with only one operand
             Inst::Phi { src, dst } if src.len() == 1 => {
@@ -89,7 +85,6 @@ impl InstListener for CopyListener {
                             .unwrap_or(Value::Var(sym.clone())))
                 };
                 self.def.last_mut().unwrap().push(dst.borrow().clone());
-                self.rm.insert(instr);
             }
             _ => ValueListener::on_instr(self, instr)
         }
