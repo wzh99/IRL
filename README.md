@@ -63,55 +63,13 @@ The lexer and parser are all written by hand. The lexical and syntactical rules 
 
 After parsing, the memory representation will be constructed, and the semantic correctness will be checked along the way. This process is divided into several passes: the first one deals with type aliases, global variable declarations and function signatures, and the second deal with basic blocks inside each function. 
 
-If a function contains one or more phi instructions, it is assumed to be in SSA form, and another pass is required to verify this assumption. To be in SSA form, the following requirement should be satisfied: 
+If a function has attribute `ssa` or if it contains one or more phi instructions, it is assumed to be in SSA form, and another pass is required to verify this assumption. To be in SSA form, the following requirement should be satisfied: 
 
 * Each local variable should be defined only once in the static program.
 
 * Each local variable is defined before used.
 
 * Each phi instruction has source operands for all predecessors.
-
-## Passes
-
-Transformations of the program is implemented in passes. Most of the passes are based on the SSA form, so prior transformation to that form is mandatory. At present, the following optimizations are supported:
-
-### Global Value Numbering
-
-Detect fully redundant computations by finding congruent variables. See [`pass::gvn::GvnOpt`](src/pass/gvn.rs).
-
-### Sparse Conditional Constant Propagation
-
-Replace later uses of compile-time constants with their corresponding values. It applies this transformation by symbolic execution of the function using both control flow graph and SSA value graph. See [`pass::sccp:SccpOpt`](src/pass/sccp.rs).
-
-### Partial Redundancy Elimination
-
-Place each computation at its optimal position that avoids redundant computation on any path. [GVN-PRE](https://www.cs.purdue.edu/homes/hosking/papers/cc04.pdf) algorithm is adopted, which utilizes GVN as a subroutine to better handle expressions that may not be lexically equivalent. Algebraic simplification is also applied during optimization. See [`pass::pre::PreOpt`](src/pass/pre.rs).
-
-### Loop-Invariant Code Motion
-
-Recognize computations that produce the same value on every iteration of the loop and move them out of loop. See [`pass::licm::LicmOpt`](src/pass/licm.rs).
-
-### Strength Reduction
-
-Reformulate certain costly computations with less costly ones. [OSR](https://www.cs.rice.edu/~keith/EMBED/OSR.pdf) algorithm is adopted. See [`pass::osr::OsrOpt`](src/pass/osr.rs).
-
-### Dead Code Elimination
-
-Conventional mark-sweep algorithm to find instructions that define unused variables. Can serve as a subroutine for other optimizations. It is implemented as a method of [`lang::func::Fn`](src/lang/ssa.rs).
-
-### Aggressive DCE
-
-Take an aggressive approach to Dead Code Elimination. It only keep instructions that contribute to the returned result, and remove the rest. Note that this may alter the runtime behavior of a function. See [`pass::adce::AdceOpt`](src/pass/adce.rs).
-
-### Copy Propagation
-
-Replace later uses of copied values with their original ones. Can serve as a subroutine for other optimizations. See [`pass::copy::CopyProp`](src/pass/copy.rs).
-
-### Inlining
-
-Replace calls to procedures with copies of their bodies. This transformation can expose more optimization opportunities to later passes. See [`pass::inl::Inliner`](src/pass/inl.rs).
-
-More optimizations will be supported successively.
 
 ## Execution
 
@@ -140,3 +98,47 @@ call stack:
 ```
 
 The interpreter prints the error message and unwinds the call stack. We can know from the output that the error occurs at instruction number 4 (0-indexed) of block `%Begin` in function `@main`, when the program tries to store `@g` to pointer `$q`. Since the program only allocates four `i64`s, access to 2 + 2 = 4th element is not accepted.
+
+## Passes
+
+Transformations of the program are implemented in passes. Most of the passes are based on the SSA form, so prior transformation to that form is mandatory. At present, the following passes are provided:
+
+### Global Value Numbering
+
+Detect fully redundant computations by finding congruent variables. See [`pass::gvn::GvnOpt`](src/pass/gvn.rs).
+
+### Sparse Conditional Constant Propagation
+
+Replace later uses of compile-time constants with their corresponding values. It applies this transformation by symbolic execution of the function using both control flow graph and SSA value graph. See [`pass::sccp:SccpOpt`](src/pass/sccp.rs).
+
+### Partial Redundancy Elimination
+
+Place each computation at its optimal position that avoids redundant computation on any path. [GVN-PRE](https://www.cs.purdue.edu/homes/hosking/papers/cc04.pdf) algorithm is adopted, which utilizes GVN as a subroutine to better handle expressions that may not be lexically equivalent. Algebraic simplification is also applied during optimization. See [`pass::pre::PreOpt`](src/pass/pre.rs).
+
+### Loop-Invariant Code Motion
+
+Recognize computations that produce the same value on every iteration of the loop and move them out of loop. See [`pass::licm::LicmOpt`](src/pass/licm.rs).
+
+### Strength Reduction
+
+Reformulate certain costly computations with less costly ones. [OSR](https://www.cs.rice.edu/~keith/EMBED/OSR.pdf) algorithm is adopted. See [`pass::osr::OsrOpt`](src/pass/osr.rs).
+
+### Dead Code Elimination
+
+Conventional mark-sweep algorithm to find instructions that define unused variables. This may serve as a subroutine for other optimizations. It is implemented as a method of [`lang::func::Fn`](src/lang/ssa.rs). Wrapper for this method is in [`pass::util::DceOpt`](src/pass/util.rs).
+
+### Aggressive DCE
+
+Take an aggressive approach to Dead Code Elimination. It only keep instructions that contribute to the returned result, and remove the rest. Note that this may alter the runtime behavior of a function. See [`pass::adce::AdceOpt`](src/pass/adce.rs).
+
+### Copy Propagation
+
+Replace later uses of copied values with their original ones. This may serve as a subroutine for other passes. See [`pass::copy::CopyProp`](src/pass/copy.rs).
+
+### Inlining
+
+Replace calls to procedures with copies of their bodies. This pass can expose optimization opportunities to later passes. See [`pass::inl::Inliner`](src/pass/inl.rs).
+
+### Pointer Operation Expansion
+
+Expand a single `ptr` instruction with several indices to a series of instructions, each containing at most one index. This can expose opportunities especially to loop optimizations. See [`pass::util::PtrExp`](src/pass/util.rs).

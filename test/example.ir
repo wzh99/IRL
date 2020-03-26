@@ -6,6 +6,7 @@ type @Bar = { *i64, *@Foo } // order of definition can be arbitrary
 @g: i64 <- 0 // global variable definition, can be initialized
 
 // Demonstrate the use of memory-related instructions
+[ssa]
 fn @main() {
 %Begin:
     @g <- call i64 @max(1, 2) // no need to annotate type for arguments

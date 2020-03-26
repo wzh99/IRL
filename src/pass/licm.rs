@@ -19,6 +19,9 @@ impl Pass for LicmOpt {
 
 impl FnPass for LicmOpt {
     fn run_on_fn(&mut self, func: &FnRef) {
+        // LICM requires SSA form
+        func.assert_ssa();
+
         // Build loop-nest trees
         let trees = func.analyze_loop();
 

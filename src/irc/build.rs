@@ -268,7 +268,7 @@ impl Builder {
             labels,
             block: RefCell::new(func.ent.borrow().clone()),
         };
-        let mut may_ssa = false; // whether this function is assumed to be in SSA form
+        let mut may_ssa = func.has_attrib(FnAttrib::Ssa);
         for (b, loc, terms) in blocks {
             let mut in_phis = true;
             for t in terms {
@@ -304,6 +304,8 @@ impl Builder {
 
         // Build dominator tree of blocks
         func.build_dom();
+
+        // Verify SSA property if it is assumed to be that
         if may_ssa {
             let mut ver = Verifier::new();
             func.walk_dom(&mut ver);

@@ -163,6 +163,9 @@ impl GraphBuilder {
 
 impl DomTreeListener for GraphBuilder {
     fn on_begin(&mut self, func: &Fn) {
+        // Cannot build SSA graph on non-SSA function
+        func.assert_ssa();
+
         // Create vertices for parameters
         func.param.iter().for_each(|param| {
             let param = param.borrow().clone();

@@ -15,8 +15,19 @@ pub struct SsaFlag(Cell<bool>);
 
 impl SsaFlag {
     pub fn new() -> SsaFlag { SsaFlag(Cell::new(false)) }
+
     pub fn get(&self) -> bool { self.0.get() }
+
     fn set(&self, val: bool) { self.0.set(val) }
+}
+
+impl Fn {
+    /// Assert that current function is in SSA form
+    pub fn assert_ssa(&self) {
+        if !self.ssa.get() {
+            panic!("fn @{} is not in SSA form", self.name)
+        }
+    }
 }
 
 /// Visitor of instructions in SSA program.
@@ -499,16 +510,14 @@ impl ValueListener for DefUseBuilder {
 impl Fn {
     /// Rebuild scope for SSA form function.
     pub fn rebuild_ssa_scope(&self) {
+        self.assert_ssa();
         self.scope.clear();
         let mut sym: Vec<SymbolRef> = vec![];
         self.param.iter().for_each(|p| sym.push(p.borrow().clone()));
         self.dfs().for_each(|block| {
             block.inst.borrow().iter().for_each(|instr| {
                 match instr.dst() {
-                    Some(dst) if dst.borrow().is_local_var() => match dst.borrow().deref() {
-                        dst if dst.is_local_var() => sym.push(dst.clone()),
-                        _ => unreachable!()
-                    }
+                    Some(dst) if dst.borrow().is_local_var() => sym.push(dst.borrow().clone()),
                     _ => {}
                 }
             })
@@ -522,6 +531,7 @@ pub type DefUseMap = HashMap<SymbolRef, DefUse>;
 impl Fn {
     /// Compute define-use information for symbols
     pub fn def_use(&self) -> DefUseMap {
+        self.assert_ssa();
         let mut listener = DefUseBuilder {
             info: HashMap::new(),
             blk: vec![],
@@ -533,6 +543,9 @@ impl Fn {
     /// Dead code elimination
     /// This is placed here, not in `pass` module, because SSA transformation need this procedure.
     pub fn elim_dead_code(&self) {
+        // DCE should be performed on SSA form
+        self.assert_ssa();
+
         // Compute define-use information
         let mut def_use = self.def_use();
 

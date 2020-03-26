@@ -83,6 +83,7 @@ pub enum FnAttrib {
     Inline,
     NoInline,
     ReadOnly,
+    Ssa
 }
 
 impl ToString for FnAttrib {
@@ -97,6 +98,7 @@ impl FromStr for FnAttrib {
             "inline" => Ok(FnAttrib::Inline),
             "noinline" => Ok(FnAttrib::NoInline),
             "readonly" => Ok(FnAttrib::ReadOnly),
+            "ssa" => Ok(FnAttrib::Ssa),
             _ => Err(())
         }
     }

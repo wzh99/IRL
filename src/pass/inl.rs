@@ -7,8 +7,7 @@ use crate::lang::inst::Inst;
 use crate::lang::Program;
 use crate::lang::util::ExtRc;
 use crate::lang::value::{SymbolGen, SymbolRef, Typed, Value};
-use crate::pass::{FnPass, Pass};
-use crate::pass::copy::CopyProp;
+use crate::pass::Pass;
 
 pub struct Inliner {
     /// Functions to be inlined
@@ -34,6 +33,14 @@ pub struct Inliner {
 
 impl Pass for Inliner {
     fn run(&mut self, pro: &mut Program) {
+        // Make sure all functions is in SSA form
+        // Actually, inlining does not rely on SSA property. However, an SSA function may call
+        // a non-SSA function and the SSA property no longer holds. On the other hand, a non-SSA
+        // function may call an SSA function and introduce phi instruction for itself. It will
+        // cause a problem if that no-SSA function is later converted to SSA form.
+        // The safe approach is to ensure all functions are in SSA form.
+        pro.func.iter().for_each(|f| f.assert_ssa());
+
         // Find target for inlining
         self.tgt = pro.func.iter()
             .filter(|f| Self::can_inl(f)).cloned().collect();
@@ -42,6 +49,8 @@ impl Pass for Inliner {
         let tgt: Vec<_> = pro.func.iter()
             .filter(|f| !self.tgt.contains(f)).cloned().collect();
         tgt.iter().for_each(|f| {
+            f.assert_ssa();
+
             // Push this function to nested stack
             self.nested.push(f.clone());
 
@@ -54,10 +63,6 @@ impl Pass for Inliner {
 
             // Rebuild dominator tree
             f.build_dom();
-
-            // Perform simple optimization on inlined code
-            CopyProp::new().run_on_fn(f);
-            f.elim_dead_code();
 
             // Clear records for this function
             self.blk_map.clear();

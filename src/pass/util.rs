@@ -10,6 +10,21 @@ use crate::lang::util::{ExtRc, MutRc};
 use crate::lang::value::{Const, SymbolGen, Type, Typed, Value};
 use crate::pass::{FnPass, Pass};
 
+/// Wrapper for Dead Code Elimination as a separate pass
+pub struct DceOpt {}
+
+impl DceOpt {
+    pub fn new() -> DceOpt { DceOpt {} }
+}
+
+impl Pass for DceOpt {
+    fn run(&mut self, pro: &mut Program) { FnPass::run(self, pro) }
+}
+
+impl FnPass for DceOpt {
+    fn run_on_fn(&mut self, f: &FnRef) { f.elim_dead_code() }
+}
+
 #[derive(Clone, Debug)]
 pub struct LoopNode {
     /// Header of this loop

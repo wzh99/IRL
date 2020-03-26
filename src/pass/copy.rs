@@ -22,6 +22,7 @@ impl Pass for CopyProp {
 
 impl FnPass for CopyProp {
     fn run_on_fn(&mut self, func: &FnRef) {
+        func.assert_ssa();
         let mut listener = CopyListener {
             map: Default::default(),
             def: vec![],

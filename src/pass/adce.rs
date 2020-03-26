@@ -25,6 +25,9 @@ impl Pass for AdceOpt {
 
 impl FnPass for AdceOpt {
     fn run_on_fn(&mut self, f: &FnRef) {
+        // ADCE requires SSA form
+        f.assert_ssa();
+
         // Build control dependence graph
         self.rev_df = Self::rev_df(f);
 
