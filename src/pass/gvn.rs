@@ -1,13 +1,14 @@
 use std::cell::RefCell;
-use std::collections::{HashMap, HashSet};
+use std::collections::HashMap;
+use std::ops::Deref;
 
 use crate::lang::func::{BlockRef, DomTreeListener, Fn, FnRef};
-use crate::lang::inst::InstRef;
+use crate::lang::inst::Inst;
 use crate::lang::Program;
-use crate::lang::ssa::{InstListener, ValueListener};
-use crate::lang::util::WorkList;
+use crate::lang::util::{ExtRc, WorkList};
 use crate::lang::value::{SymbolRef, Value};
 use crate::pass::{FnPass, Pass};
+use crate::pass::copy::CopyProp;
 use crate::pass::graph::{GraphBuilder, VertRef};
 
 pub struct Gvn {
@@ -110,65 +111,69 @@ impl FnPass for GvnOpt {
         // Number values
         let sym_num = Gvn::new().number(func);
 
-        // Build symbol mapping
-        // Here we first gather symbols of different partitions, choose the symbol with 'smallest'
-        // identifier, and then build the actual mapping. A more efficient algorithm may directly
-        // build this mapping, but in that way the transformed code is less readable.
-        // Hash map is used here because the numbers are not continuous, due to existence of non-
-        // variable vertices. Linear vector is not beneficial in this scenario.
-        let mut rep: HashMap<usize, SymbolRef> = HashMap::new();
-        sym_num.iter().for_each(|(sym, num)| {
-            if !rep.contains_key(num) || sym.name() < rep[num].name() {
-                rep.insert(*num, sym.clone());
-            }
-        });
-        let map: HashMap<SymbolRef, SymbolRef> = sym_num.iter().map(|(sym, num)| {
-            (sym.clone(), rep[num].clone())
-        }).collect();
-
         // Perform code replacement
-        let mut listener = GvnListener::new(map);
+        let mut listener = GvnListener::new(sym_num);
         func.walk_dom(&mut listener);
+
+        // Clean code
+        CopyProp::new().run_on_fn(func);
+        func.elim_dead_code()
     }
 }
 
 struct GvnListener {
-    /// Contain symbol mapping
-    map: HashMap<SymbolRef, SymbolRef>,
-    /// Defined symbols stack
-    def: Vec<Vec<SymbolRef>>,
-    /// Instructions to be eliminated in current block
-    dup: HashSet<InstRef>,
+    /// Contain symbol numbers for local variables
+    num: HashMap<SymbolRef, usize>,
+    /// Record available symbol for each value number
+    def: HashMap<usize, SymbolRef>,
+    /// Defined symbol number stack
+    stack: Vec<Vec<usize>>,
 }
 
 impl GvnListener {
-    fn new(map: HashMap<SymbolRef, SymbolRef>) -> GvnListener {
+    fn new(map: HashMap<SymbolRef, usize>) -> GvnListener {
         GvnListener {
-            map,
-            def: vec![],
-            dup: Default::default(),
+            num: map,
+            def: Default::default(),
+            stack: vec![],
         }
     }
 }
 
 impl DomTreeListener for GvnListener {
     fn on_begin(&mut self, func: &Fn) {
-        self.def.push(func.param.iter().map(|p| p.borrow().clone()).collect());
-        InstListener::on_begin(self, func)
+        self.stack.push(func.param.iter().map(|p| self.num[p.borrow().deref()]).collect());
     }
 
     fn on_end(&mut self, _func: &Fn) {}
 
     fn on_enter(&mut self, block: BlockRef) {
-        // Replace congruent symbols
-        self.def.push(vec![]);
-        InstListener::on_enter(self, block.clone());
-
-        // Clear instructions defining congruent symbols
-        block.inst.borrow_mut().retain(|instr| {
-            !self.dup.contains(instr)
+        self.stack.push(vec![]);
+        block.inst.borrow_mut().iter_mut().for_each(|inst| {
+            // Process destination symbol
+            inst.dst().cloned().map(|dst| {
+                let dst = dst.borrow().clone();
+                if dst.is_global_var() { return; }
+                let num = self.num[&dst];
+                match self.def.get(&num).cloned() {
+                    // A symbol of the same value has been defined, this value is fully redundant
+                    Some(rep) => {
+                        *inst = ExtRc::new(Inst::Mov {
+                            src: RefCell::new(Value::Var(rep)),
+                            dst: RefCell::new(dst),
+                        })
+                    }
+                    // This could serve as representative symbol
+                    None => {
+                        self.def.insert(num, dst);
+                        self.stack.last_mut().unwrap().push(num);
+                    }
+                }
+            });
         });
-        self.def.pop();
+        self.stack.pop().unwrap().into_iter().for_each(|num| {
+            self.def.remove(&num);
+        });
     }
 
     fn on_exit(&mut self, _block: BlockRef) {}
@@ -176,46 +181,6 @@ impl DomTreeListener for GvnListener {
     fn on_enter_child(&mut self, _this: BlockRef, _child: BlockRef) {}
 
     fn on_exit_child(&mut self, _this: BlockRef, _child: BlockRef) {}
-}
-
-impl InstListener for GvnListener {
-    fn on_instr(&mut self, instr: InstRef) {
-        ValueListener::on_instr(self, instr)
-    }
-
-    fn on_succ_phi(&mut self, this: BlockRef, instr: InstRef) {
-        ValueListener::on_succ_phi(self, this, instr)
-    }
-}
-
-impl ValueListener for GvnListener {
-    fn on_use(&mut self, _instr: InstRef, opd: &RefCell<Value>) {
-        opd.replace_with(|val| {
-            match val {
-                Value::Var(sym) if sym.is_local_var() => {
-                    Value::Var(self.map.get(sym).unwrap().clone())
-                }
-                _ => val.clone()
-            }
-        });
-    }
-
-    fn on_def(&mut self, instr: InstRef, def: &RefCell<SymbolRef>) {
-        def.replace_with(|sym| {
-            match sym {
-                sym if sym.is_local_var() => {
-                    let rep = &self.map[&sym];
-                    if self.def.iter().any(|frame| frame.contains(rep)) { // fully redundant
-                        self.dup.insert(instr);
-                    } else {
-                        self.def.last_mut().unwrap().push(rep.clone())
-                    }
-                    rep.clone()
-                }
-                _ => sym.clone()
-            }
-        });
-    }
 }
 
 #[test]

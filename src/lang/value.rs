@@ -252,7 +252,6 @@ impl Debug for SymbolRef {
 
 impl Symbol {
     /// Get name of this symbol.
-    /// For local variable, only its name part is extracted
     pub fn name(&self) -> &str {
         match self {
             Symbol::Local { name, ty: _ } => name,

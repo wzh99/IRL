@@ -37,7 +37,7 @@ impl Pass for Inliner {
         // Actually, inlining does not rely on SSA property. However, an SSA function may call
         // a non-SSA function and the SSA property no longer holds. On the other hand, a non-SSA
         // function may call an SSA function and introduce phi instruction for itself. It will
-        // cause a problem if that no-SSA function is later converted to SSA form.
+        // cause a problem if that non-SSA function is later converted to SSA form.
         // The safe approach is to ensure all functions are in SSA form.
         pro.func.iter().for_each(|f| f.assert_ssa());
 
@@ -69,9 +69,6 @@ impl Pass for Inliner {
             self.sym_map.clear();
             self.nested.clear();
         });
-
-        // Remove inlined functions
-        pro.func.retain(|f| !self.tgt.contains(f))
     }
 }
 

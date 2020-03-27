@@ -125,7 +125,7 @@ Reformulate certain costly computations with less costly ones. [OSR](https://www
 
 ### Dead Code Elimination
 
-Conventional mark-sweep algorithm to find instructions that define unused variables. This may serve as a subroutine for other optimizations. It is implemented as a method of [`lang::func::Fn`](src/lang/ssa.rs). Wrapper for this method is in [`pass::util::DceOpt`](src/pass/util.rs).
+Conventional mark-sweep algorithm to find instructions that define unused variables. This may serve as a subroutine for other passes. It is implemented as a method of [`lang::func::Fn`](src/lang/ssa.rs). Wrapper for this method is in [`pass::util::DceOpt`](src/pass/util.rs).
 
 ### Aggressive DCE
 
@@ -137,7 +137,7 @@ Replace later uses of copied values with their original ones. This may serve as 
 
 ### Inlining
 
-Replace calls to procedures with copies of their bodies. This pass can expose optimization opportunities to later passes. See [`pass::inl::Inliner`](src/pass/inl.rs).
+Replace calls to procedures with copies of their bodies. This pass can expose opportunities to later optimizations. See [`pass::inl::Inliner`](src/pass/inl.rs).
 
 ### Pointer Operation Expansion
 

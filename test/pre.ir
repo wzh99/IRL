@@ -33,6 +33,7 @@ fn @test($t1: i32) {
     ret
 }
 
+[ssa]
 fn @main() {
 %B1:
     call @test(0)
